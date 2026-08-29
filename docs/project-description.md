@@ -47,9 +47,9 @@ For project-level kosher simplification, non-kosher foods are absent from the ca
 
 ## Nutrition Targets and Meal Plan Lifecycle
 
-Initial energy and nutrition targets are calculated by deterministic code using a method that will be selected and cited in the later nutrition-research phase. The product does not ask the user to choose an abstract activity-level label; it gathers concrete routine and exercise information used by the selected method.
+Initial energy and nutrition targets are calculated by deterministic code using the cited EER and goal rules in the project's nutrition guidance. The product does not ask the user to choose an abstract activity-level label; it gathers concrete routine and exercise information used by the deterministic PAL-category heuristic.
 
-The product creates one practical daily meal plan intended to repeat rather than a varied weekly schedule. Quantities use understandable units such as grams, eggs, or containers. Relevant meal components may offer two or three interchangeable choices. Deterministic validation checks the plan against the acceptance ranges that will be defined in the nutrition specifications.
+The product creates one practical daily meal plan intended to repeat rather than a varied weekly schedule. Quantities use understandable units such as grams, eggs, or containers. Relevant meal components may offer two or three interchangeable choices. Deterministic validation checks the plan against the energy, protein, age-appropriate AMDR, fiber, catalog, and meal-composition ranges defined in the nutrition guidance.
 
 The plan lifecycle is deliberately small:
 

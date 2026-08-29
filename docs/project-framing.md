@@ -28,7 +28,7 @@ The project is done when all of the following statements are true:
 6. The food-preference stage presents one predefined food catalog as selectable grids grouped by carbohydrate, protein, fat, vegetable, and fruit categories.
 7. The system can calculate initial nutritional targets for one supported goal: **Fat Loss**, **Maintenance**, or **Muscle Gain**.
 8. The system can produce a Draft Meal Plan using only foods approved during food selection and nutritional values stored in the predefined catalog.
-9. The Draft contains practical food quantities and two or three interchangeable choices where appropriate, and its calculated values fall within the acceptance ranges later defined by the project's researched nutrition guidance.
+9. The Draft contains practical food quantities and two or three interchangeable choices where appropriate, and its calculated values fall within the acceptance ranges defined by the project's researched nutrition guidance.
 10. The user can request a supported modification through the conversation and see the Draft change.
 11. The user can approve the Draft and see it become the Active Plan.
 12. The Existing Demo Profile loads with approximately two months of seeded weight measurements and an existing Active Plan.
@@ -37,7 +37,7 @@ The project is done when all of the following statements are true:
 15. When sufficient evidence exists, the AI can use the calculated facts and the relevant nutrition guidance to propose an adjustment.
 16. An adjustment never modifies the Active Plan until the user explicitly approves it; after approval, the updated Active Plan is visibly rendered.
 
-Nutrition formulas, target rates, acceptance ranges, and adjustment thresholds are intentionally not invented in this framing document. They must be established and cited during the later nutrition-research and specification phase.
+Nutrition formulas, target rates, acceptance ranges, and adjustment thresholds are intentionally not repeated in this framing document. They are established and cited in the goal-specific nutrition guidance and incorporated into the product specification.
 
 ## Out of Scope
 

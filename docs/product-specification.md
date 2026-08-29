@@ -1,6 +1,6 @@
 # Product Specification v0.1
 
-Status: Draft; complete as a product-behavior specification, but **not implementation-ready** until the nutrition-research dependencies listed below are resolved and reviewed.
+Status: Review-ready. The nutrition-research dependencies have been resolved in the three cited guidance documents, but implementation remains prohibited until the user reviews these decisions and the remaining pre-implementation documentation gates are complete.
 
 This specification is governed by [Project Framing](project-framing.md), [Project Description](project-description.md), and [Interface Design](interface-design.md). If a future interpretation expands the product beyond those documents, the narrower documented scope wins until the specification is deliberately revised.
 
@@ -32,7 +32,7 @@ When an unforeseen design choice appears, prefer the choice that:
 
 ## Part 2 — Testable Success Criteria
 
-Each criterion must produce a clear pass or fail result. Criteria marked **Research-dependent** cannot pass until the corresponding nutrition specification supplies reviewed values and methods.
+Each criterion must produce a clear pass or fail result. Nutrition criteria use the formulas, ranges, thresholds, and reference fixtures in the three goal-specific guidance documents.
 
 ### Demonstration Boundary
 
@@ -61,11 +61,11 @@ Each criterion must produce a clear pass or fail result. Criteria marked **Resea
 
 ### Targets and Draft Meal Plan
 
-- **SC-17 — Deterministic target calculation (Research-dependent):** Given a completed profile fixture, deterministic code produces the expected initial energy and nutrition targets using the cited method and rules for the profile's goal.
+- **SC-17 — Deterministic target calculation:** Given a completed profile fixture, deterministic code reproduces the applicable EER equation, PAL mapping, goal energy rule, macronutrient targets, fiber minimum, and half-up rounding defined in [Fat Loss](nutrition/fat-loss.md), [Maintenance](nutrition/maintenance.md), or [Muscle Gain](nutrition/muscle-gain.md).
 - **SC-18 — No premature target calculation:** If a required target-calculation input is missing or invalid, no targets or Draft are created and the missing or invalid input is identified.
 - **SC-19 — Catalog and preference compliance:** Every food in a generated Draft references an existing catalog item approved for that profile.
 - **SC-20 — Practical daily plan:** The Draft represents one repeatable day, uses practical quantities and units, and offers two or three interchangeable choices only where specified by the plan structure.
-- **SC-21 — Nutrition acceptance (Research-dependent):** Deterministic recalculation of the Draft falls within every acceptance range defined by the applicable goal's nutrition specification.
+- **SC-21 — Nutrition acceptance:** Deterministic recalculation of the Draft falls within the ±5% energy tolerance, goal-specific protein range, age-appropriate AMDR ranges, fiber minimum, and catalog/meal constraints defined by the applicable nutrition guidance.
 - **SC-22 — Failed validation cannot activate:** A Draft that fails catalog, meal-composition, or nutrition validation is not presented as valid and cannot become Active.
 - **SC-23 — Supported Draft modification:** A supported conversational change creates a new validated Draft rendering while leaving any current Active Plan unchanged.
 - **SC-24 — Explicit activation:** Selecting the dedicated approval action for a valid Draft promotes that exact Draft to Active and renders it with an **Active Plan** label.
@@ -76,8 +76,8 @@ Each criterion must produce a clear pass or fail result. Criteria marked **Resea
 - **SC-26 — Seeded existing state:** Selecting Existing Demo Profile loads one completed structured profile, one Active Plan, and approximately two months of dated seeded weight measurements without requiring historical chat messages.
 - **SC-27 — Weight entry validation:** A valid conversational weight entry is normalized to the supported unit representation, stored exactly once with its date, and rendered in the weight visualization. An invalid entry is not stored or plotted.
 - **SC-28 — Deterministic trend:** For a fixed weight-history fixture, deterministic code returns the expected trend facts and the expected sufficient-evidence result without consulting the AI.
-- **SC-29 — Insufficient evidence (Research-dependent):** When the researched evidence rule is not met, no evidence-based caloric adjustment proposal is created and the Active Plan remains unchanged.
-- **SC-30 — Sufficient evidence proposal (Research-dependent):** When the researched evidence rule is met, the AI receives the structured profile, current Active Plan, deterministic trend facts, and guidance for the fixed goal, and may return only a bounded adjustment proposal.
+- **SC-29 — Insufficient evidence:** When there are fewer than 28 valid unique-date measurements in the most recent 35 days, the measurements span fewer than 28 days, or the Active Plan changed during that span, no evidence-based caloric adjustment proposal is created and the Active Plan remains unchanged.
+- **SC-30 — Sufficient evidence proposal:** When the evidence gate passes, deterministic code calculates the ordinary-least-squares weekly percentage trend, selects the goal-band result, and supplies the AI with one allowed direction and an exact adjustment equal to 5% of Active Plan energy rounded to the nearest 25 kcal and clamped to 100–200 kcal. The AI may return only a catalog-backed proposal within that bound.
 - **SC-31 — Proposal remains Draft:** Rendering an adjustment proposal does not change the Active Plan or label the proposal as active.
 - **SC-32 — Adjustment approval:** Approving a valid adjustment proposal replaces the Active Plan with the validated proposed plan and visibly renders the change.
 - **SC-33 — Adjustment rejection:** Rejecting or ignoring a proposal leaves the Active Plan unchanged.
@@ -121,7 +121,7 @@ Before an implementation prompt is sent:
 
 1. Confirm that this specification is consistent with the framing, description, and interface design.
 2. Complete and cite the three goal-specific nutrition documents.
-3. Replace every Research-dependent rule with a named formula, range, threshold, or bounded decision rule.
+3. Confirm that every nutrition-related criterion traces to a named formula, range, threshold, bounded decision rule, and reference fixture in the three guidance documents.
 4. Have a second review confirm that each success criterion has a true-or-false interpretation.
 5. Commit the approved specification, research, validation plan, and agent context before implementation begins.
 
@@ -192,7 +192,7 @@ Before accepting an implementation turn, inspect the application and dependency/
 
 ## Part 5 — Known Pitfalls
 
-- **Specification gaps disguised as implementation freedom:** Nutrition formulas, goal rates, tolerances, and adjustment bounds are currently unresolved dependencies, not choices for the coding agent.
+- **Research rules treated as implementation suggestions:** The documented EER equations, goal rates, tolerances, evidence gate, and adjustment bounds are specification requirements. A coding agent may not replace them with remembered formulas or preferred fitness conventions.
 - **AI prose instead of structured data:** A fluent response may fail the required contract. Reject it without parsing arbitrary prose into a state-changing action.
 - **Invented nutrition facts or foods:** The model may name unsupported foods or quantities. Resolve every food through the predefined catalog and recalculate totals deterministically.
 - **Premature Draft generation:** Natural conversation can appear complete while required structured fields are missing. The checklist state, not the tone of the conversation, controls readiness.
@@ -209,18 +209,14 @@ Before accepting an implementation turn, inspect the application and dependency/
 - **Open language mistaken for open capability:** The user may request unsupported medical advice, allergens, supplements, new goals, or arbitrary plan actions. Respond within the narrow product boundary without inventing a new command.
 - **Scope language mistaken for medical safety:** The product is a course demonstration for adults and excludes clinical nutrition. Its interface and claims must not present it as medical care or as handling conditions it does not support.
 
-## Nutrition-Research Dependencies Before Implementation
+## Nutrition Rules Incorporated in v0.1
 
-The following items must be defined in cited, goal-specific nutrition documents and then incorporated into this specification before it can be approved for implementation:
+The research phase resolved the previously open nutrition items in:
 
-- the initial energy-estimation method and the exact structured inputs it requires;
-- goal-specific energy adjustment rules for Fat Loss, Maintenance, and Muscle Gain;
-- protein, fat, carbohydrate, fiber, and any other in-scope target rules;
-- acceptable plan tolerances and rounding behavior;
-- goal-specific expected weight-trend ranges;
-- the minimum tracking duration, measurement count, and trend method required for sufficient evidence;
-- bounded adjustment amounts or rules and conditions that forbid an adjustment;
-- catalog data sources, serving-unit normalization, and validation tolerances; and
-- hand-calculated reference fixtures for target, plan-total, trend, and adjustment tests.
+- [Fat Loss Nutrition Guidance](nutrition/fat-loss.md)
+- [Maintenance Nutrition Guidance](nutrition/maintenance.md), including the shared EER, PAL, catalog, trend, and bounded-adjustment methods
+- [Muscle Gain Nutrition Guidance](nutrition/muscle-gain.md)
 
-Until these dependencies are approved, an agent may plan data shapes and interfaces but must not implement, guess, or select the nutrition rules.
+Together they now define the exact structured inputs, 2023 EER equations, deterministic PAL heuristic, goal energy rules, protein targets, AMDR and fiber validation, ±5% plan-energy tolerance, 28-measurement evidence gate, ordinary-least-squares trend, goal-specific weekly rate bands, 5% bounded energy adjustment, catalog source method, serving normalization, and reference arithmetic fixtures.
+
+Remaining pre-implementation conditions are user review of these research decisions, a committed verification plan derived from the gates above, a project context file that constrains the coding agent, and a Git restore point before any implementation turn. Until those conditions are complete, an agent may plan but must not write application code.
