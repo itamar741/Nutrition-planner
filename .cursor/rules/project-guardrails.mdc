@@ -1,0 +1,16 @@
+---
+description: Preserve the verified nutrition-coach scope and state-safety invariants.
+alwaysApply: true
+---
+
+# Project Guardrails
+
+- Read `AGENTS.md` and the linked planning documents before making non-trivial changes.
+- Do not write application code until the user explicitly authorizes implementation.
+- Keep exactly two demo profiles, three fixed goals, one local catalog, and no runtime browsing or arbitrary AI actions.
+- Never alter the documented nutrition formulas, evidence gate, trend bands, or bounded adjustment rules without explicit approval and a documentation update.
+- Keep calculations, catalog validation, weight trends, idempotency, and Draft-to-Active transitions deterministic.
+- Never mutate an Active Plan without explicit approval of the currently displayed valid proposal.
+- Preserve one action per chat turn; reject malformed model output before it affects state.
+- Update the verification plan and evidence when a behavioral requirement changes.
+

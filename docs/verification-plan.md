@@ -1,0 +1,168 @@
+# Verification Plan v0.1
+
+Status: Draft for review; no implementation commands exist yet because application code has not been authorized.
+
+## Purpose
+
+This plan checks the application against the written framing, product specification, interface design, and nutrition guidance. It is deliberately designed before implementation so that the coding agent builds toward named controls rather than inventing its own definition of done.
+
+Verification is a set of complementary checks: tests catch behavior, type checks catch invalid kinds, linters catch dangerous patterns, contract checks validate model output, and review catches a design that is wrong as a whole. A green test suite by itself is not acceptance. The course requires a gate before trust and evidence rather than assertion.
+
+## Scope and Evidence Convention
+
+- The gates below apply to every implementation turn that changes behavior.
+- No change reaches `main` without passing every applicable automated gate and a human acceptance review.
+- A future implementation must store command output, screenshots where useful, fixture names, and human pass/fail notes under `docs/verification-results/`.
+- Each evidence record must identify the Git commit under test, the specification or success-criterion IDs exercised, the command or manual script used, the result, and any known limitation.
+- A failing gate blocks acceptance. It is not waived because the interface appears finished or because a deadline is near.
+
+## Gate 0 — Documentation and Restore Point
+
+Before a non-trivial implementation task begins:
+
+1. Confirm that the task maps to an existing success criterion or make a reviewed documentation change first.
+2. Confirm the task does not violate `AGENTS.md`, `project-framing.md`, or the out-of-scope list.
+3. Confirm relevant nutrition rules are named in the goal-specific guidance rather than guessed.
+4. Commit the current reviewed state, leaving a clean Git restore point.
+5. Create an implementation branch from that restore point.
+6. Write or update the planned test/control cases before implementation.
+
+Evidence: commit SHA, branch name, criterion IDs, and a short task plan.
+
+## Gate 1 — Engineering Hygiene
+
+Once an implementation stack is chosen, the project must define stable commands for formatting, linting, type checking, and unit tests. The commands and their exact expected success conditions must be added to this plan and `AGENTS.md` before implementation is accepted.
+
+The gate passes only when all configured commands exit successfully with no ignored errors. It fails on a missing command, a skipped type check, a linter warning treated as an error by project policy, or an uncommitted generated artifact that belongs in `.gitignore`.
+
+Evidence: complete command output and tool versions.
+
+## Gate 2 — Deterministic Nutrition and State Tests
+
+These tests are written from the specifications and nutrition documents, not inferred from the implementation.
+
+### EER and Goal-Target Controls
+
+- **VT-01:** For the shared reference fixture—male, 30 years, 180 cm, 80 kg, low active—calculate raw EER `2945.77 kcal/day` before goal rounding.
+- **VT-02:** The same fixture yields Maintenance `2950 kcal/day`, Fat Loss `2500 kcal/day`, and Muscle Gain `3250 kcal/day` using half-up rounding to the nearest 25 kcal.
+- **VT-03:** Age 18 uses the age-18 equation with its 20 kcal/day growth allowance; age 19 uses the adult equation. A fixture on each side of the boundary must prove the equations are not accidentally swapped.
+- **VT-04:** PAL mapping is deterministic at every boundary: score 0 inactive, 1 low active, 2–3 active, and 4 very active.
+- **VT-05:** Missing or invalid energy inputs produce no targets and no Draft.
+
+### Plan and Catalog Controls
+
+- **VT-06:** A valid Draft uses only approved catalog identifiers and calculates food nutrients from stored per-100 g values and gram portions.
+- **VT-07:** A nonexistent catalog identifier, a food not approved for the profile, or a runtime lookup request is rejected without creating a food or nutrition value.
+- **VT-08:** A meal that combines a `meat` and `dairy` classification fails validation; a neutral or single-classification meal can pass.
+- **VT-09:** Each displayed food alternative independently passes the applicable daily energy tolerance, protein range, age-appropriate AMDR ranges, fiber minimum, catalog, and meal-composition checks.
+- **VT-10:** A plan outside ±5% of goal energy, below fiber minimum, outside macro ranges, or outside goal protein range cannot become Active.
+
+### Draft and Active Plan Controls
+
+- **VT-11:** Generating or modifying a Draft never alters the Active Plan.
+- **VT-12:** Approving the exact current valid Draft promotes it to Active once.
+- **VT-13:** Rejecting a Draft, retrying a failed approval, or submitting the same approval command twice does not duplicate or alter state.
+- **VT-14:** Approval of a stale Draft or adjustment proposal whose base Active Plan version no longer matches is rejected.
+
+### Weight and Trend Controls
+
+- **VT-15:** Valid weights normalize to kilograms, accept one confirmed measurement per date, and append to the visualization data exactly once. Invalid values and duplicate-date commands do not create a plotted point.
+- **VT-16:** Fewer than 28 valid unique-date measurements in the most recent 35 days, a span shorter than 28 days, or any Active Plan change in the included span produces `insufficient_evidence` and no energy proposal.
+- **VT-17:** A qualifying fixture calculates ordinary-least-squares slope, weekly kilograms, mean weight, and weekly percentage from unrounded values. Only displayed values are rounded.
+
+### Trend Classification Controls
+
+Generate 35 daily points from `weight(day) = 80 + (slope_kg_per_day × day)` and keep the Active Plan unchanged for the full window.
+
+- **VT-18 — Fat Loss within band:** slope `-0.0857142857 kg/day` produces an approximately `-0.75%/week` trend and no proposal.
+- **VT-19 — Fat Loss slow:** slope `-0.0285714286 kg/day` produces an approximately `-0.25%/week` trend and permits only a decrease.
+- **VT-20 — Fat Loss fast:** slope `-0.1428571429 kg/day` produces an approximately `-1.25%/week` trend and permits only an increase.
+- **VT-21 — Maintenance stable:** slope `0` produces no proposal.
+- **VT-22 — Maintenance gain:** slope `+0.0571428571 kg/day` produces an approximately `+0.50%/week` trend and permits only a decrease.
+- **VT-23 — Maintenance loss:** slope `-0.0571428571 kg/day` produces an approximately `-0.50%/week` trend and permits only an increase.
+- **VT-24 — Muscle Gain within band:** slope `+0.0428571429 kg/day` produces an approximately `+0.375%/week` trend and no proposal.
+- **VT-25 — Muscle Gain slow:** slope `0` permits only an increase.
+- **VT-26 — Muscle Gain fast:** slope `+0.0857142857 kg/day` produces an approximately `+0.75%/week` trend and permits only a decrease.
+- **VT-27:** Every allowed adjustment is exactly 5% of current Active Plan energy, rounded half-up to 25 kcal and clamped to 100–200 kcal. The AI receives that exact bound and cannot substitute another value.
+- **VT-28:** After an approved adjustment, the evidence gate resets until a new qualifying unchanged-plan window exists.
+
+## Gate 3 — Structured AI Contract Tests
+
+Run these controls with mocked or recorded model responses. Do not rely on variable live-model responses for deterministic pass/fail tests.
+
+- **AI-01:** One valid free-text answer containing at least three supported profile facts updates all recognized fields and only those fields.
+- **AI-02:** The next onboarding question requests only a still-missing required field.
+- **AI-03:** Valid open-question output enables text input with no quick replies.
+- **AI-04:** Valid closed-question output renders only the predefined quick replies and disables text input.
+- **AI-05:** A valid Food Grid request is accepted only at the designated onboarding stage and disables text input.
+- **AI-06:** Prose where a structured response is required, an unknown response type, arbitrary widget instruction, unknown action, invented food identifier, missing required field, or invalid enum is rejected before it can render controls or mutate state.
+- **AI-07:** The model cannot bypass deterministic insufficient-evidence status, change an allowed adjustment direction or magnitude, write weight history, or mark a proposal Active.
+- **AI-08:** A model timeout or transport failure preserves confirmed state and returns a retryable failure without duplicate effects.
+
+Evidence: input fixture, expected contract result, actual validator result, and unchanged-state assertion for every rejected response.
+
+## Gate 4 — Interface, Feedback, and Race Controls
+
+Use browser-level tests where feasible and manual acceptance scripts for visual behavior that cannot be reliably automated.
+
+- **UI-01:** Open question: text input enabled; quick replies absent.
+- **UI-02:** Closed question: quick replies visible in the conversation; text input disabled.
+- **UI-03:** Food Grid: selection controls enabled; text input and unrelated actions disabled.
+- **UI-04:** One action per turn: a double-click, rapid double tap, and simultaneous keyboard/click attempt result in exactly one accepted user action and one transcript message.
+- **UI-05:** During processing, all active controls lock and a specific progress message identifies the operation.
+- **UI-06:** Slow processing preserves the submitted action, presents delayed-state feedback, and prevents duplicate retries until the operation resolves.
+- **UI-07:** Empty New Demo Profile shows an initial coach message, empty checklist, and explanatory empty plan area; it does not show a blank chat.
+- **UI-08:** An invalid weight stays out of the chart, retains the submitted message, and prompts for correction.
+- **UI-09:** A failed Draft, trend, proposal, or approval operation leaves confirmed state visible and never labels a failed proposal as Active.
+- **UI-10:** Draft, proposal, and Active labels are visible and unambiguous before and after every approval or rejection.
+
+Evidence: automated trace where available, plus a screenshot or short manual pass/fail note for each visual control.
+
+## Gate 5 — End-to-End Demo Acceptance
+
+### Demo A — New Demo Profile
+
+1. Start from the committed empty New Demo Profile fixture.
+2. Submit one free-text response containing multiple required facts; verify multiple checklist completions.
+3. Verify the next question is only for missing information.
+4. Complete an open question and a closed quick-reply question, including the turn-lock control.
+5. Complete the five Food Grid categories.
+6. Generate a valid, catalog-backed Draft within the selected goal's nutrition limits.
+7. Request one supported Draft modification and verify the Active Plan remains unchanged.
+8. Approve the Draft and verify the exact validated Draft becomes Active.
+
+### Demo B — Existing Demo Profile
+
+1. Start from the committed Existing Demo Profile fixture with an Active Plan and approximately two months of seeded weights.
+2. Verify the plan and weight visualization load before any new message.
+3. Enter a valid new weight and verify one new plotted point.
+4. Verify the deterministic trend facts, evidence result, and goal-band classification against the fixture.
+5. Run an insufficient-evidence control and verify no caloric proposal appears.
+6. Run a sufficient-evidence control, verify a bounded Draft proposal, and verify the Active Plan has not changed.
+7. Reject once and verify no change; rerun and approve once, then verify the validated proposal becomes Active.
+
+Evidence: one checklist per demo, linked screenshots, fixture version, and a human pass/fail decision.
+
+## Gate 6 — Scope and Security Audit
+
+Before accepting an implementation turn, inspect the visible product, dependencies, model configuration, and data flows for scope leakage.
+
+The audit fails if it finds authentication, additional profiles, runtime internet search, external food lookup, browser-enabled AI, arbitrary tools or actions, unvalidated AI output, direct AI writes to Active Plan or weight history, allergy/medical features, target weight, goal switching, plan history, weekly plan variation, workout/adherence tracking, hydration, micronutrient optimization, or a kashrut subsystem.
+
+Also inspect for secrets in tracked files and confirm all food data is preloaded rather than fetched at runtime.
+
+## Gate 7 — Human Merge-Readiness Review
+
+The user reviews the change only after automated and end-to-end gates pass. The review records five evidence-backed conclusions:
+
+1. **Functional completeness:** each affected success criterion passes.
+2. **Sound verification:** gates exercised the named failure modes rather than merely executing lines.
+3. **Engineering hygiene:** formatting, lint, type checks, tests, and ignored/generated files are clean.
+4. **Rationale:** the change remains consistent with the framing, specification, nutrition guidance, and intentional scope.
+5. **Audit trail:** commits, fixtures, verification output, manual results, and documentation changes are present and legible.
+
+No change is accepted on the strength of appearance alone.
+
+## Deferred Command Registry
+
+No runtime, package manager, linter, type checker, test runner, or browser-test command has been selected because choosing an implementation stack is a later planning decision. Before any code is accepted, this section must be replaced with the exact commands and expected outcomes used by Gates 1–4.

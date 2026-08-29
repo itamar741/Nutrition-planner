@@ -1,7 +1,3 @@
-# Synced course references and local Codex project context are not part of this repository.
-/sources/
-/AGENTS.md
-
 # Local secrets and dependency/build output.
 .env
 .env.*
