@@ -1,6 +1,6 @@
 # Closed Food Catalog v0.1
 
-Status: Turn 2 reviewed data record. Runtime code contains the same 27 entries in `src/data/food-catalog.ts`.
+Status: Turn 2 reviewed data record. Runtime code contains the same 30 entries in `src/data/food-catalog.ts`.
 
 ## Source and Retrieval
 
@@ -46,6 +46,9 @@ Each row lists: internal ID; USDA FDC ID and dataset; preparation; kcal, protein
 - `olive-oil`; FDC 171413, SR Legacy; salad or cooking oil; 884 kcal, 0 g protein, 0 g carbohydrate, 100 g fat, 0 g fiber; 1 tablespoon = 13.5 g; neutral.
 - `avocado-raw`; FDC 171705, SR Legacy; raw; 160 kcal, 2 g protein, 8.53 g carbohydrate, 14.7 g fat, 6.7 g fiber; 1 serving = 50 g; neutral.
 - `almonds-roasted`; FDC 323294, Foundation Foods; dry-roasted; 620 kcal, 20.4 g protein, 16.2 g carbohydrate, 57.8 g fat, 11 g fiber; 1 serving = 30 g; neutral.
+- `walnuts-english`; FDC 170187, SR Legacy; English walnuts; 654 kcal, 15.2 g protein, 13.7 g carbohydrate, 65.2 g fat, 6.7 g fiber; 1 serving = 30 g; neutral.
+- `tahini-raw`; FDC 169410, SR Legacy; raw stone-ground sesame kernels; 570 kcal, 17.8 g protein, 26.2 g carbohydrate, 48 g fat, 9.3 g fiber; 1 tablespoon = 15 g; neutral.
+- `peanut-butter-natural`; FDC 172470, SR Legacy; smooth peanut butter without added salt, used as the 100% natural catalog choice; 598 kcal, 22.2 g protein, 22.3 g carbohydrate, 51.4 g fat, 5 g fiber; 1 tablespoon = 16 g; neutral.
 
 ### Vegetables
 
