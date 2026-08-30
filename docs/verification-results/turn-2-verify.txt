@@ -1,0 +1,50 @@
+Turn 2 mandatory verification
+Date: 2026-08-30
+Branch: turn-2-catalog-and-plan
+Implementation commit: 50a75258b4d4a4c87479816497ad93d80561d0fc
+Command: npm run verify
+Exit code: 0
+
+format:check
+  Prettier: All matched files use Prettier code style.
+
+lint
+  ESLint: passed with --max-warnings=0.
+
+typecheck
+  Next route types generated successfully.
+  TypeScript: passed with no errors.
+
+test:unit
+  Vitest: 7 test files passed.
+  Vitest: 38 tests passed.
+
+build
+  Next.js 16.3.3 production build compiled successfully.
+  Routes built:
+    /
+    /_not-found
+    /api/coach/draft
+    /api/coach/draft-modification
+    /api/coach/onboarding
+    /coach/[profileId]
+
+test:e2e
+  Playwright Chromium: 9 tests passed in 6.5 seconds.
+  Passing scenarios:
+    - SC-01 entry exposes exactly the two demo profiles
+    - UI-01/UI-02/AI-01 moves from one open answer to locked quick replies
+    - UI-05/UI-06 preserves the answer, locks controls, and shows slow feedback
+    - UI-09 retry preserves state and does not duplicate the submitted action
+    - Existing Demo Profile stays a fixed prepared foundation in Turn 1
+    - Demo A completes Food Grid, Draft modification, and explicit activation
+    - Food Grid remains usable at the mobile review viewport
+    - Draft failure and retry preserve state and avoid duplicate actions
+    - Declining a Draft leaves no Active Plan
+
+Dependency audit
+  Command: npm audit --audit-level=high
+  Result: found 0 vulnerabilities
+
+The runner printed NO_COLOR/FORCE_COLOR environment notices. These did not
+originate from application code and did not affect any result.
