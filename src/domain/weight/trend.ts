@@ -1,6 +1,8 @@
 export interface WeightMeasurement {
+  id: string;
   date: string;
   weightKg: number;
+  commandId: string;
 }
 
 export interface WeightTrend {
@@ -11,6 +13,11 @@ export interface WeightTrend {
   weeklyKg: number;
   weeklyPercent: number;
   evidence: "sufficient" | "insufficient";
+  evidenceReason:
+    | "enough_data"
+    | "not_enough_measurements"
+    | "not_enough_span"
+    | "active_plan_changed";
 }
 
 const MS_PER_DAY = 86_400_000;
@@ -24,8 +31,9 @@ export function normalizeWeightKg(value: number, unit: "kg" | "lb" = "kg") {
 
 export function calculateWeightTrend(
   measurements: WeightMeasurement[],
-  now = new Date(),
+  input: { now?: Date; activePlanActivatedAt?: string } = {},
 ): WeightTrend {
+  const now = input.now ?? new Date();
   const recent = measurements
     .filter((item) => Number.isFinite(Date.parse(item.date)))
     .filter((item) => now.getTime() - Date.parse(item.date) <= 35 * MS_PER_DAY)
@@ -40,7 +48,16 @@ export function calculateWeightTrend(
   const meanWeightKg = unique.length
     ? unique.reduce((sum, item) => sum + item.weightKg, 0) / unique.length
     : 0;
-  if (unique.length < 28 || spanDays < 28) {
+  const windowStart = new Date(now.getTime() - 35 * MS_PER_DAY)
+    .toISOString()
+    .slice(0, 10);
+  const activationDate = input.activePlanActivatedAt?.slice(0, 10);
+  const activePlanChanged = Boolean(
+    activationDate &&
+    activationDate >= windowStart &&
+    activationDate <= now.toISOString().slice(0, 10),
+  );
+  if (unique.length < 28 || spanDays < 28 || activePlanChanged) {
     return {
       measurementCount: unique.length,
       spanDays,
@@ -49,6 +66,11 @@ export function calculateWeightTrend(
       weeklyKg: 0,
       weeklyPercent: 0,
       evidence: "insufficient",
+      evidenceReason: activePlanChanged
+        ? "active_plan_changed"
+        : unique.length < 28
+          ? "not_enough_measurements"
+          : "not_enough_span",
     };
   }
   const origin = Date.parse(first.date) / MS_PER_DAY;
@@ -71,7 +93,20 @@ export function calculateWeightTrend(
     weeklyKg,
     weeklyPercent: (weeklyKg / meanWeightKg) * 100,
     evidence: "sufficient",
+    evidenceReason: "enough_data",
   };
+}
+
+export function parseCurrentWeightMessage(message: string): number | null {
+  const match = message
+    .trim()
+    .match(/^(\d{1,3}(?:[.,]\d{1,2})?)\s*(?:kg|ק["׳']?ג)?$/i);
+  if (!match) return null;
+  try {
+    return normalizeWeightKg(Number(match[1].replace(",", ".")));
+  } catch {
+    return null;
+  }
 }
 
 export function adjustmentDirection(

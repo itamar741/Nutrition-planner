@@ -3,6 +3,7 @@ import { calculateTargets } from "@/domain/nutrition/calculations";
 import { validateAndBuildPlan } from "@/domain/plan/validation";
 import type { ActivePlan, DraftCandidate } from "@/domain/plan/types";
 import type { DemoProfileId, StructuredProfile } from "@/domain/profile/types";
+import type { WeightMeasurement } from "@/domain/weight/trend";
 import type { DemoState } from "@/store/demo-reducer";
 
 export const demoProfileNames: Record<DemoProfileId, string> = {
@@ -85,13 +86,23 @@ export const existingReadyProfile: StructuredProfile = {
   approvedCatalogFoodIds: [...existingApprovedFoodIds],
 };
 
-export const existingWeightHistory = Array.from({ length: 35 }, (_, index) => {
-  const date = new Date(Date.UTC(2026, 6, 27 + index));
-  return {
-    date: date.toISOString().slice(0, 10),
-    weightKg: 80 + index * 0.0571428571,
-  };
-});
+export function createExistingWeightHistory(
+  now = new Date(),
+): WeightMeasurement[] {
+  const todayStart = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
+  return Array.from({ length: 59 }, (_, index) => {
+    const date = new Date(todayStart);
+    date.setUTCDate(todayStart.getUTCDate() - (59 - index));
+    return {
+      id: `existing-seed-${index + 1}`,
+      date: date.toISOString().slice(0, 10),
+      weightKg: 80 + index * 0.0571428571,
+      commandId: `existing-seed-command-${index + 1}`,
+    };
+  });
+}
 
 const existingCandidate: DraftCandidate = {
   summary: "A repeatable maintenance day built from the approved catalog.",
@@ -136,7 +147,7 @@ const existingCandidate: DraftCandidate = {
   ],
 };
 
-export function createExistingActivePlan(): ActivePlan {
+export function createExistingActivePlan(now = new Date()): ActivePlan {
   const targets = calculateTargets(existingReadyProfile);
   if (!targets) throw new Error("Existing fixture targets are incomplete");
   const plan = validateAndBuildPlan({
@@ -150,7 +161,7 @@ export function createExistingActivePlan(): ActivePlan {
   return {
     schemaVersion: 1,
     version: 1,
-    activatedAt: "2026-08-30T08:00:00.000Z",
+    activatedAt: new Date(now.getTime() - 61 * 86_400_000).toISOString(),
     plan,
   };
 }

@@ -853,6 +853,193 @@
   margin-top: 36px;
 }
 
+.weightWorkspace {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 28px;
+}
+
+.weightChartCard,
+.weightChatCard,
+.editWeightPanel {
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--paper);
+}
+
+.weightChartCard {
+  grid-column: 1 / -1;
+}
+
+.weightCardHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.weightCardHeader span,
+.weightChatCard > span,
+.editWeightPanel > span {
+  display: inline-block;
+  margin-bottom: 8px;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.weightCardHeader h2,
+.editWeightPanel h3 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.6rem;
+  font-weight: 500;
+}
+
+.chartWrap {
+  margin-top: 16px;
+}
+
+.weightChart {
+  display: block;
+  width: 100%;
+  min-height: 220px;
+  overflow: visible;
+}
+
+.chartGrid {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.chartLabel {
+  fill: var(--muted-ink);
+  font-size: 10px;
+}
+
+.chartLine {
+  stroke: var(--primary);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chartTrendLine {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 5 5;
+}
+
+.chartPoint {
+  cursor: pointer;
+  fill: var(--paper);
+  stroke: var(--primary);
+  stroke-width: 2;
+}
+
+.chartPoint:hover,
+.chartPoint:focus-visible {
+  fill: var(--accent);
+  outline: none;
+}
+
+.chartHint,
+.chartEmpty {
+  margin: 8px 0 0;
+  color: var(--muted-ink);
+  font-size: 0.78rem;
+}
+
+.trendStats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  overflow: hidden;
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #f7f6f0;
+}
+
+.trendStats span {
+  display: grid;
+  gap: 4px;
+  padding: 11px;
+  color: var(--muted-ink);
+  font-size: 0.72rem;
+}
+
+.trendStats span + span {
+  border-left: 1px solid var(--border);
+}
+
+.trendStats strong {
+  color: var(--ink);
+  font-size: 0.9rem;
+}
+
+.weightChatCard {
+  grid-column: span 2;
+}
+
+.weightMessages {
+  display: grid;
+  gap: 8px;
+  max-height: 250px;
+  margin: 6px 0 12px;
+  overflow-y: auto;
+}
+
+.weightAssistantMessage,
+.weightUserMessage {
+  width: fit-content;
+  max-width: 90%;
+  padding: 9px 11px;
+  border-radius: 12px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.weightAssistantMessage {
+  background: #f3efe6;
+  color: var(--ink);
+}
+
+.weightUserMessage {
+  justify-self: end;
+  background: var(--primary);
+  color: white;
+}
+
+.editWeightPanel {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+  border-color: rgba(190, 108, 42, 0.35);
+}
+
+.editWeightPanel form,
+.existingCard form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.editWeightPanel input,
+.existingCard input {
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: white;
+  color: var(--ink);
+}
+
 .activePlanDetails {
   margin-top: 12px;
 }
@@ -936,6 +1123,14 @@
   .existingGrid {
     grid-template-columns: 1fr;
   }
+
+  .weightWorkspace {
+    grid-template-columns: 1fr;
+  }
+
+  .weightChatCard {
+    grid-column: auto;
+  }
 }
 
 @media (max-width: 560px) {
@@ -983,5 +1178,20 @@
 
   .approvalActions {
     grid-template-columns: 1fr;
+  }
+
+  .trendStats {
+    grid-template-columns: 1fr;
+  }
+
+  .trendStats span + span {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+
+  .editWeightPanel form,
+  .existingCard form {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

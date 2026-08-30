@@ -1,0 +1,63 @@
+import { z } from "zod";
+import { activePlanSchema } from "@/domain/plan/schemas";
+import type { ActivePlan } from "@/domain/plan/types";
+import type { WeightMeasurement } from "@/domain/weight/trend";
+
+export interface ExistingChatMessage {
+  id: string;
+  role: "assistant" | "user";
+  text: string;
+}
+
+export interface ExistingDemoState {
+  schemaVersion: 1;
+  activePlan: ActivePlan;
+  measurements: WeightMeasurement[];
+  messages: ExistingChatMessage[];
+}
+
+const storageKey = "nutrition-coach:existing:v1";
+const existingStateSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    activePlan: activePlanSchema,
+    measurements: z.array(
+      z
+        .object({
+          id: z.string().min(1),
+          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          weightKg: z.number().positive().max(500),
+          commandId: z.string().min(1),
+        })
+        .strict(),
+    ),
+    messages: z.array(
+      z
+        .object({
+          id: z.string().min(1),
+          role: z.enum(["assistant", "user"]),
+          text: z.string().min(1).max(1_000),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
+export function loadExistingDemoState(): ExistingDemoState | null {
+  try {
+    const value = window.localStorage.getItem(storageKey);
+    if (!value) return null;
+    const parsed = existingStateSchema.safeParse(JSON.parse(value));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveExistingDemoState(state: ExistingDemoState) {
+  window.localStorage.setItem(storageKey, JSON.stringify(state));
+}
+
+export function clearExistingDemoState() {
+  window.localStorage.removeItem(storageKey);
+}

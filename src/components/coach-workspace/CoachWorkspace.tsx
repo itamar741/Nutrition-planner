@@ -22,10 +22,10 @@ import {
 import {
   createNewDemoState,
   createExistingActivePlan,
+  createExistingWeightHistory,
   demoProfileNames,
   existingProfileFoundation,
   existingReadyProfile,
-  existingWeightHistory,
 } from "@/data/demo-fixtures";
 import {
   foodCatalog,
@@ -39,6 +39,8 @@ import {
   adjustmentDirection,
   calculateWeightTrend,
   normalizeWeightKg,
+  parseCurrentWeightMessage,
+  type WeightMeasurement,
 } from "@/domain/weight/trend";
 import type { DemoProfileId, QuickReplyOption } from "@/domain/profile/types";
 import { demoReducer, type PendingCommand } from "@/store/demo-reducer";
@@ -47,8 +49,15 @@ import {
   loadNewDemoState,
   saveNewDemoState,
 } from "@/store/local-demo-store";
+import {
+  clearExistingDemoState,
+  loadExistingDemoState,
+  saveExistingDemoState,
+  type ExistingDemoState,
+} from "@/store/existing-demo-store";
 import { FoodGrid } from "./FoodGrid";
 import { PlanContents, PlanPanel } from "./PlanPanel";
+import { WeightTrendChart } from "./WeightTrendChart";
 import styles from "./CoachWorkspace.module.css";
 
 function createCommandId() {
@@ -88,18 +97,33 @@ function CatalogSection({ approvedIds }: { approvedIds: string[] }) {
   );
 }
 
+function createExistingFixture(): ExistingDemoState {
+  const now = new Date();
+  return {
+    schemaVersion: 1,
+    activePlan: createExistingActivePlan(now),
+    measurements: createExistingWeightHistory(now),
+    messages: [
+      {
+        id: "existing-welcome",
+        role: "assistant",
+        text: "Your weight history is ready. Send today’s weight in kilograms, or use the form beside the chart.",
+      },
+    ],
+  };
+}
+
 function ExistingFoundation() {
   const profile = existingProfileFoundation;
-  const [weights, setWeights] = useState(existingWeightHistory);
+  const [existing, setExisting] = useState<ExistingDemoState>(
+    createExistingFixture,
+  );
+  const [storageReady, setStorageReady] = useState(false);
   const [weightInput, setWeightInput] = useState("");
-  const [notice, setNotice] = useState("");
-  const trend = useMemo(
-    () => calculateWeightTrend(weights, new Date("2026-08-31T12:00:00Z")),
-    [weights],
-  );
-  const [activePlan, setActivePlan] = useState(() =>
-    createExistingActivePlan(),
-  );
+  const [chatInput, setChatInput] = useState("");
+  const [editingMeasurement, setEditingMeasurement] =
+    useState<WeightMeasurement | null>(null);
+  const [editingWeight, setEditingWeight] = useState("");
   const [proposalState, setProposalState] = useState<
     "pending" | "approved" | "rejected"
   >("pending");
@@ -108,39 +132,167 @@ function ExistingFoundation() {
   >(null);
   const [proposalError, setProposalError] = useState("");
   const [isGeneratingProposal, setIsGeneratingProposal] = useState(false);
+
+  useEffect(() => {
+    const stored = loadExistingDemoState();
+    if (stored) setExisting(stored);
+    setStorageReady(true);
+  }, []);
+  useEffect(() => {
+    if (storageReady) saveExistingDemoState(existing);
+  }, [existing, storageReady]);
+
+  const trend = useMemo(
+    () =>
+      calculateWeightTrend(existing.measurements, {
+        activePlanActivatedAt: existing.activePlan.activatedAt,
+      }),
+    [existing.activePlan.activatedAt, existing.measurements],
+  );
   const direction =
     trend.evidence === "sufficient"
       ? adjustmentDirection(profile.goal ?? "maintenance", trend.weeklyPercent)
       : null;
   const adjustmentKcal = roundTo25HalfUp(
-    activePlan.plan.validation.totals.energyKcal * 0.05,
+    existing.activePlan.plan.validation.totals.energyKcal * 0.05,
   );
-  function addWeight(event: FormEvent<HTMLFormElement>) {
+
+  function appendChat(role: "assistant" | "user", text: string) {
+    return { id: `${role}-${createCommandId()}`, role, text };
+  }
+  function saveTodayWeight(weightKg: number, source: "chat" | "form") {
+    const date = new Date().toISOString().slice(0, 10);
+    if (existing.measurements.some((item) => item.date === date)) {
+      setExisting((current) => ({
+        ...current,
+        messages: [
+          ...current.messages,
+          appendChat(
+            "assistant",
+            "Today’s weight is already recorded. Select its chart point to edit it.",
+          ),
+        ],
+      }));
+      return;
+    }
+    const commandId = createCommandId();
+    const measurement: WeightMeasurement = {
+      id: `weight-${commandId}`,
+      date,
+      weightKg,
+      commandId,
+    };
+    setExisting((current) => ({
+      ...current,
+      measurements: [...current.measurements, measurement],
+      messages: [
+        ...current.messages,
+        ...(source === "chat" ? [appendChat("user", `${weightKg} kg`)] : []),
+        appendChat(
+          "assistant",
+          `Recorded ${weightKg.toFixed(1)} kg for today. Your trend was recalculated.`,
+        ),
+      ],
+    }));
+    setAdjustmentDraft(null);
+    setProposalState("pending");
+    setProposalError("");
+  }
+  function submitWeightChat(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const message = chatInput.trim();
+    if (!message) return;
+    setChatInput("");
+    const weightKg = parseCurrentWeightMessage(message);
+    if (weightKg === null) {
+      setExisting((current) => ({
+        ...current,
+        messages: [
+          ...current.messages,
+          appendChat("user", message),
+          appendChat(
+            "assistant",
+            "Please send only today’s weight in kilograms, for example 80.4 kg.",
+          ),
+        ],
+      }));
+      return;
+    }
+    saveTodayWeight(weightKg, "chat");
+  }
+  function submitWeightForm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     try {
-      const weightKg = normalizeWeightKg(Number(weightInput));
-      const date = new Date().toISOString().slice(0, 10);
-      if (weights.some((item) => item.date === date))
-        throw new Error("A weight for today is already recorded.");
-      setWeights((current) => [...current, { date, weightKg }]);
+      saveTodayWeight(normalizeWeightKg(Number(weightInput)), "form");
       setWeightInput("");
-      setNotice(
-        "Weight recorded. The trend was recalculated deterministically.",
-      );
     } catch (error) {
-      setNotice(
+      setExisting((current) => ({
+        ...current,
+        messages: [
+          ...current.messages,
+          appendChat(
+            "assistant",
+            error instanceof Error ? error.message : "Enter a valid weight.",
+          ),
+        ],
+      }));
+    }
+  }
+  function startEditing(measurement: WeightMeasurement) {
+    setEditingMeasurement(measurement);
+    setEditingWeight(String(measurement.weightKg));
+  }
+  function saveEditedWeight(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingMeasurement) return;
+    try {
+      const weightKg = normalizeWeightKg(Number(editingWeight));
+      const commandId = createCommandId();
+      setExisting((current) => ({
+        ...current,
+        measurements: current.measurements.map((item) =>
+          item.date === editingMeasurement.date
+            ? { ...item, weightKg, commandId }
+            : item,
+        ),
+        messages: [
+          ...current.messages,
+          appendChat(
+            "assistant",
+            `Updated ${editingMeasurement.date} to ${weightKg.toFixed(1)} kg. Your trend was recalculated.`,
+          ),
+        ],
+      }));
+      setEditingMeasurement(null);
+      setAdjustmentDraft(null);
+      setProposalState("pending");
+      setProposalError("");
+    } catch (error) {
+      setProposalError(
         error instanceof Error ? error.message : "Enter a valid weight.",
       );
     }
   }
+  function resetExistingDemo() {
+    clearExistingDemoState();
+    setExisting(createExistingFixture());
+    setEditingMeasurement(null);
+    setAdjustmentDraft(null);
+    setProposalError("");
+    setProposalState("pending");
+  }
   function approveAdjustment() {
     if (!adjustmentDraft || proposalState !== "pending") return;
-    setActivePlan((current) => ({
+    setExisting((current) => ({
       ...current,
-      version: adjustmentDraft.plan.version,
-      activatedAt: new Date().toISOString(),
-      plan: adjustmentDraft.plan,
+      activePlan: {
+        ...current.activePlan,
+        version: adjustmentDraft.plan.version,
+        activatedAt: new Date().toISOString(),
+        plan: adjustmentDraft.plan,
+      },
     }));
+    setAdjustmentDraft(null);
     setProposalState("approved");
   }
   async function generateAdjustmentProposal() {
@@ -155,7 +307,7 @@ function ExistingFoundation() {
         body: JSON.stringify({
           commandId: createCommandId(),
           profile: existingReadyProfile,
-          activePlan,
+          activePlan: existing.activePlan,
           direction,
           adjustmentKcal,
         }),
@@ -186,7 +338,7 @@ function ExistingFoundation() {
       <h1>The adjustment story starts with a trusted baseline.</h1>
       <p>
         This fixed profile includes an Active Plan and a seeded two-month weight
-        history. No historical chat or additional account is created.
+        history. No additional account is created.
       </p>
       <div className={styles.existingGrid}>
         <article className={styles.existingCard}>
@@ -209,6 +361,133 @@ function ExistingFoundation() {
           </p>
         </article>
       </div>
+      <section className={styles.weightWorkspace} aria-label="Weight tracking">
+        <article className={styles.weightChartCard}>
+          <div className={styles.weightCardHeader}>
+            <div>
+              <span>Weight history</span>
+              <h2>Your recorded weights</h2>
+            </div>
+            <button
+              className={styles.resetButton}
+              onClick={resetExistingDemo}
+              type="button"
+            >
+              Reset demo
+            </button>
+          </div>
+          <WeightTrendChart
+            measurements={existing.measurements}
+            onSelect={startEditing}
+            trend={trend}
+          />
+          <div className={styles.trendStats}>
+            <span>
+              <strong>{trend.weeklyKg.toFixed(2)} kg</strong>
+              weekly change
+            </span>
+            <span>
+              <strong>{trend.weeklyPercent.toFixed(2)}%</strong>
+              weekly percentage
+            </span>
+            <span>
+              <strong>
+                {trend.evidence === "sufficient"
+                  ? "Evidence ready"
+                  : "More data needed"}
+              </strong>
+              {trend.evidence === "sufficient"
+                ? "Trend can be evaluated"
+                : trend.evidenceReason === "active_plan_changed"
+                  ? "The Active Plan changed in this window"
+                  : "28 measurements across 28 days are required"}
+            </span>
+          </div>
+        </article>
+        <article className={styles.existingCard}>
+          <span>Record today’s weight</span>
+          <form onSubmit={submitWeightForm}>
+            <input
+              aria-label="Weight in kilograms"
+              inputMode="decimal"
+              min="1"
+              onChange={(event) => setWeightInput(event.target.value)}
+              placeholder="kg"
+              step="0.1"
+              type="number"
+              value={weightInput}
+            />
+            <button className={styles.primaryAction} type="submit">
+              Save today
+            </button>
+          </form>
+          <p>To correct an earlier day, select its point on the chart.</p>
+        </article>
+        <article className={styles.weightChatCard}>
+          <span>Coach conversation</span>
+          <div className={styles.weightMessages} aria-live="polite">
+            {existing.messages.map((message) => (
+              <div
+                className={
+                  message.role === "assistant"
+                    ? styles.weightAssistantMessage
+                    : styles.weightUserMessage
+                }
+                key={message.id}
+              >
+                {message.text}
+              </div>
+            ))}
+          </div>
+          <form className={styles.composer} onSubmit={submitWeightChat}>
+            <textarea
+              aria-label="Today’s weight message"
+              maxLength={100}
+              onChange={(event) => setChatInput(event.target.value)}
+              placeholder="Example: 80.4 kg"
+              rows={2}
+              value={chatInput}
+            />
+            <button
+              className={styles.sendButton}
+              disabled={!chatInput.trim()}
+              type="submit"
+            >
+              Send
+            </button>
+          </form>
+        </article>
+      </section>
+      {editingMeasurement ? (
+        <section
+          className={styles.editWeightPanel}
+          aria-label="Edit weight measurement"
+        >
+          <span>Edit recorded weight</span>
+          <h3>{editingMeasurement.date}</h3>
+          <form onSubmit={saveEditedWeight}>
+            <input
+              aria-label="Replacement weight in kilograms"
+              inputMode="decimal"
+              min="1"
+              onChange={(event) => setEditingWeight(event.target.value)}
+              step="0.1"
+              type="number"
+              value={editingWeight}
+            />
+            <button className={styles.primaryAction} type="submit">
+              Save replacement
+            </button>
+            <button
+              className={styles.secondaryAction}
+              onClick={() => setEditingMeasurement(null)}
+              type="button"
+            >
+              Cancel
+            </button>
+          </form>
+        </section>
+      ) : null}
       {direction ? (
         <article className={styles.existingCard}>
           <span>AI adjustment proposal · Draft</span>
@@ -229,7 +508,8 @@ function ExistingFoundation() {
                     <span>
                       Current target{" "}
                       <strong>
-                        {activePlan.plan.targetSnapshot.energyKcal} kcal
+                        {existing.activePlan.plan.targetSnapshot.energyKcal}{" "}
+                        kcal
                       </strong>
                     </span>
                     <span aria-hidden="true">→</span>
@@ -277,7 +557,7 @@ function ExistingFoundation() {
           ) : (
             <p role="status">
               {proposalState === "approved"
-                ? `Approved. Active Plan is now version ${activePlan.version}.`
+                ? `Approved. Active Plan is now version ${existing.activePlan.version}.`
                 : "Declined. Active Plan was unchanged."}
             </p>
           )}
@@ -292,55 +572,26 @@ function ExistingFoundation() {
         <article className={styles.existingCard}>
           <span>Active Plan</span>
           <h3>
-            {activePlan.plan.validation.totals.energyKcal.toFixed(0)} kcal/day
+            {existing.activePlan.plan.validation.totals.energyKcal.toFixed(0)}{" "}
+            kcal/day
           </h3>
           <p>
-            Version {activePlan.version}; changes require an explicit approval.
+            Version {existing.activePlan.version}; changes require an explicit
+            approval.
           </p>
           <details className={styles.activePlanDetails}>
             <summary>View active daily plan</summary>
             <PlanContents
               proposal={{
                 schemaVersion: 1,
-                id: `active-${activePlan.version}`,
-                basePlanVersion: activePlan.version,
+                id: `active-${existing.activePlan.version}`,
+                basePlanVersion: existing.activePlan.version,
                 reason: "initial",
                 summary: "Your approved repeatable day.",
-                plan: activePlan.plan,
+                plan: existing.activePlan.plan,
               }}
             />
           </details>
-        </article>
-        <article className={styles.existingCard}>
-          <span>Weight trend</span>
-          <h3>
-            {trend.evidence === "sufficient"
-              ? `${trend.weeklyPercent.toFixed(2)}% / week`
-              : "Insufficient evidence"}
-          </h3>
-          <p>
-            {trend.measurementCount} measurements across{" "}
-            {trend.spanDays.toFixed(0)} days.
-          </p>
-        </article>
-        <article className={styles.existingCard}>
-          <span>Record weight</span>
-          <form onSubmit={addWeight}>
-            <input
-              aria-label="Weight in kilograms"
-              inputMode="decimal"
-              min="1"
-              onChange={(event) => setWeightInput(event.target.value)}
-              placeholder="kg"
-              step="0.1"
-              type="number"
-              value={weightInput}
-            />
-            <button className={styles.primaryAction} type="submit">
-              Add
-            </button>
-          </form>
-          {notice ? <p role="status">{notice}</p> : null}
         </article>
       </div>
       <CatalogSection
