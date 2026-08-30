@@ -1,6 +1,6 @@
 # Closed Food Catalog v0.1
 
-Status: Turn 2 reviewed data record. Runtime code contains the same 17 entries in `src/data/food-catalog.ts`.
+Status: Turn 2 reviewed data record. Runtime code contains the same 27 entries in `src/data/food-catalog.ts`.
 
 ## Source and Retrieval
 
@@ -23,6 +23,16 @@ Each row lists: internal ID; USDA FDC ID and dataset; preparation; kcal, protein
 - `white-rice-cooked`; FDC 168878, SR Legacy; cooked; 130 kcal, 2.69 g protein, 28.2 g carbohydrate, 0.28 g fat, 0.4 g fiber; 1 cup = 158 g; neutral.
 - `sweet-potato-baked`; FDC 168483, SR Legacy; baked flesh; 90 kcal, 2.01 g protein, 20.7 g carbohydrate, 0.15 g fat, 3.3 g fiber; 1 medium = 114 g; neutral.
 - `tortilla-wheat-regular`; FoodsDictionary product page for Willy Food wheat tortilla; ready to eat; 290 kcal, 7 g protein, 55 g carbohydrate, 4 g fat, 0 g fiber; 1 tortilla = 45 g; neutral. The source page reports no fiber; this entry records 0 g for the selected product only.
+- `potato-baked`; FDC 170033, SR Legacy; baked flesh without salt; 93 kcal, 1.96 g protein, 21.6 g carbohydrate, 0.1 g fat, 1.5 g fiber; 1 medium = 173 g; neutral.
+- `pasta-cooked`; FDC 169751, SR Legacy; cooked enriched pasta; 157 kcal, 5.8 g protein, 30.6 g carbohydrate, 0.93 g fat, 1.8 g fiber; 1 cup = 140 g; neutral.
+- `ptitim-cooked`; FoodsDictionary product page for Soget baked ptitim; cooked without added oil or salt; 184 kcal, 5.7 g protein, 39 g carbohydrate, 0.6 g fat, 0 g fiber; 1 cup = 150 g; neutral. The source page reports no fiber; this entry records 0 g for the selected product only.
+- `couscous-cooked`; FDC 169700, SR Legacy; cooked; 112 kcal, 3.79 g protein, 23.2 g carbohydrate, 0.16 g fat, 1.4 g fiber; 1 cup = 157 g; neutral.
+- `quinoa-cooked`; FDC 168917, SR Legacy; cooked; 120 kcal, 4.4 g protein, 21.3 g carbohydrate, 1.92 g fat, 2.8 g fiber; 1 cup = 185 g; neutral.
+- `bulgur-cooked`; FDC 170287, SR Legacy; cooked; 83 kcal, 3.08 g protein, 18.6 g carbohydrate, 0.24 g fat, 4.5 g fiber; 1 cup = 182 g; neutral.
+- `whole-wheat-bread`; FDC 172688, SR Legacy; commercially prepared; 252 kcal, 12.4 g protein, 42.7 g carbohydrate, 3.5 g fat, 6 g fiber; 1 slice = 28 g; neutral.
+- `whole-wheat-pita`; FDC 174916, SR Legacy; ready to eat; 262 kcal, 9.8 g protein, 55.9 g carbohydrate, 1.71 g fat, 6.1 g fiber; 1 pita = 64 g; neutral.
+- `lentils-cooked`; FDC 172421, SR Legacy; boiled without salt; 116 kcal, 9.02 g protein, 20.1 g carbohydrate, 0.38 g fat, 7.9 g fiber; ½ cup = 99 g; neutral.
+- `rice-cake`; FDC 168107, SR Legacy; plain dry rice cake; 392 kcal, 7.1 g protein, 81.1 g carbohydrate, 4.3 g fat, 4.2 g fiber; 1 rice cake = 9 g; neutral.
 
 ### Proteins
 

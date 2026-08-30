@@ -108,8 +108,8 @@ function buildValidDraft(): DraftProposal {
 
 describe("closed food catalog", () => {
   it("contains one reviewed source of truth across all five categories", () => {
-    expect(foodCatalog).toHaveLength(17);
-    expect(new Set(foodCatalog.map((food) => food.id)).size).toBe(17);
+    expect(foodCatalog).toHaveLength(27);
+    expect(new Set(foodCatalog.map((food) => food.id)).size).toBe(27);
     expect(new Set(foodCatalog.map((food) => food.source.provider))).toEqual(
       new Set(["USDA FoodData Central", "FoodsDictionary"]),
     );
