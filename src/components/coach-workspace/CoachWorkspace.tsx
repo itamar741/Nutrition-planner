@@ -65,7 +65,7 @@ function CatalogSection({ approvedIds }: { approvedIds: string[] }) {
   return (
     <article className={styles.catalogCard}>
       <span>This demo profile’s food preferences</span>
-      <h3>Foods this profile approved</h3>
+      <h3>{approvedFoods.length} approved foods</h3>
       <p>
         These are the foods this demo user said they like. Plans can use only
         this subset, not every food in the catalog.
@@ -79,30 +79,6 @@ function CatalogSection({ approvedIds }: { approvedIds: string[] }) {
                 .filter((food) => food.category === category)
                 .map((food) => (
                   <li key={food.id}>{food.displayName}</li>
-                ))}
-            </ul>
-          </section>
-        ))}
-      </div>
-      <span className={styles.catalogSubheading}>
-        All foods in the demo catalog
-      </span>
-      <h3>Available catalog foods</h3>
-      <p>
-        Only these foods can be selected or used in a generated plan. Values and
-        portions come from the shared local catalog.
-      </p>
-      <div className={styles.catalogGroups}>
-        {foodCategoryOrder.map((category) => (
-          <section key={category}>
-            <h4>{foodCategoryLabels[category]}</h4>
-            <ul>
-              {foodCatalog
-                .filter((food) => food.category === category)
-                .map((food) => (
-                  <li key={food.id}>
-                    {food.displayName} <small>· {food.preparation}</small>
-                  </li>
                 ))}
             </ul>
           </section>

@@ -904,14 +904,6 @@
   line-height: 1.35;
 }
 
-.catalogGroups small {
-  color: var(--muted-ink);
-}
-
-.catalogSubheading {
-  margin-top: 28px;
-}
-
 @keyframes rise {
   from {
     transform: translateY(5px);
