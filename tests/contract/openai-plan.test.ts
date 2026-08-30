@@ -71,6 +71,9 @@ describe("strict Draft model boundary", () => {
     expect(creator.mock.calls[0][0].instructions).toContain(
       "Use this user feedback as a preference",
     );
+    expect(creator.mock.calls[0][0].instructions).toContain(
+      "Qualitative feedback must never change the daily target",
+    );
   });
 
   it("rejects malformed output twice without returning a Draft", async () => {

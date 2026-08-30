@@ -149,6 +149,12 @@ export async function generateDraft(
           request.message?.trim()
             ? `Use this user feedback as a preference for the new Draft, while keeping every catalog, nutrition, meal-pattern, and approval rule intact: ${request.message.trim()}`
             : "No additional user preference was provided.",
+          request.message?.trim()
+            ? "For feedback about eating more at a particular time, redistribute the approved foods and portions across meals while preserving the whole-day energy, protein, AMDR, and fiber totals; do not simply add calories or remove a meal."
+            : "",
+          request.message?.trim()
+            ? "Qualitative feedback must never change the daily target, meal count, meal IDs, or approved-food set. If the preference conflicts with nutrition constraints, satisfy the deterministic nutrition constraints first and keep the closest safe distribution."
+            : "",
           "Do not browse, invent food data, add meals, change the goal, or include instructions outside the schema.",
           repairIssue
             ? `Repair the previous invalid result: ${repairIssue}`
