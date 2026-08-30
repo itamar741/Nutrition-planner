@@ -1,6 +1,6 @@
 # Implementation Plan v0.1
 
-Status: Review-ready planning document. This document selects the implementation approach but does not authorize application code. Implementation begins only after explicit user approval of this plan.
+Status: Approved by the user on 2026-08-30. Turn 1 is authorized; Turns 2 and 3 remain pending later review and authorization.
 
 This plan is governed by [Project Framing](project-framing.md), [Project Description](project-description.md), [Interface Design](interface-design.md), [Product Specification](product-specification.md), the three [nutrition guidance documents](nutrition/maintenance.md), and the [Verification Plan](verification-plan.md). If this plan appears to broaden any of them, the narrower source document wins.
 
