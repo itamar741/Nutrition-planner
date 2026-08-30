@@ -2,7 +2,7 @@
 
 ## Current phase
 
-This repository is in the documentation and verification-design phase. Do not create application code, dependencies, package manifests, database schemas, deployment configuration, or implementation prompts unless the user explicitly authorizes the implementation phase after reviewing the planning documents.
+This repository is in the documentation and implementation-planning phase. The stack and three implementation turns are proposed in `docs/implementation-plan.md`, but no implementation is authorized by that document alone. Do not create application code, dependencies, package manifests, database schemas, deployment configuration, or implementation prompts unless the user explicitly approves the implementation plan and authorizes the implementation phase.
 
 ## Read first
 
@@ -15,6 +15,7 @@ Before proposing or changing work, read:
 5. `docs/nutrition/maintenance.md`
 6. The goal-specific nutrition document relevant to the task
 7. `docs/verification-plan.md`
+8. `docs/implementation-plan.md`
 
 The written specification wins over conversational memory. If documents conflict, stop and ask for clarification rather than selecting a broader interpretation.
 
@@ -47,8 +48,12 @@ Use the EER equations, PAL heuristic, age-appropriate AMDR ranges, protein targe
 ## Working protocol
 
 - For every non-trivial implementation turn: update relevant intent/spec/context, commit a clean restore point, create a branch, then plan before editing.
+- Use the architecture, trust boundaries, closed contracts, and three-turn sequence in `docs/implementation-plan.md`; stop before substituting a broader stack or action set.
 - Treat `docs/verification-plan.md` as the acceptance contract. Add or update a test/control case before accepting behavior changes.
 - Record verification evidence in versioned files; do not claim a test, demo, or review passed without its output or a documented human result.
 - Keep commits atomic and use honest messages.
 - Stop and ask before changing scope, nutrition rules, model/tool permissions, data sources, or any Active Plan approval invariant.
 
+## Planned implementation commands
+
+Turn 1 must create and keep these npm scripts stable: `format:check`, `lint`, `typecheck`, `test:unit`, `test:e2e`, `build`, and `verify`. `verify` must run all mandatory checks, including browser controls, and exit nonzero if any gate fails. Live-model smoke checks remain optional and separate from deterministic acceptance.

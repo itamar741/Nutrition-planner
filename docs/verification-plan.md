@@ -1,6 +1,6 @@
 # Verification Plan v0.1
 
-Status: Draft for review; no implementation commands exist yet because application code has not been authorized.
+Status: Draft for review. The planned command contract is now selected, but application code and executable commands remain unauthorized until the implementation plan is approved.
 
 ## Purpose
 
@@ -163,6 +163,16 @@ The user reviews the change only after automated and end-to-end gates pass. The 
 
 No change is accepted on the strength of appearance alone.
 
-## Deferred Command Registry
+## Planned Command Registry
 
-No runtime, package manager, linter, type checker, test runner, or browser-test command has been selected because choosing an implementation stack is a later planning decision. Before any code is accepted, this section must be replaced with the exact commands and expected outcomes used by Gates 1–4.
+The implementation plan selects npm, ESLint, Prettier, TypeScript, Vitest, React Testing Library, Playwright, and the Next.js production build. Turn 1 must create these scripts and record the pinned tool versions in its verification evidence:
+
+- `npm run format:check` — exit 0 only when tracked source and documentation match the configured formatting rules.
+- `npm run lint` — exit 0 with no ESLint errors or warnings.
+- `npm run typecheck` — exit 0 with no TypeScript errors.
+- `npm run test:unit` — run deterministic domain, reducer, and structured-contract tests once and exit 0 only when all pass.
+- `npm run test:e2e` — run Playwright controls against a production-like local server and exit 0 only when all pass.
+- `npm run build` — produce a successful production build.
+- `npm run verify` — run `format:check`, `lint`, `typecheck`, `test:unit`, `build`, and `test:e2e`; fail immediately or return nonzero if any mandatory check fails.
+
+An opt-in `npm run test:ai-live` may be added for one credentialed structured-response smoke test. It must not be included in offline deterministic acceptance and cannot replace mocked AI contract controls.

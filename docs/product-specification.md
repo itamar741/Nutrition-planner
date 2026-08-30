@@ -1,6 +1,6 @@
 # Product Specification v0.1
 
-Status: Review-ready. The nutrition-research dependencies have been resolved in the three cited guidance documents, but implementation remains prohibited until the user reviews these decisions and the remaining pre-implementation documentation gates are complete.
+Status: Review-ready. The nutrition-research dependencies and implementation plan have been documented, but implementation remains prohibited until the user explicitly approves `implementation-plan.md` and authorizes Turn 1.
 
 This specification is governed by [Project Framing](project-framing.md), [Project Description](project-description.md), and [Interface Design](interface-design.md). If a future interpretation expands the product beyond those documents, the narrower documented scope wins until the specification is deliberately revised.
 
