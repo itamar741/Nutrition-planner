@@ -3,14 +3,15 @@ import {
   nutritionTargetsSchema,
   structuredProfileSchema,
 } from "@/domain/profile/schemas";
+import { activePlanSchema, draftProposalSchema } from "@/domain/plan/schemas";
 import { z } from "zod";
 import type { DemoState } from "./demo-reducer";
 
-const storageKey = "nutrition-coach:new:v1";
+const storageKey = "nutrition-coach:new:v2";
 
 const persistedStateSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(2),
     profileId: z.literal("new"),
     profile: structuredProfileSchema,
     messages: z.array(
@@ -24,10 +25,15 @@ const persistedStateSchema = z
     ),
     activeTurn: assistantTurnSchema,
     targets: nutritionTargetsSchema.nullable(),
+    draft: draftProposalSchema.nullable(),
+    activePlan: activePlanSchema.nullable(),
     status: z.enum(["idle", "processing", "failed"]),
     pendingCommand: z
       .object({ id: z.string(), message: z.string() })
       .strict()
+      .nullable(),
+    pendingOperation: z
+      .enum(["onboarding", "draft", "modification"])
       .nullable(),
     processedCommandIds: z.array(z.string()),
     error: z.string().nullable(),

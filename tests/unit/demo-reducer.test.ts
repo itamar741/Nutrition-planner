@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createNewDemoState } from "@/data/demo-fixtures";
+import { calculateTargets } from "@/domain/nutrition/calculations";
 import { demoReducer } from "@/store/demo-reducer";
+import { makeReadyProfile, makeValidDraft } from "../fixtures/turn-2";
 
 describe("demo command reducer", () => {
   it("locks an open turn and records its user message once", () => {
@@ -77,5 +79,103 @@ describe("demo command reducer", () => {
     expect(
       twice.messages.filter((message) => message.text === "Maintenance"),
     ).toHaveLength(1);
+  });
+
+  it("keeps a generated Draft separate from Active state", () => {
+    const profile = makeReadyProfile();
+    const initial = {
+      ...createNewDemoState(),
+      profile,
+      targets: calculateTargets(profile),
+      activeTurn: {
+        type: "message" as const,
+        id: "profile-ready",
+        prompt: "Ready",
+      },
+    };
+    const started = demoReducer(initial, {
+      type: "start_plan",
+      command: { id: "command-draft", message: "Generate my Draft" },
+      operation: "draft",
+    });
+    const completed = demoReducer(started, {
+      type: "complete_draft",
+      commandId: "command-draft",
+      draft: makeValidDraft("command-draft"),
+    });
+
+    expect(completed.draft?.plan.validation.valid).toBe(true);
+    expect(completed.activePlan).toBeNull();
+  });
+
+  it("activates the exact current Draft once and ignores duplicate approval", () => {
+    const profile = makeReadyProfile();
+    const draft = makeValidDraft("command-draft");
+    const initial = {
+      ...createNewDemoState(),
+      profile,
+      targets: calculateTargets(profile),
+      draft,
+      activeTurn: {
+        type: "message" as const,
+        id: "profile-ready",
+        prompt: "Ready",
+      },
+    };
+    const once = demoReducer(initial, {
+      type: "activate_draft",
+      commandId: "approve-1",
+      proposalId: draft.id,
+      activatedAt: "2026-08-30T10:00:00.000Z",
+    });
+    const twice = demoReducer(once, {
+      type: "activate_draft",
+      commandId: "approve-1",
+      proposalId: draft.id,
+      activatedAt: "2026-08-30T10:00:00.000Z",
+    });
+
+    expect(once.draft).toBeNull();
+    expect(once.activePlan?.version).toBe(1);
+    expect(once.activePlan?.plan.id).toBe(draft.plan.id);
+    expect(twice).toBe(once);
+  });
+
+  it("rejects a stale proposal and preserves the current Active Plan", () => {
+    const profile = makeReadyProfile();
+    const activeDraft = makeValidDraft("active-source");
+    const activeState = demoReducer(
+      {
+        ...createNewDemoState(),
+        profile,
+        targets: calculateTargets(profile),
+        draft: activeDraft,
+        activeTurn: {
+          type: "message" as const,
+          id: "profile-ready",
+          prompt: "Ready",
+        },
+      },
+      {
+        type: "activate_draft",
+        commandId: "approve-existing",
+        proposalId: activeDraft.id,
+        activatedAt: "2026-08-30T10:00:00.000Z",
+      },
+    );
+    const staleDraft = {
+      ...makeValidDraft("stale"),
+      basePlanVersion: null,
+    };
+    const withStaleDraft = { ...activeState, draft: staleDraft };
+    const result = demoReducer(withStaleDraft, {
+      type: "activate_draft",
+      commandId: "approve-stale",
+      proposalId: staleDraft.id,
+      activatedAt: "2026-08-30T11:00:00.000Z",
+    });
+
+    expect(result).toBe(withStaleDraft);
+    expect(result.activePlan?.version).toBe(1);
   });
 });

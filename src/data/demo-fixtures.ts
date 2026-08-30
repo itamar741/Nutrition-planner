@@ -46,7 +46,7 @@ export const existingProfileFoundation: StructuredProfile = {
 export function createNewDemoState(): DemoState {
   const activeTurn = getNextTurn(emptyProfile);
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     profileId: "new",
     profile: structuredClone(emptyProfile),
     messages: [
@@ -58,8 +58,11 @@ export function createNewDemoState(): DemoState {
     ],
     activeTurn,
     targets: null,
+    draft: null,
+    activePlan: null,
     status: "idle",
     pendingCommand: null,
+    pendingOperation: null,
     processedCommandIds: [],
     error: null,
   };

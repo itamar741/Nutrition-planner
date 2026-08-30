@@ -14,10 +14,16 @@ import {
   onboardingSuccessSchema,
 } from "@/ai/contracts";
 import {
+  draftModificationSuccessSchema,
+  draftSuccessSchema,
+  planFailureSchema,
+} from "@/ai/plan-contracts";
+import {
   createNewDemoState,
   demoProfileNames,
   existingProfileFoundation,
 } from "@/data/demo-fixtures";
+import { foodCatalogById } from "@/data/food-catalog";
 import { getChecklist } from "@/domain/profile/onboarding";
 import type { DemoProfileId, QuickReplyOption } from "@/domain/profile/types";
 import { demoReducer, type PendingCommand } from "@/store/demo-reducer";
@@ -26,6 +32,8 @@ import {
   loadNewDemoState,
   saveNewDemoState,
 } from "@/store/local-demo-store";
+import { FoodGrid } from "./FoodGrid";
+import { PlanPanel } from "./PlanPanel";
 import styles from "./CoachWorkspace.module.css";
 
 function createCommandId() {
@@ -42,9 +50,8 @@ function ExistingFoundation() {
       <p className={styles.kicker}>Prepared profile · foundation checkpoint</p>
       <h1>The adjustment story starts with a trusted baseline.</h1>
       <p>
-        This fixed profile is ready for the catalog, Active Plan, and seeded
-        weight history in the next approved turns. No historical chat or
-        additional account is created.
+        This fixed profile is ready for its Active Plan and seeded weight
+        history in Turn 3. No historical chat or additional account is created.
       </p>
       <div className={styles.existingGrid}>
         <article className={styles.existingCard}>
@@ -94,6 +101,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
     createNewDemoState,
   );
   const [draftMessage, setDraftMessage] = useState("");
+  const [selectedFoodIds, setSelectedFoodIds] = useState<string[]>([]);
   const [isSlow, setIsSlow] = useState(false);
   const turnLock = useRef(false);
   const hasSeenInitialState = useRef(false);
@@ -187,11 +195,101 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
     }
   }
 
+  async function sendPlanCommand(
+    command: PendingCommand,
+    operation: "draft" | "modification",
+    retry = false,
+  ) {
+    if (turnLock.current || state.status === "processing") return;
+    turnLock.current = true;
+    setIsSlow(false);
+    if (retry) {
+      dispatch({ type: "retry_plan", commandId: command.id });
+    } else {
+      dispatch({ type: "start_plan", command, operation });
+    }
+
+    const slowTimer = window.setTimeout(() => setIsSlow(true), 1_200);
+    try {
+      const endpoint =
+        operation === "draft"
+          ? "/api/coach/draft"
+          : "/api/coach/draft-modification";
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          operation === "draft"
+            ? { commandId: command.id, profile: state.profile }
+            : {
+                commandId: command.id,
+                message: command.message,
+                profile: state.profile,
+                draft: state.draft,
+              },
+        ),
+      });
+      const body: unknown = await response.json();
+      if (!response.ok) {
+        const failure = planFailureSchema.safeParse(body);
+        throw new Error(
+          failure.success
+            ? failure.data.message
+            : "The plan operation could not be completed.",
+        );
+      }
+
+      if (operation === "draft") {
+        const result = draftSuccessSchema.parse(body);
+        dispatch({
+          type: "complete_draft",
+          commandId: command.id,
+          draft: result.draft,
+        });
+      } else {
+        const result = draftModificationSuccessSchema.parse(body);
+        if (result.outcome === "modified") {
+          dispatch({
+            type: "complete_modification",
+            commandId: command.id,
+            draft: result.draft,
+            message: result.message,
+          });
+        } else {
+          dispatch({
+            type: "complete_unsupported",
+            commandId: command.id,
+            message: result.message,
+          });
+        }
+      }
+      setDraftMessage("");
+    } catch (error) {
+      dispatch({
+        type: "fail_plan",
+        commandId: command.id,
+        message:
+          error instanceof Error
+            ? error.message
+            : "The plan operation could not be completed.",
+      });
+    } finally {
+      window.clearTimeout(slowTimer);
+      setIsSlow(false);
+      turnLock.current = false;
+    }
+  }
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const message = draftMessage.trim();
-    if (!message || state.activeTurn.type !== "open_question") return;
-    void sendOpenCommand({ id: createCommandId(), message });
+    if (!message) return;
+    const command = { id: createCommandId(), message };
+    if (state.draft) {
+      void sendPlanCommand(command, "modification");
+    } else if (state.activeTurn.type === "open_question") {
+      void sendOpenCommand(command);
+    }
   }
 
   function handleQuickReply(option: QuickReplyOption) {
@@ -208,17 +306,88 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
     }, 250);
   }
 
+  function toggleFood(id: string) {
+    if (turnLock.current || state.status !== "idle") return;
+    setSelectedFoodIds((current) =>
+      current.includes(id)
+        ? current.filter((candidate) => candidate !== id)
+        : [...current, id],
+    );
+  }
+
+  function submitFoodSelection() {
+    if (turnLock.current || state.status !== "idle") return;
+    turnLock.current = true;
+    dispatch({
+      type: "apply_food_selection",
+      commandId: createCommandId(),
+      ids: selectedFoodIds,
+    });
+    window.setTimeout(() => {
+      turnLock.current = false;
+    }, 250);
+  }
+
+  function handleRetry() {
+    if (!state.pendingCommand || !state.pendingOperation) return;
+    if (state.pendingOperation === "onboarding") {
+      void sendOpenCommand(state.pendingCommand, true);
+    } else {
+      void sendPlanCommand(state.pendingCommand, state.pendingOperation, true);
+    }
+  }
+
   function handleReset() {
     turnLock.current = false;
     clearNewDemoState();
     dispatch({ type: "hydrate", state: createNewDemoState() });
     setDraftMessage("");
+    setSelectedFoodIds([]);
+  }
+
+  function handleApprove() {
+    if (!state.draft || turnLock.current || state.status !== "idle") return;
+    turnLock.current = true;
+    dispatch({
+      type: "activate_draft",
+      commandId: createCommandId(),
+      proposalId: state.draft.id,
+      activatedAt: new Date().toISOString(),
+    });
+    window.setTimeout(() => {
+      turnLock.current = false;
+    }, 250);
+  }
+
+  function handleReject() {
+    if (!state.draft || turnLock.current || state.status !== "idle") return;
+    turnLock.current = true;
+    dispatch({
+      type: "reject_draft",
+      commandId: createCommandId(),
+      proposalId: state.draft.id,
+    });
+    window.setTimeout(() => {
+      turnLock.current = false;
+    }, 250);
   }
 
   const inputEnabled =
     profileId === "new" &&
-    state.activeTurn.type === "open_question" &&
-    state.status === "idle";
+    state.status === "idle" &&
+    (Boolean(state.draft) || state.activeTurn.type === "open_question");
+  const processingText =
+    state.pendingOperation === "draft"
+      ? isSlow
+        ? "Still composing and validating your Draft—your request is safely queued."
+        : "Building and validating your Draft…"
+      : state.pendingOperation === "modification"
+        ? isSlow
+          ? "Still validating the change—the current Draft is unchanged."
+          : "Checking that Draft change…"
+        : isSlow
+          ? "Still reviewing your details—your answer is safely queued."
+          : "Reviewing your details…";
 
   return (
     <main className={styles.page}>
@@ -242,11 +411,20 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
               aria-label="Coach conversation"
             >
               <header className={styles.conversationHeader}>
-                <p className={styles.kicker}>Adaptive onboarding</p>
-                <h1>Let’s build your baseline.</h1>
+                <p className={styles.kicker}>Adaptive nutrition coach</p>
+                <h1>
+                  {state.draft
+                    ? "Your Draft is ready to review."
+                    : state.activePlan
+                      ? "Your plan is Active."
+                      : "Let’s build your baseline."}
+                </h1>
                 <p>
-                  I’ll keep what you confirm and ask only for what is still
-                  missing.
+                  {state.draft
+                    ? "Ask for one food replacement or portion change, or approve the exact Draft."
+                    : state.activePlan
+                      ? "This exact validated plan is now your approved baseline."
+                      : "I’ll keep what you confirm and ask only for what is still missing."}
                 </p>
               </header>
 
@@ -267,9 +445,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                 {state.status === "processing" ? (
                   <div className={styles.processing} role="status">
                     <span className={styles.pulse} aria-hidden="true" />
-                    {isSlow
-                      ? "Still reviewing your details—your answer is safely queued."
-                      : "Reviewing your details…"}
+                    {processingText}
                   </div>
                 ) : null}
                 <div ref={messagesEnd} />
@@ -281,9 +457,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                     <p>{state.error}</p>
                     <button
                       className={styles.retryButton}
-                      onClick={() =>
-                        void sendOpenCommand(state.pendingCommand!, true)
-                      }
+                      onClick={handleRetry}
                       type="button"
                     >
                       Retry
@@ -311,17 +485,63 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                   </>
                 ) : state.activeTurn.type === "food_grid" ? (
                   <>
-                    <div className={styles.foodPlaceholder}>
-                      <span aria-hidden="true">▦</span>
-                      <p>
-                        <strong>Food selection is next.</strong>
-                        <br />
-                        The closed catalog and five-category grid arrive in Turn
-                        2.
-                      </p>
-                    </div>
+                    <FoodGrid
+                      disabled={state.status !== "idle"}
+                      onSubmit={submitFoodSelection}
+                      onToggle={toggleFood}
+                      selectedIds={selectedFoodIds}
+                    />
                     <DisabledComposer placeholder="Complete food selection above" />
                   </>
+                ) : state.draft ? (
+                  <form className={styles.composer} onSubmit={handleSubmit}>
+                    <textarea
+                      aria-label="Message to nutrition coach"
+                      disabled={!inputEnabled}
+                      maxLength={1_000}
+                      onChange={(event) => setDraftMessage(event.target.value)}
+                      placeholder="Try: replace one food, or change one portion…"
+                      rows={2}
+                      value={draftMessage}
+                    />
+                    <button
+                      className={styles.sendButton}
+                      disabled={!inputEnabled || !draftMessage.trim()}
+                      type="submit"
+                    >
+                      Request change
+                    </button>
+                  </form>
+                ) : state.activePlan ? (
+                  <DisabledComposer placeholder="Your plan is Active" />
+                ) : state.targets ? (
+                  <div className={styles.generateBox}>
+                    <div>
+                      <strong>Your profile and targets are ready.</strong>
+                      <p>
+                        The coach will compose from your{" "}
+                        {state.profile.approvedCatalogFoodIds.length} approved
+                        foods, then deterministic checks decide whether the
+                        Draft is valid.
+                      </p>
+                    </div>
+                    <button
+                      className={styles.primaryAction}
+                      disabled={state.status !== "idle"}
+                      onClick={() =>
+                        void sendPlanCommand(
+                          {
+                            id: createCommandId(),
+                            message: "Generate my Draft Meal Plan",
+                          },
+                          "draft",
+                        )
+                      }
+                      type="button"
+                    >
+                      Generate Draft
+                    </button>
+                  </div>
                 ) : (
                   <form className={styles.composer} onSubmit={handleSubmit}>
                     <textarea
@@ -339,9 +559,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                     />
                     <button
                       className={styles.sendButton}
-                      disabled={
-                        !inputEnabled || draftMessage.trim().length === 0
-                      }
+                      disabled={!inputEnabled || !draftMessage.trim()}
                       type="submit"
                     >
                       Send
@@ -351,7 +569,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
               </div>
             </section>
 
-            <aside className={styles.context} aria-label="Onboarding progress">
+            <aside className={styles.context} aria-label="Plan and progress">
               <div className={styles.contextHeader}>
                 <div>
                   <p className={styles.kicker}>Your progress</p>
@@ -393,14 +611,26 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                   </li>
                 ))}
               </ul>
-              <article className={styles.planEmpty}>
-                <span>No plan yet</span>
-                <h3>Your Draft will appear here.</h3>
-                <p>
-                  Complete onboarding and food selection first. Nothing becomes
-                  Active without your explicit approval.
-                </p>
-              </article>
+              {state.profile.approvedCatalogFoodIds.length > 0 ? (
+                <details className={styles.approvedFoods}>
+                  <summary>
+                    {state.profile.approvedCatalogFoodIds.length} approved foods
+                  </summary>
+                  <p>
+                    {state.profile.approvedCatalogFoodIds
+                      .map((id) => foodCatalogById.get(id)?.displayName ?? id)
+                      .join(" · ")}
+                  </p>
+                </details>
+              ) : null}
+              <PlanPanel
+                activePlan={state.activePlan}
+                disabled={state.status !== "idle"}
+                draft={state.draft}
+                onApprove={handleApprove}
+                onReject={handleReject}
+                targets={state.targets}
+              />
             </aside>
           </>
         )}
