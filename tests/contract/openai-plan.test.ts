@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   generateDraft,
   generateDraftModification,
+  generateAdjustmentDraft,
   PlanModelContractError,
 } from "@/ai/plan";
 import {
@@ -9,6 +10,10 @@ import {
   makeValidDraft,
   makeValidMaintenanceCandidate,
 } from "../fixtures/turn-2";
+import {
+  createExistingActivePlan,
+  existingReadyProfile,
+} from "@/data/demo-fixtures";
 
 describe("strict Draft model boundary", () => {
   it("accepts one valid structured candidate and recalculates it", async () => {
@@ -136,5 +141,24 @@ describe("strict Draft model boundary", () => {
     expect(result.draft.plan.version).toBe(2);
     expect(result.draft.plan.validation.valid).toBe(true);
     expect(current.plan.version).toBe(1);
+  });
+
+  it("falls back to a deterministic, validated adjustment after invalid model output", async () => {
+    const activePlan = createExistingActivePlan();
+    const creator = vi.fn().mockResolvedValue("not json");
+    const draft = await generateAdjustmentDraft(
+      {
+        commandId: "command-adjustment-1",
+        profile: existingReadyProfile,
+        activePlan,
+        direction: "decrease",
+        adjustmentKcal: 150,
+      },
+      creator,
+    );
+    expect(creator).toHaveBeenCalledTimes(2);
+    expect(draft.basePlanVersion).toBe(activePlan.version);
+    expect(draft.plan.validation.valid).toBe(true);
+    expect(draft.plan.targetSnapshot.energyKcal).toBe(2_800);
   });
 });

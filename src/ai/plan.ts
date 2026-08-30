@@ -426,6 +426,34 @@ export async function generateAdjustmentDraft(
       repairIssue = repairMessage(error);
     }
   }
+  const fallback = buildDeterministicSeedCandidate(request.profile);
+  const repairedFallback = fallback
+    ? repairCandidateNutrition({
+        candidate: fallback,
+        profile: request.profile,
+        targets,
+      })
+    : null;
+  if (repairedFallback) {
+    const plan = validateAndBuildPlan({
+      candidate: repairedFallback,
+      profile: request.profile,
+      targets,
+      planId: `plan-${request.commandId}`,
+      version: request.activePlan.version + 1,
+    });
+    if (plan.validation.valid) {
+      return {
+        schemaVersion: 1,
+        id: `adjustment-${request.commandId}`,
+        basePlanVersion: request.activePlan.version,
+        reason: "modification",
+        summary:
+          "A validated adjustment was prepared from your approved foods.",
+        plan,
+      };
+    }
+  }
   throw new PlanModelContractError(
     repairIssue ?? "The adjustment did not pass validation.",
     "validation",
