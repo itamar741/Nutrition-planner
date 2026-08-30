@@ -563,6 +563,7 @@
 
 .planEmpty,
 .existingCard,
+.catalogCard,
 .planCard {
   margin-top: 28px;
   padding: 22px;
@@ -572,7 +573,8 @@
 }
 
 .planEmpty span,
-.existingCard span {
+.existingCard span,
+.catalogCard > span {
   display: inline-block;
   margin-bottom: 10px;
   color: var(--accent);
@@ -805,7 +807,8 @@
 }
 
 .planEmpty h3,
-.existingCard h3 {
+.existingCard h3,
+.catalogCard h3 {
   margin: 0 0 8px;
   font-family: Georgia, "Times New Roman", serif;
   font-size: 1.45rem;
@@ -813,7 +816,8 @@
 }
 
 .planEmpty p,
-.existingCard p {
+.existingCard p,
+.catalogCard > p {
   margin: 0;
   color: var(--muted-ink);
   line-height: 1.55;
@@ -847,6 +851,65 @@
   grid-template-columns: repeat(3, 1fr);
   gap: 16px;
   margin-top: 36px;
+}
+
+.activePlanDetails {
+  margin-top: 12px;
+}
+
+.activePlanDetails summary {
+  cursor: pointer;
+  color: var(--primary-hover);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.catalogCard {
+  margin-top: 28px;
+}
+
+.catalogGroups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.catalogGroups section {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #f7f6f0;
+}
+
+.catalogGroups h4 {
+  margin: 0 0 9px;
+  color: var(--primary-hover);
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.catalogGroups ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.catalogGroups li {
+  color: var(--ink);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.catalogGroups small {
+  color: var(--muted-ink);
+}
+
+.catalogSubheading {
+  margin-top: 28px;
 }
 
 @keyframes rise {
@@ -914,6 +977,10 @@
   }
 
   .foodOptions {
+    grid-template-columns: 1fr;
+  }
+
+  .catalogGroups {
     grid-template-columns: 1fr;
   }
 

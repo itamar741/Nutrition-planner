@@ -415,22 +415,39 @@ export function buildDeterministicSeedCandidate(
   const selected = foodCatalog.filter((food) =>
     profile.approvedCatalogFoodIds.includes(food.id),
   );
-  const foodFor = (category: CatalogFood["category"]) =>
-    selected.find((food) => food.category === category);
-  const carbohydrate = foodFor("carbohydrate");
-  const protein = foodFor("protein");
-  const fat = foodFor("fat");
-  const vegetable = foodFor("vegetable");
-  const fruit = foodFor("fruit");
-  if (!carbohydrate || !protein || !fat || !vegetable || !fruit) return null;
+  const foodsFor = (category: CatalogFood["category"]) =>
+    selected.filter((food) => food.category === category);
+  const carbohydrates = foodsFor("carbohydrate");
+  const proteins = foodsFor("protein");
+  const fats = foodsFor("fat");
+  const vegetables = foodsFor("vegetable");
+  const fruits = foodsFor("fruit");
+  if (
+    !carbohydrates.length ||
+    !proteins.length ||
+    !fats.length ||
+    !vegetables.length ||
+    !fruits.length
+  )
+    return null;
 
   const mealIds = getExpectedMealIds(profile.mealPattern);
   return {
     summary: "A validated repeatable day built from your approved foods.",
     meals: mealIds.map((id, index) => {
-      const foods = [carbohydrate, fat];
-      if (index > 0) foods.push(protein, vegetable);
-      if (index === 0 || index === mealIds.length - 2) foods.push(fruit);
+      const foods = [
+        carbohydrates[index % carbohydrates.length],
+        fats[index % fats.length],
+      ];
+      if (index > 0) {
+        foods.push(
+          proteins[index % proteins.length],
+          vegetables[index % vegetables.length],
+        );
+      }
+      if (index === 0 || index === mealIds.length - 2) {
+        foods.push(fruits[index % fruits.length]);
+      }
       return {
         id,
         items: foods.map((food) => ({

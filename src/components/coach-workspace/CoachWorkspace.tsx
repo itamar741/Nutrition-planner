@@ -27,7 +27,12 @@ import {
   existingReadyProfile,
   existingWeightHistory,
 } from "@/data/demo-fixtures";
-import { foodCatalogById } from "@/data/food-catalog";
+import {
+  foodCatalog,
+  foodCatalogById,
+  foodCategoryLabels,
+  foodCategoryOrder,
+} from "@/data/food-catalog";
 import { roundTo25HalfUp } from "@/domain/nutrition/calculations";
 import { getChecklist } from "@/domain/profile/onboarding";
 import {
@@ -50,6 +55,60 @@ function createCommandId() {
   return (
     globalThis.crypto?.randomUUID?.() ??
     `command-${Date.now()}-${Math.random()}`
+  );
+}
+
+function CatalogSection({ approvedIds }: { approvedIds: string[] }) {
+  const approvedFoods = foodCatalog.filter((food) =>
+    approvedIds.includes(food.id),
+  );
+  return (
+    <article className={styles.catalogCard}>
+      <span>This demo profile’s food preferences</span>
+      <h3>{approvedFoods.length} approved foods</h3>
+      <p>
+        These are the foods this demo user said they like. Plans can use only
+        this subset, not every food in the catalog.
+      </p>
+      <div className={styles.catalogGroups}>
+        {foodCategoryOrder.map((category) => (
+          <section key={category}>
+            <h4>{foodCategoryLabels[category]}</h4>
+            <ul>
+              {approvedFoods
+                .filter((food) => food.category === category)
+                .map((food) => (
+                  <li key={food.id}>{food.displayName}</li>
+                ))}
+            </ul>
+          </section>
+        ))}
+      </div>
+      <span className={styles.catalogSubheading}>
+        All foods in the demo catalog
+      </span>
+      <h3>{foodCatalog.length} approved foods</h3>
+      <p>
+        Only these foods can be selected or used in a generated plan. Values and
+        portions come from the shared local catalog.
+      </p>
+      <div className={styles.catalogGroups}>
+        {foodCategoryOrder.map((category) => (
+          <section key={category}>
+            <h4>{foodCategoryLabels[category]}</h4>
+            <ul>
+              {foodCatalog
+                .filter((food) => food.category === category)
+                .map((food) => (
+                  <li key={food.id}>
+                    {food.displayName} <small>· {food.preparation}</small>
+                  </li>
+                ))}
+            </ul>
+          </section>
+        ))}
+      </div>
+    </article>
   );
 }
 
@@ -262,6 +321,19 @@ function ExistingFoundation() {
           <p>
             Version {activePlan.version}; changes require an explicit approval.
           </p>
+          <details className={styles.activePlanDetails}>
+            <summary>View active daily plan</summary>
+            <PlanContents
+              proposal={{
+                schemaVersion: 1,
+                id: `active-${activePlan.version}`,
+                basePlanVersion: activePlan.version,
+                reason: "initial",
+                summary: "Your approved repeatable day.",
+                plan: activePlan.plan,
+              }}
+            />
+          </details>
         </article>
         <article className={styles.existingCard}>
           <span>Weight trend</span>
@@ -295,6 +367,9 @@ function ExistingFoundation() {
           {notice ? <p role="status">{notice}</p> : null}
         </article>
       </div>
+      <CatalogSection
+        approvedIds={existingReadyProfile.approvedCatalogFoodIds}
+      />
     </section>
   );
 }

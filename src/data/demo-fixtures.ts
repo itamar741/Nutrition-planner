@@ -2,7 +2,6 @@ import { getNextTurn } from "@/domain/profile/onboarding";
 import { calculateTargets } from "@/domain/nutrition/calculations";
 import { validateAndBuildPlan } from "@/domain/plan/validation";
 import type { ActivePlan, DraftCandidate } from "@/domain/plan/types";
-import { foodCatalog } from "@/data/food-catalog";
 import type { DemoProfileId, StructuredProfile } from "@/domain/profile/types";
 import type { DemoState } from "@/store/demo-reducer";
 
@@ -47,10 +46,43 @@ export const existingProfileFoundation: StructuredProfile = {
   approvedCatalogFoodIds: [],
 };
 
+export const existingApprovedFoodIds = [
+  "rolled-oats-dry",
+  "white-rice-cooked",
+  "sweet-potato-baked",
+  "potato-baked",
+  "pasta-cooked",
+  "quinoa-cooked",
+  "whole-wheat-pita",
+  "chicken-breast-roasted",
+  "salmon-atlantic-cooked",
+  "tofu-firm",
+  "greek-yogurt-nonfat",
+  "olive-oil",
+  "avocado-raw",
+  "almonds-roasted",
+  "walnuts-english",
+  "tahini-raw",
+  "peanut-butter-natural",
+  "broccoli-raw",
+  "carrots-raw",
+  "spinach-raw",
+  "red-bell-pepper-raw",
+  "cucumber-raw",
+  "tomato-raw",
+  "banana-raw",
+  "apple-fuji-raw",
+  "blueberries-raw",
+  "peach-raw",
+  "strawberries-raw",
+  "date-medjool",
+  "pear-raw",
+] as const;
+
 export const existingReadyProfile: StructuredProfile = {
   ...existingProfileFoundation,
   foodPreferencesComplete: true,
-  approvedCatalogFoodIds: foodCatalog.map((food) => food.id),
+  approvedCatalogFoodIds: [...existingApprovedFoodIds],
 };
 
 export const existingWeightHistory = Array.from({ length: 35 }, (_, index) => {
