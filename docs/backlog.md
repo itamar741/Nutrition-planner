@@ -14,3 +14,9 @@ The Existing Demo Profile's adjustment proposal must be part of the coach conver
 - The interaction needs explicit loading, invalid-proposal, retry, stale-proposal, and unsupported-feedback states.
 
 This item does not add general chat memory, arbitrary AI actions, new food lookup, goal switching, or any feature outside the approved project scope.
+
+## B-02 — Weight display precision
+
+Status: queued. Added from user feedback on 2026-08-30; not implemented yet.
+
+Display every editable or read-only weight value with at most two digits after the decimal point. Keep the unrounded stored value and deterministic calculations unchanged; this is a presentation-only rule.
