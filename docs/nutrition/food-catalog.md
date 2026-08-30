@@ -1,6 +1,6 @@
 # Closed Food Catalog v0.1
 
-Status: Turn 2 reviewed data record. Runtime code contains the same 30 entries in `src/data/food-catalog.ts`.
+Status: Turn 2 reviewed data record. Runtime code contains the same 37 entries in `src/data/food-catalog.ts`.
 
 ## Source and Retrieval
 
@@ -55,12 +55,19 @@ Each row lists: internal ID; USDA FDC ID and dataset; preparation; kcal, protein
 - `broccoli-raw`; FDC 747447, Foundation Foods; raw chopped; 31 kcal, 2.57 g protein, 6.27 g carbohydrate, 0.34 g fat, 2.4 g fiber; 1 cup = 76 g; neutral.
 - `carrots-raw`; FDC 2258586, Foundation Foods; raw; 45 kcal, 0.941 g protein, 10.3 g carbohydrate, 0.351 g fat, 3.1 g fiber; 1 serving = 85 g; neutral.
 - `spinach-raw`; FDC 1999633, Foundation Foods; mature raw leaves; 21.6 kcal, 2.91 g protein, 2.64 g carbohydrate, 0.604 g fat, 1.59 g fiber; 1 serving = 85 g; neutral.
+- `red-bell-pepper-raw`; FDC 170108, SR Legacy; raw; 26 kcal, 0.99 g protein, 6.03 g carbohydrate, 0.3 g fat, 2.1 g fiber; 1 medium pepper = 119 g; neutral.
+- `cucumber-raw`; FDC 168409, SR Legacy; raw with peel; 15 kcal, 0.65 g protein, 3.63 g carbohydrate, 0.11 g fat, 0.5 g fiber; 1 medium cucumber = 201 g; neutral.
+- `tomato-raw`; FDC 170457, SR Legacy; raw ripe tomato; 18 kcal, 0.88 g protein, 3.89 g carbohydrate, 0.2 g fat, 1.2 g fiber; 1 medium tomato = 123 g; neutral.
 
 ### Fruits
 
 - `banana-raw`; FDC 1105314, Foundation Foods; ripe raw peeled; 97 kcal, 0.74 g protein, 23 g carbohydrate, 0.29 g fat, 1.7 g fiber; 1 peeled banana = 115 g; neutral.
 - `apple-fuji-raw`; FDC 1750340, Foundation Foods; raw with skin; 58.2 kcal, 0.148 g protein, 15.7 g carbohydrate, 0.162 g fat, 2.08 g fiber; 1 serving = 140 g; neutral.
 - `blueberries-raw`; FDC 171711, SR Legacy; raw; 57 kcal, 0.74 g protein, 14.5 g carbohydrate, 0.33 g fat, 2.4 g fiber; 1 cup = 148 g; neutral.
+- `peach-raw`; FDC 169928, SR Legacy; raw yellow peach; 39 kcal, 0.91 g protein, 9.54 g carbohydrate, 0.25 g fat, 1.5 g fiber; 1 medium peach = 150 g; neutral.
+- `strawberries-raw`; FDC 167762, SR Legacy; raw; 32 kcal, 0.67 g protein, 7.68 g carbohydrate, 0.3 g fat, 2 g fiber; 1 cup sliced = 166 g; neutral.
+- `date-medjool`; FDC 168191, SR Legacy; raw pitted Medjool date; 277 kcal, 1.81 g protein, 75 g carbohydrate, 0.15 g fat, 6.7 g fiber; 1 date = 24 g; neutral.
+- `pear-raw`; FDC 169118, SR Legacy; raw with skin; 57 kcal, 0.36 g protein, 15.2 g carbohydrate, 0.14 g fat, 3.1 g fiber; 1 medium pear = 178 g; neutral.
 
 ## Manual Scope Review
 
