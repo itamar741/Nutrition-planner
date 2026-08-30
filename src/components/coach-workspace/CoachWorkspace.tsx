@@ -43,7 +43,7 @@ import {
   saveNewDemoState,
 } from "@/store/local-demo-store";
 import { FoodGrid } from "./FoodGrid";
-import { PlanPanel } from "./PlanPanel";
+import { PlanContents, PlanPanel } from "./PlanPanel";
 import styles from "./CoachWorkspace.module.css";
 
 function createCommandId() {
@@ -190,6 +190,27 @@ function ExistingFoundation() {
               {adjustmentDraft ? (
                 <>
                   <p>{adjustmentDraft.summary}</p>
+                  <div className={styles.adjustmentComparison}>
+                    <span>
+                      Current target{" "}
+                      <strong>
+                        {activePlan.plan.targetSnapshot.energyKcal} kcal
+                      </strong>
+                    </span>
+                    <span aria-hidden="true">→</span>
+                    <span>
+                      Proposed target{" "}
+                      <strong>
+                        {adjustmentDraft.plan.targetSnapshot.energyKcal} kcal
+                      </strong>
+                    </span>
+                  </div>
+                  <div className={styles.adjustmentPlanDetails}>
+                    <p className={styles.adjustmentDetailsTitle}>
+                      Proposed daily plan
+                    </p>
+                    <PlanContents proposal={adjustmentDraft} />
+                  </div>
                   <button
                     className={styles.primaryAction}
                     onClick={approveAdjustment}

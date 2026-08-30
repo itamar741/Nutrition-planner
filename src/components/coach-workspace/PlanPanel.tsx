@@ -9,7 +9,7 @@ function formatNumber(value: number, digits = 0) {
   }).format(value);
 }
 
-function PlanContents({ proposal }: { proposal: DraftProposal }) {
+export function PlanContents({ proposal }: { proposal: DraftProposal }) {
   const totals = proposal.plan.validation.totals;
   return (
     <>

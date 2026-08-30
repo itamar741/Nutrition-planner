@@ -675,6 +675,44 @@
   margin: 12px 0;
 }
 
+.adjustmentComparison {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 10px;
+  align-items: center;
+  margin: 16px 0;
+  padding: 12px;
+  border: 1px solid rgba(190, 108, 42, 0.28);
+  border-radius: 12px;
+  background: #fff7ef;
+  color: var(--muted-ink);
+  font-size: 0.82rem;
+}
+
+.adjustmentComparison span:last-child {
+  text-align: right;
+}
+
+.adjustmentComparison strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink);
+  font-size: 0.96rem;
+}
+
+.adjustmentPlanDetails {
+  margin: 16px 0;
+}
+
+.adjustmentDetailsTitle {
+  margin: 0 0 8px !important;
+  color: var(--primary-hover) !important;
+  font-size: 0.78rem;
+  font-weight: 850;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
 .nutritionStrip {
   display: grid;
   margin: 14px 0;
