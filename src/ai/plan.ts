@@ -8,6 +8,7 @@ import {
 } from "@/domain/plan/schemas";
 import {
   applyModificationToDraft,
+  buildDeterministicSeedCandidate,
   getExpectedMealIds,
   repairCandidateNutrition,
   validateAndBuildPlan,
@@ -205,9 +206,16 @@ export async function generateDraft(
     }
   }
 
-  if (lastCandidate) {
+  const fallbackCandidates = lastCandidate
+    ? [
+        lastCandidate,
+        buildDeterministicSeedCandidate(request.profile) ?? undefined,
+      ].filter((candidate): candidate is DraftCandidate => Boolean(candidate))
+    : [];
+
+  for (const fallbackCandidate of fallbackCandidates) {
     const repairedCandidate = repairCandidateNutrition({
-      candidate: lastCandidate,
+      candidate: fallbackCandidate,
       profile: request.profile,
       targets,
     });
