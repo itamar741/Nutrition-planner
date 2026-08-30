@@ -1,4 +1,8 @@
 import { getNextTurn } from "@/domain/profile/onboarding";
+import { calculateTargets } from "@/domain/nutrition/calculations";
+import { validateAndBuildPlan } from "@/domain/plan/validation";
+import type { ActivePlan, DraftCandidate } from "@/domain/plan/types";
+import { foodCatalog } from "@/data/food-catalog";
 import type { DemoProfileId, StructuredProfile } from "@/domain/profile/types";
 import type { DemoState } from "@/store/demo-reducer";
 
@@ -42,6 +46,82 @@ export const existingProfileFoundation: StructuredProfile = {
   foodPreferencesComplete: false,
   approvedCatalogFoodIds: [],
 };
+
+const existingReadyProfile: StructuredProfile = {
+  ...existingProfileFoundation,
+  foodPreferencesComplete: true,
+  approvedCatalogFoodIds: foodCatalog.map((food) => food.id),
+};
+
+export const existingWeightHistory = Array.from({ length: 35 }, (_, index) => {
+  const date = new Date(Date.UTC(2026, 6, 27 + index));
+  return {
+    date: date.toISOString().slice(0, 10),
+    weightKg: 80 + index * 0.0571428571,
+  };
+});
+
+const existingCandidate: DraftCandidate = {
+  summary: "A repeatable maintenance day built from the approved catalog.",
+  meals: [
+    {
+      id: "breakfast",
+      items: [
+        { catalogFoodId: "rolled-oats-dry", grams: 100, alternatives: [] },
+        { catalogFoodId: "greek-yogurt-nonfat", grams: 300, alternatives: [] },
+        { catalogFoodId: "banana-raw", grams: 115, alternatives: [] },
+      ],
+    },
+    {
+      id: "lunch",
+      items: [
+        {
+          catalogFoodId: "chicken-breast-roasted",
+          grams: 250,
+          alternatives: [],
+        },
+        { catalogFoodId: "white-rice-cooked", grams: 350, alternatives: [] },
+        { catalogFoodId: "broccoli-raw", grams: 150, alternatives: [] },
+        { catalogFoodId: "olive-oil", grams: 15, alternatives: [] },
+      ],
+    },
+    {
+      id: "snack",
+      items: [
+        { catalogFoodId: "banana-raw", grams: 115, alternatives: [] },
+        { catalogFoodId: "avocado-raw", grams: 100, alternatives: [] },
+      ],
+    },
+    {
+      id: "dinner",
+      items: [
+        { catalogFoodId: "white-rice-cooked", grams: 350, alternatives: [] },
+        { catalogFoodId: "sweet-potato-baked", grams: 400, alternatives: [] },
+        { catalogFoodId: "broccoli-raw", grams: 150, alternatives: [] },
+        { catalogFoodId: "olive-oil", grams: 20, alternatives: [] },
+      ],
+    },
+  ],
+};
+
+export function createExistingActivePlan(): ActivePlan {
+  const targets = calculateTargets(existingReadyProfile);
+  if (!targets) throw new Error("Existing fixture targets are incomplete");
+  const plan = validateAndBuildPlan({
+    candidate: existingCandidate,
+    profile: existingReadyProfile,
+    targets,
+    planId: "existing-active-plan",
+    version: 1,
+  });
+  if (!plan.validation.valid) throw new Error(plan.validation.issues.join(" "));
+  return {
+    schemaVersion: 1,
+    version: 1,
+    activatedAt: "2026-08-30T08:00:00.000Z",
+    plan,
+  };
+}
 
 export function createNewDemoState(): DemoState {
   const activeTurn = getNextTurn(emptyProfile);

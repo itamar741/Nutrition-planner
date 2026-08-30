@@ -20,11 +20,14 @@ import {
 } from "@/ai/plan-contracts";
 import {
   createNewDemoState,
+  createExistingActivePlan,
   demoProfileNames,
   existingProfileFoundation,
+  existingWeightHistory,
 } from "@/data/demo-fixtures";
 import { foodCatalogById } from "@/data/food-catalog";
 import { getChecklist } from "@/domain/profile/onboarding";
+import { calculateWeightTrend, normalizeWeightKg } from "@/domain/weight/trend";
 import type { DemoProfileId, QuickReplyOption } from "@/domain/profile/types";
 import { demoReducer, type PendingCommand } from "@/store/demo-reducer";
 import {
@@ -45,13 +48,39 @@ function createCommandId() {
 
 function ExistingFoundation() {
   const profile = existingProfileFoundation;
+  const [weights, setWeights] = useState(existingWeightHistory);
+  const [weightInput, setWeightInput] = useState("");
+  const [notice, setNotice] = useState("");
+  const trend = useMemo(
+    () => calculateWeightTrend(weights, new Date("2026-08-31T12:00:00Z")),
+    [weights],
+  );
+  const activePlan = useMemo(() => createExistingActivePlan(), []);
+  function addWeight(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    try {
+      const weightKg = normalizeWeightKg(Number(weightInput));
+      const date = new Date().toISOString().slice(0, 10);
+      if (weights.some((item) => item.date === date))
+        throw new Error("A weight for today is already recorded.");
+      setWeights((current) => [...current, { date, weightKg }]);
+      setWeightInput("");
+      setNotice(
+        "Weight recorded. The trend was recalculated deterministically.",
+      );
+    } catch (error) {
+      setNotice(
+        error instanceof Error ? error.message : "Enter a valid weight.",
+      );
+    }
+  }
   return (
     <section className={styles.existingLayout}>
       <p className={styles.kicker}>Prepared profile · foundation checkpoint</p>
       <h1>The adjustment story starts with a trusted baseline.</h1>
       <p>
-        This fixed profile is ready for its Active Plan and seeded weight
-        history in Turn 3. No historical chat or additional account is created.
+        This fixed profile includes an Active Plan and a seeded two-month weight
+        history. No historical chat or additional account is created.
       </p>
       <div className={styles.existingGrid}>
         <article className={styles.existingCard}>
@@ -72,6 +101,48 @@ function ExistingFoundation() {
           <p>
             Mostly seated plus three 60-minute resistance sessions each week.
           </p>
+        </article>
+      </div>
+      <div className={styles.existingGrid}>
+        <article className={styles.existingCard}>
+          <span>Active Plan</span>
+          <h3>
+            {activePlan.plan.validation.totals.energyKcal.toFixed(0)} kcal/day
+          </h3>
+          <p>
+            Version {activePlan.version}; changes require an explicit approval.
+          </p>
+        </article>
+        <article className={styles.existingCard}>
+          <span>Weight trend</span>
+          <h3>
+            {trend.evidence === "sufficient"
+              ? `${trend.weeklyPercent.toFixed(2)}% / week`
+              : "Insufficient evidence"}
+          </h3>
+          <p>
+            {trend.measurementCount} measurements across{" "}
+            {trend.spanDays.toFixed(0)} days.
+          </p>
+        </article>
+        <article className={styles.existingCard}>
+          <span>Record weight</span>
+          <form onSubmit={addWeight}>
+            <input
+              aria-label="Weight in kilograms"
+              inputMode="decimal"
+              min="1"
+              onChange={(event) => setWeightInput(event.target.value)}
+              placeholder="kg"
+              step="0.1"
+              type="number"
+              value={weightInput}
+            />
+            <button className={styles.primaryAction} type="submit">
+              Add
+            </button>
+          </form>
+          {notice ? <p role="status">{notice}</p> : null}
         </article>
       </div>
     </section>
