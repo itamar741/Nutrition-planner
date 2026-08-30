@@ -26,8 +26,13 @@ import {
   existingWeightHistory,
 } from "@/data/demo-fixtures";
 import { foodCatalogById } from "@/data/food-catalog";
+import { roundTo25HalfUp } from "@/domain/nutrition/calculations";
 import { getChecklist } from "@/domain/profile/onboarding";
-import { calculateWeightTrend, normalizeWeightKg } from "@/domain/weight/trend";
+import {
+  adjustmentDirection,
+  calculateWeightTrend,
+  normalizeWeightKg,
+} from "@/domain/weight/trend";
 import type { DemoProfileId, QuickReplyOption } from "@/domain/profile/types";
 import { demoReducer, type PendingCommand } from "@/store/demo-reducer";
 import {
@@ -55,7 +60,19 @@ function ExistingFoundation() {
     () => calculateWeightTrend(weights, new Date("2026-08-31T12:00:00Z")),
     [weights],
   );
-  const activePlan = useMemo(() => createExistingActivePlan(), []);
+  const [activePlan, setActivePlan] = useState(() =>
+    createExistingActivePlan(),
+  );
+  const [proposalState, setProposalState] = useState<
+    "pending" | "approved" | "rejected"
+  >("pending");
+  const direction =
+    trend.evidence === "sufficient"
+      ? adjustmentDirection(profile.goal ?? "maintenance", trend.weeklyPercent)
+      : null;
+  const adjustmentKcal = roundTo25HalfUp(
+    activePlan.plan.validation.totals.energyKcal * 0.05,
+  );
   function addWeight(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     try {
@@ -73,6 +90,15 @@ function ExistingFoundation() {
         error instanceof Error ? error.message : "Enter a valid weight.",
       );
     }
+  }
+  function approveAdjustment() {
+    if (!direction || proposalState !== "pending") return;
+    setActivePlan((current) => ({
+      ...current,
+      version: current.version + 1,
+      activatedAt: new Date().toISOString(),
+    }));
+    setProposalState("approved");
   }
   return (
     <section className={styles.existingLayout}>
@@ -103,6 +129,43 @@ function ExistingFoundation() {
           </p>
         </article>
       </div>
+      {direction ? (
+        <article className={styles.existingCard}>
+          <span>AI adjustment proposal · Draft</span>
+          <h3>
+            {direction === "increase" ? "Increase" : "Decrease"} by{" "}
+            {adjustmentKcal} kcal/day
+          </h3>
+          <p>
+            The proposal is bounded by the deterministic trend result. The
+            Active Plan changes only after approval.
+          </p>
+          {proposalState === "pending" ? (
+            <div className={styles.quickReplies}>
+              <button
+                className={styles.primaryAction}
+                onClick={approveAdjustment}
+                type="button"
+              >
+                Approve proposal
+              </button>
+              <button
+                className={styles.resetButton}
+                onClick={() => setProposalState("rejected")}
+                type="button"
+              >
+                Decline
+              </button>
+            </div>
+          ) : (
+            <p role="status">
+              {proposalState === "approved"
+                ? `Approved. Active Plan is now version ${activePlan.version}.`
+                : "Declined. Active Plan was unchanged."}
+            </p>
+          )}
+        </article>
+      ) : null}
       <div className={styles.existingGrid}>
         <article className={styles.existingCard}>
           <span>Active Plan</span>
