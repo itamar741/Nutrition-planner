@@ -1,9 +1,9 @@
 # Turn 1 Verification Result
 
-Date: 2026-08-30  
-Branch: `turn-1-onboarding-foundation`  
-Implementation commit under test: `dfc6c464081457a3e3f0bfe72112902e731d2608`  
-Result: Automated gates passed; human merge-readiness review pending.
+- Date: 2026-08-30
+- Branch: `turn-1-onboarding-foundation`
+- Implementation commit under test: `20783766fc4ec3bb3bc5de5cbb8be697c46ae369`
+- Result: Automated gates passed; human merge-readiness review pending.
 
 ## Scope Under Test
 
@@ -28,6 +28,7 @@ Full captured result: [turn-1-verify.txt](turn-1-verify.txt)
 - Vitest: 5 files and 21 tests passed.
 - Next.js production build: passed; `/`, `/coach/[profileId]`, and the narrow `/api/coach/onboarding` route built successfully.
 - Playwright Chromium: 5 browser scenarios passed.
+- Starting and stopping `npm run dev` after the final configuration left the Git worktree clean; Next.js generated types remain ignored and it did not rewrite project agent context.
 
 The tests cover the reference EER and goal targets, age-18/age-19 equation boundary, PAL boundaries, missing-input rejection, multi-fact extraction, missing-field routing, confirmed-fact immutability, strict model-output rejection, one bounded repair, timeout failure, reducer idempotency, open/closed input modes, processing lock, slow feedback, retry without duplicate submission, exactly two entry profiles, and the Existing foundation surface.
 

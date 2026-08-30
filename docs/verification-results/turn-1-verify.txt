@@ -1,6 +1,6 @@
 Turn 1 command evidence
 Date: 2026-08-30
-Commit: dfc6c464081457a3e3f0bfe72112902e731d2608
+Commit: 20783766fc4ec3bb3bc5de5cbb8be697c46ae369
 Command: npm run verify
 Exit: 0
 
@@ -13,7 +13,8 @@ All matched files use Prettier code style!
 Exit: 0
 
 > npm run typecheck
-> tsc --noEmit
+> next typegen && tsc --noEmit
+Types generated successfully.
 Exit: 0
 
 > npm run test:unit
