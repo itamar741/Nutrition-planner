@@ -2,7 +2,7 @@
 
 ## Current phase
 
-This repository is in the documentation and implementation-planning phase. The stack and three implementation turns are proposed in `docs/implementation-plan.md`, but no implementation is authorized by that document alone. Do not create application code, dependencies, package manifests, database schemas, deployment configuration, or implementation prompts unless the user explicitly approves the implementation plan and authorizes the implementation phase.
+The user accepted **Turn 1 — Foundation and Adaptive Onboarding** on 2026-08-30 and explicitly authorized **Turn 2 — Catalog, Food Grid, and Draft-to-Active Plan**. Turn 1 evidence is in `docs/verification-results/turn-1.md`. Turn 2 must be planned and implemented on its own branch with criterion-mapped verification. Do not begin Turn 3 weight-adjustment behavior without a new explicit authorization after Turn 2 review.
 
 ## Read first
 
