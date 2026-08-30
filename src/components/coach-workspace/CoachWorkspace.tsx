@@ -14,6 +14,7 @@ import {
   onboardingSuccessSchema,
 } from "@/ai/contracts";
 import {
+  adjustmentSuccessSchema,
   draftModificationSuccessSchema,
   draftSuccessSchema,
   planFailureSchema,
@@ -23,6 +24,7 @@ import {
   createExistingActivePlan,
   demoProfileNames,
   existingProfileFoundation,
+  existingReadyProfile,
   existingWeightHistory,
 } from "@/data/demo-fixtures";
 import { foodCatalogById } from "@/data/food-catalog";
@@ -66,6 +68,11 @@ function ExistingFoundation() {
   const [proposalState, setProposalState] = useState<
     "pending" | "approved" | "rejected"
   >("pending");
+  const [adjustmentDraft, setAdjustmentDraft] = useState<
+    import("@/domain/plan/types").DraftProposal | null
+  >(null);
+  const [proposalError, setProposalError] = useState("");
+  const [isGeneratingProposal, setIsGeneratingProposal] = useState(false);
   const direction =
     trend.evidence === "sufficient"
       ? adjustmentDirection(profile.goal ?? "maintenance", trend.weeklyPercent)
@@ -92,13 +99,51 @@ function ExistingFoundation() {
     }
   }
   function approveAdjustment() {
-    if (!direction || proposalState !== "pending") return;
+    if (!adjustmentDraft || proposalState !== "pending") return;
     setActivePlan((current) => ({
       ...current,
-      version: current.version + 1,
+      version: adjustmentDraft.plan.version,
       activatedAt: new Date().toISOString(),
+      plan: adjustmentDraft.plan,
     }));
     setProposalState("approved");
+  }
+  async function generateAdjustmentProposal() {
+    if (!direction || isGeneratingProposal || proposalState !== "pending")
+      return;
+    setIsGeneratingProposal(true);
+    setProposalError("");
+    try {
+      const response = await fetch("/api/coach/adjustment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          commandId: createCommandId(),
+          profile: existingReadyProfile,
+          activePlan,
+          direction,
+          adjustmentKcal,
+        }),
+      });
+      const body: unknown = await response.json();
+      if (!response.ok) {
+        const failure = planFailureSchema.safeParse(body);
+        throw new Error(
+          failure.success
+            ? failure.data.message
+            : "The adjustment proposal could not be created.",
+        );
+      }
+      setAdjustmentDraft(adjustmentSuccessSchema.parse(body).draft);
+    } catch (error) {
+      setProposalError(
+        error instanceof Error
+          ? error.message
+          : "The adjustment proposal could not be created.",
+      );
+    } finally {
+      setIsGeneratingProposal(false);
+    }
   }
   return (
     <section className={styles.existingLayout}>
@@ -142,13 +187,29 @@ function ExistingFoundation() {
           </p>
           {proposalState === "pending" ? (
             <div className={styles.quickReplies}>
-              <button
-                className={styles.primaryAction}
-                onClick={approveAdjustment}
-                type="button"
-              >
-                Approve proposal
-              </button>
+              {adjustmentDraft ? (
+                <>
+                  <p>{adjustmentDraft.summary}</p>
+                  <button
+                    className={styles.primaryAction}
+                    onClick={approveAdjustment}
+                    type="button"
+                  >
+                    Approve proposal
+                  </button>
+                </>
+              ) : (
+                <button
+                  className={styles.primaryAction}
+                  disabled={isGeneratingProposal}
+                  onClick={generateAdjustmentProposal}
+                  type="button"
+                >
+                  {isGeneratingProposal
+                    ? "Creating validated proposal…"
+                    : "Generate AI proposal"}
+                </button>
+              )}
               <button
                 className={styles.resetButton}
                 onClick={() => setProposalState("rejected")}
@@ -164,6 +225,11 @@ function ExistingFoundation() {
                 : "Declined. Active Plan was unchanged."}
             </p>
           )}
+          {proposalError ? (
+            <p className={styles.errorBox} role="alert">
+              {proposalError}
+            </p>
+          ) : null}
         </article>
       ) : null}
       <div className={styles.existingGrid}>

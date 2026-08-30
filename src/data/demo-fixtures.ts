@@ -47,7 +47,7 @@ export const existingProfileFoundation: StructuredProfile = {
   approvedCatalogFoodIds: [],
 };
 
-const existingReadyProfile: StructuredProfile = {
+export const existingReadyProfile: StructuredProfile = {
   ...existingProfileFoundation,
   foodPreferencesComplete: true,
   approvedCatalogFoodIds: foodCatalog.map((food) => food.id),

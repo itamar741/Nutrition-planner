@@ -1,7 +1,10 @@
 import OpenAI from "openai";
 import { ZodError } from "zod";
 import { foodCatalogById } from "@/data/food-catalog";
-import { calculateTargets } from "@/domain/nutrition/calculations";
+import {
+  calculateTargets,
+  roundTo25HalfUp,
+} from "@/domain/nutrition/calculations";
 import {
   draftCandidateSchema,
   draftModificationOperationSchema,
@@ -20,6 +23,7 @@ import {
   draftModificationJsonSchema,
   type DraftModificationRequest,
   type DraftRequest,
+  type AdjustmentRequest,
 } from "./plan-contracts";
 
 export class OpenAIPlanConfigurationError extends Error {}
@@ -322,6 +326,108 @@ export async function generateDraftModification(
 
   throw new PlanModelContractError(
     repairIssue ?? "The model returned an invalid modification twice.",
+    "validation",
+  );
+}
+
+export async function generateAdjustmentDraft(
+  request: AdjustmentRequest,
+  createResponse: PlanResponseCreator = defaultPlanResponseCreator,
+): Promise<DraftProposal> {
+  const selections = validateFoodSelections(
+    request.profile.approvedCatalogFoodIds,
+  );
+  if (!selections.valid || !request.activePlan.plan.validation.valid) {
+    throw new PlanModelContractError(
+      "The Existing profile is not ready for an adjustment.",
+      "validation",
+    );
+  }
+  const expectedAdjustment = Math.max(
+    100,
+    Math.min(
+      200,
+      roundTo25HalfUp(
+        request.activePlan.plan.validation.totals.energyKcal * 0.05,
+      ),
+    ),
+  );
+  if (request.adjustmentKcal !== expectedAdjustment) {
+    throw new PlanModelContractError(
+      "The adjustment amount is not permitted.",
+      "validation",
+    );
+  }
+  const baseTargets = request.activePlan.plan.targetSnapshot;
+  const energyKcal =
+    baseTargets.energyKcal +
+    (request.direction === "increase"
+      ? request.adjustmentKcal
+      : -request.adjustmentKcal);
+  const targets = {
+    ...baseTargets,
+    energyKcal,
+    carbohydrateTargetG:
+      (energyKcal -
+        baseTargets.proteinTargetG * 4 -
+        baseTargets.fatTargetG * 9) /
+      4,
+  };
+  const expectedMealIds = getExpectedMealIds(request.profile.mealPattern!);
+  let repairIssue: string | undefined;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const raw = await createResponse({
+        schemaName: "nutrition_coach_plan_adjustment",
+        schema: draftCandidateJsonSchema as unknown as Record<string, unknown>,
+        instructions: [
+          "Create a replacement repeatable daily meal plan for a healthy-adult nutrition demo.",
+          "Use only the supplied approved catalog IDs and integer gram portions within each practical range and step.",
+          `Return meals exactly in this order: ${expectedMealIds.join(", ")}.`,
+          `The active plan must change in the permitted direction only: ${request.direction} energy by exactly ${request.adjustmentKcal} kcal/day target, producing a plan that passes the supplied adjusted targets and all protein, AMDR, fiber, catalog, and meat/dairy checks.`,
+          "Do not browse, invent food data, add meals, alter the goal, or activate the plan. Return alternatives: [] unless each alternative independently passes the entire plan validation.",
+          repairIssue
+            ? `Repair the previous invalid result: ${repairIssue}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        userInput: JSON.stringify({
+          direction: request.direction,
+          adjustmentKcal: request.adjustmentKcal,
+          adjustedTargets: targets,
+          currentActivePlan: request.activePlan.plan,
+          approvedCatalog: approvedCatalogContext(selections.orderedIds),
+        }),
+      });
+      const candidate = draftCandidateSchema.parse(JSON.parse(raw));
+      const plan = validateAndBuildPlan({
+        candidate,
+        profile: request.profile,
+        targets,
+        planId: `plan-${request.commandId}`,
+        version: request.activePlan.version + 1,
+      });
+      if (!plan.validation.valid)
+        throw new PlanModelContractError(
+          plan.validation.issues.join(" "),
+          "validation",
+        );
+      return {
+        schemaVersion: 1,
+        id: `adjustment-${request.commandId}`,
+        basePlanVersion: request.activePlan.version,
+        reason: "modification",
+        summary: candidate.summary,
+        plan,
+      };
+    } catch (error) {
+      if (error instanceof OpenAIPlanConfigurationError) throw error;
+      repairIssue = repairMessage(error);
+    }
+  }
+  throw new PlanModelContractError(
+    repairIssue ?? "The adjustment did not pass validation.",
     "validation",
   );
 }

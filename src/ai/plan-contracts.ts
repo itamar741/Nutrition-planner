@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { structuredProfileSchema } from "@/domain/profile/schemas";
 import {
+  activePlanSchema,
   draftCandidateSchema,
   draftModificationOperationSchema,
   draftProposalSchema,
@@ -73,6 +74,26 @@ export type DraftModificationRequest = z.infer<
 export type DraftModificationModel = z.infer<
   typeof draftModificationOperationSchema
 >;
+
+export const adjustmentRequestSchema = z
+  .object({
+    commandId: z.string().min(8).max(100),
+    profile: structuredProfileSchema,
+    activePlan: activePlanSchema,
+    direction: z.enum(["increase", "decrease"]),
+    adjustmentKcal: z.number().int().min(100).max(200),
+  })
+  .strict();
+
+export const adjustmentSuccessSchema = z
+  .object({
+    ok: z.literal(true),
+    commandId: z.string(),
+    draft: draftProposalSchema,
+  })
+  .strict();
+
+export type AdjustmentRequest = z.infer<typeof adjustmentRequestSchema>;
 
 const planMealIds = [
   "breakfast",
