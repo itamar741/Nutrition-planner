@@ -3,7 +3,7 @@
 - Date: 2026-08-30
 - Branch: `turn-1-onboarding-foundation`
 - Implementation commit under test: `20783766fc4ec3bb3bc5de5cbb8be697c46ae369`
-- Result: Automated gates passed; human merge-readiness review pending.
+- Result: Accepted. Automated gates passed and the user approved merge-readiness on 2026-08-30.
 
 ## Scope Under Test
 
@@ -65,4 +65,12 @@ The automated slow, failure, retry, and double-action controls also passed in Ch
 
 ## Human Review Gate
 
-Gate 7 remains pending. The user still needs to review the visible Turn 1 result before the branch is treated as accepted or Turn 2 begins.
+Gate 7 passed on 2026-08-30. After reviewing the visible local result, the user explicitly stated: “מאשר את Turn 1 ומאשר להתחיל Turn 2”. This records acceptance of Turn 1 and authorizes Turn 2; it does not authorize Turn 3.
+
+The accepted conclusions are:
+
+1. The implemented Turn 1 criteria are functionally complete.
+2. The automated and browser checks exercise the specified success and failure paths.
+3. The branch is clean and its engineering gates pass.
+4. The result remains within the approved framing and deliberate scope.
+5. The implementation, fixtures, tests, command output, and review decision are preserved in versioned evidence.
