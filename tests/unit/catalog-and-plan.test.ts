@@ -5,6 +5,7 @@ import { calculateTargets } from "@/domain/nutrition/calculations";
 import {
   applyModificationToDraft,
   calculatePortionNutrients,
+  repairCandidateNutrition,
   revalidatePlan,
   validateAndBuildPlan,
   validateFoodSelections,
@@ -159,6 +160,49 @@ describe("deterministic Draft validation", () => {
     expect(draft.plan.validation.totals.fiberG).toBeGreaterThanOrEqual(
       draft.plan.targetSnapshot.fiberMinimumG,
     );
+  });
+
+  it("repairs an under-filled model candidate without leaving catalog bounds", () => {
+    const profile = readyProfile();
+    const targets = calculateTargets(profile);
+    if (!targets) throw new Error("Expected targets");
+    const candidate = validMaintenanceCandidate();
+    candidate.meals[3].items.push({
+      catalogFoodId: "white-rice-cooked",
+      grams: 50,
+      alternatives: [],
+    });
+    candidate.meals.forEach((meal) =>
+      meal.items.forEach((item) => {
+        const food = foodCatalog.find(
+          (catalogFood) => catalogFood.id === item.catalogFoodId,
+        );
+        if (!food) throw new Error("Missing food fixture");
+        item.grams = food.practicalGrams.min;
+        item.alternatives = [{ catalogFoodId: "banana-raw", grams: 115 }];
+      }),
+    );
+
+    const repaired = repairCandidateNutrition({
+      candidate,
+      profile,
+      targets,
+    });
+    expect(repaired).not.toBeNull();
+    if (!repaired) return;
+    const plan = validateAndBuildPlan({
+      candidate: repaired,
+      profile,
+      targets,
+      planId: "repaired-plan",
+      version: 1,
+    });
+    expect(plan.validation.valid).toBe(true);
+    expect(
+      repaired.meals
+        .flatMap((meal) => meal.items)
+        .every((item) => item.alternatives.length === 0),
+    ).toBe(true);
   });
 
   it("applies the documented acceptance ranges for all three fixed goals", () => {

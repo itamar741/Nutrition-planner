@@ -9,10 +9,11 @@ import {
 import {
   applyModificationToDraft,
   getExpectedMealIds,
+  repairCandidateNutrition,
   validateAndBuildPlan,
   validateFoodSelections,
 } from "@/domain/plan/validation";
-import type { DraftProposal } from "@/domain/plan/types";
+import type { DraftCandidate, DraftProposal } from "@/domain/plan/types";
 import {
   draftCandidateJsonSchema,
   draftModificationJsonSchema,
@@ -131,8 +132,10 @@ export async function generateDraft(
     approvedCatalog: approvedCatalogContext(selections.orderedIds),
   };
   let repairIssue: string | undefined;
+  let lastCandidate: DraftCandidate | undefined;
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    const feedbackForAttempt = attempt === 0 ? request.message?.trim() : null;
     try {
       const raw = await createResponse({
         schemaName: "nutrition_coach_daily_draft",
@@ -146,14 +149,20 @@ export async function generateDraft(
           "Return alternatives: [] for every item unless you can verify the entire whole-day substitution independently. Do not add alternatives by default.",
           "Before returning, check every portion against its supplied practical min, max, and step; never exceed a maximum even when more energy is needed.",
           "Before returning, calculate the whole-day totals. A candidate below the energy or protein minimum is invalid even if its individual meals look reasonable.",
-          request.message?.trim()
-            ? `Use this user feedback as a preference for the new Draft, while keeping every catalog, nutrition, meal-pattern, and approval rule intact: ${request.message.trim()}`
+          feedbackForAttempt
+            ? `Use this user feedback as a preference for the new Draft, while keeping every catalog, nutrition, meal-pattern, and approval rule intact: ${feedbackForAttempt}`
             : "No additional user preference was provided.",
-          request.message?.trim()
+          feedbackForAttempt
             ? "For feedback about eating more at a particular time, redistribute the approved foods and portions across meals while preserving the whole-day energy, protein, AMDR, and fiber totals; do not simply add calories or remove a meal."
             : "",
-          request.message?.trim()
+          feedbackForAttempt
             ? "Qualitative feedback must never change the daily target, meal count, meal IDs, or approved-food set. If the preference conflicts with nutrition constraints, satisfy the deterministic nutrition constraints first and keep the closest safe distribution."
+            : "",
+          feedbackForAttempt
+            ? "If you cannot honor the feedback and still pass every constraint, ignore the feedback and return a standard valid plan rather than returning an invalid plan."
+            : "",
+          attempt === 1 && request.message?.trim()
+            ? "The feedback attempt failed validation. Return a standard valid plan first; do not let the earlier preference affect the nutrition totals."
             : "",
           "Do not browse, invent food data, add meals, change the goal, or include instructions outside the schema.",
           repairIssue
@@ -162,9 +171,13 @@ export async function generateDraft(
         ]
           .filter(Boolean)
           .join("\n"),
-        userInput: JSON.stringify(context),
+        userInput: JSON.stringify({
+          ...context,
+          feedback: feedbackForAttempt,
+        }),
       });
       const candidate = draftCandidateSchema.parse(JSON.parse(raw));
+      lastCandidate = candidate;
       const plan = validateAndBuildPlan({
         candidate,
         profile: request.profile,
@@ -189,6 +202,33 @@ export async function generateDraft(
     } catch (error) {
       if (error instanceof OpenAIPlanConfigurationError) throw error;
       repairIssue = repairMessage(error);
+    }
+  }
+
+  if (lastCandidate) {
+    const repairedCandidate = repairCandidateNutrition({
+      candidate: lastCandidate,
+      profile: request.profile,
+      targets,
+    });
+    if (repairedCandidate) {
+      const plan = validateAndBuildPlan({
+        candidate: repairedCandidate,
+        profile: request.profile,
+        targets,
+        planId: `plan-${request.commandId}`,
+        version: 1,
+      });
+      if (plan.validation.valid) {
+        return {
+          schemaVersion: 1,
+          id: `draft-${request.commandId}`,
+          basePlanVersion: null,
+          reason: "initial",
+          summary: repairedCandidate.summary,
+          plan,
+        };
+      }
     }
   }
 
