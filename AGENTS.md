@@ -2,7 +2,7 @@
 
 ## Current phase
 
-The user approved `docs/implementation-plan.md` on 2026-08-30 and authorized **Turn 1 — Foundation and Adaptive Onboarding** only. Work on branch `turn-1-onboarding-foundation` and follow `docs/turns/turn-1-plan.md`. Do not begin Turn 2 catalog/plan behavior or Turn 3 weight-adjustment behavior without a new explicit authorization after Turn 1 review.
+The user approved `docs/implementation-plan.md` on 2026-08-30 and authorized **Turn 1 — Foundation and Adaptive Onboarding** only. Turn 1 implementation and automated verification are complete on branch `turn-1-onboarding-foundation`; evidence is in `docs/verification-results/turn-1.md`. Human review remains pending. Do not begin Turn 2 catalog/plan behavior or Turn 3 weight-adjustment behavior without a new explicit authorization after Turn 1 review.
 
 ## Read first
 

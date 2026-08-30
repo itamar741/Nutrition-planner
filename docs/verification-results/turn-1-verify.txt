@@ -1,0 +1,53 @@
+Turn 1 command evidence
+Date: 2026-08-30
+Commit: dfc6c464081457a3e3f0bfe72112902e731d2608
+Command: npm run verify
+Exit: 0
+
+> npm run format:check
+Checking formatting...
+All matched files use Prettier code style!
+
+> npm run lint
+> eslint . --max-warnings=0
+Exit: 0
+
+> npm run typecheck
+> tsc --noEmit
+Exit: 0
+
+> npm run test:unit
+> vitest run
+Test Files  5 passed (5)
+Tests       21 passed (21)
+Exit: 0
+
+> npm run build
+> next build
+Next.js 16.3.3 (Turbopack)
+Compiled successfully.
+TypeScript completed successfully.
+Static pages generated successfully.
+
+Route (app)
+○ /
+○ /_not-found
+ƒ /api/coach/onboarding
+ƒ /coach/[profileId]
+Exit: 0
+
+> npm run test:e2e
+> playwright test
+Running 5 tests using 4 workers
+
+passed: SC-01 entry exposes exactly the two demo profiles
+passed: UI-09 retry preserves state and does not duplicate the submitted action
+passed: the Existing Demo Profile stays a fixed prepared foundation in Turn 1
+passed: UI-01/UI-02/AI-01 moves from one open answer to locked quick replies
+passed: UI-05/UI-06 preserves the answer, locks controls, and shows slow feedback
+
+5 passed
+Exit: 0
+
+Additional security command: npm audit --audit-level=high
+Result: found 0 vulnerabilities

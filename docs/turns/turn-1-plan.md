@@ -1,6 +1,6 @@
 # Turn 1 Plan — Foundation and Adaptive Onboarding
 
-Status: Authorized on 2026-08-30; implementation branch `turn-1-onboarding-foundation`.
+Status: Implemented and automatically verified on 2026-08-30; awaiting human review on branch `turn-1-onboarding-foundation`.
 
 Restore point: `b43f93c` (`docs: add planning-only implementation plan`).
 
