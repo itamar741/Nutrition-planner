@@ -25,6 +25,12 @@ describe("strict Draft model boundary", () => {
     expect(draft.plan.validation.totals.energyKcal).toBeGreaterThan(2_800);
     expect(creator).toHaveBeenCalledTimes(1);
     expect(creator.mock.calls[0][0].instructions).toContain("Do not browse");
+    expect(creator.mock.calls[0][0].instructions).toContain(
+      "Approved foods may be reused",
+    );
+    expect(creator.mock.calls[0][0].instructions).toContain(
+      "Return alternatives: []",
+    );
   });
 
   it("repairs an invented catalog ID once before accepting", async () => {

@@ -139,9 +139,12 @@ export async function generateDraft(
         instructions: [
           "Create one repeatable daily meal plan for a healthy-adult nutrition demo.",
           "Use only the supplied approved catalog IDs and integer gram portions within each practical range and step.",
+          "Approved foods may be reused in multiple meals; do not treat each catalog ID as limited to one occurrence.",
           `Return meals exactly in this order: ${expectedMealIds.join(", ")}.`,
           "Meet the supplied energy, protein, AMDR, fiber, and meat/dairy constraints. Fish is neutral for this project's narrow meal check.",
-          "Alternatives are optional. If included, supply one or two different approved foods whose whole-day substitution also meets every constraint.",
+          "Return alternatives: [] for every item unless you can verify the entire whole-day substitution independently. Do not add alternatives by default.",
+          "Before returning, check every portion against its supplied practical min, max, and step; never exceed a maximum even when more energy is needed.",
+          "Before returning, calculate the whole-day totals. A candidate below the energy or protein minimum is invalid even if its individual meals look reasonable.",
           "Do not browse, invent food data, add meals, change the goal, or include instructions outside the schema.",
           repairIssue
             ? `Repair the previous invalid result: ${repairIssue}`
