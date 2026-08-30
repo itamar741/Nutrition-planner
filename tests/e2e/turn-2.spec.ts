@@ -195,7 +195,9 @@ test("Draft failure and retry preserve state and avoid duplicate actions", async
   ).toHaveCount(1);
 });
 
-test("declining a Draft leaves no Active Plan", async ({ page }) => {
+test("declining a Draft opens feedback for a revised proposal", async ({
+  page,
+}) => {
   await page.route("**/api/coach/draft", (route) => fulfillDraft(route));
   await startWithState(page, makeReadyState());
 
@@ -210,4 +212,20 @@ test("declining a Draft leaves no Active Plan", async ({ page }) => {
   );
   await expect(page.getByText("Active Plan", { exact: true })).toHaveCount(0);
   await expect(page.getByText("No Active Plan was changed.")).toBeVisible();
+
+  const feedback = page.getByRole("textbox", {
+    name: "Message to nutrition coach",
+  });
+  await expect(feedback).toBeEnabled();
+  await feedback.fill("I would like a larger lunch portion.");
+  await page.waitForTimeout(300);
+  await page.getByRole("button", { name: "Generate revised Draft" }).click();
+  await expect(
+    page.getByText("Draft Meal Plan", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.locator('[data-role="user"]', {
+      hasText: "I would like a larger lunch portion.",
+    }),
+  ).toHaveCount(1);
 });

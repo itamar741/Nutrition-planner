@@ -220,7 +220,11 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           operation === "draft"
-            ? { commandId: command.id, profile: state.profile }
+            ? {
+                commandId: command.id,
+                message: command.message,
+                profile: state.profile,
+              }
             : {
                 commandId: command.id,
                 message: command.message,
@@ -290,6 +294,12 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
     } else if (state.activeTurn.type === "open_question") {
       void sendOpenCommand(command);
     }
+  }
+
+  function handleDraftRequest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const message = draftMessage.trim() || "Generate my Draft Meal Plan";
+    void sendPlanCommand({ id: createCommandId(), message }, "draft");
   }
 
   function handleQuickReply(option: QuickReplyOption) {
@@ -376,6 +386,9 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
     profileId === "new" &&
     state.status === "idle" &&
     (Boolean(state.draft) || state.activeTurn.type === "open_question");
+  const draftWasDeclined = state.messages.some((message) =>
+    message.text.startsWith("The Draft was declined."),
+  );
   const processingText =
     state.pendingOperation === "draft"
       ? isSlow
@@ -515,33 +528,51 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                 ) : state.activePlan ? (
                   <DisabledComposer placeholder="Your plan is Active" />
                 ) : state.targets ? (
-                  <div className={styles.generateBox}>
+                  <form
+                    className={styles.generateBox}
+                    onSubmit={handleDraftRequest}
+                  >
                     <div>
-                      <strong>Your profile and targets are ready.</strong>
+                      <strong>
+                        {draftWasDeclined
+                          ? "Tell the coach what you would like different."
+                          : "Your profile and targets are ready."}
+                      </strong>
                       <p>
-                        The coach will compose from your{" "}
-                        {state.profile.approvedCatalogFoodIds.length} approved
-                        foods, then deterministic checks decide whether the
-                        Draft is valid.
+                        {draftWasDeclined
+                          ? "Your feedback will guide a new validated Draft; it will not change anything until you approve it."
+                          : "The coach will compose from your "}
+                        {!draftWasDeclined ? (
+                          <>
+                            {state.profile.approvedCatalogFoodIds.length}{" "}
+                            approved foods, then deterministic checks decide
+                            whether the Draft is valid.
+                          </>
+                        ) : null}
                       </p>
+                      <textarea
+                        aria-label="Message to nutrition coach"
+                        className={styles.feedbackInput}
+                        disabled={state.status !== "idle"}
+                        maxLength={1_000}
+                        onChange={(event) =>
+                          setDraftMessage(event.target.value)
+                        }
+                        placeholder="Optional: tell the coach what to change…"
+                        rows={2}
+                        value={draftMessage}
+                      />
                     </div>
                     <button
                       className={styles.primaryAction}
                       disabled={state.status !== "idle"}
-                      onClick={() =>
-                        void sendPlanCommand(
-                          {
-                            id: createCommandId(),
-                            message: "Generate my Draft Meal Plan",
-                          },
-                          "draft",
-                        )
-                      }
-                      type="button"
+                      type="submit"
                     >
-                      Generate Draft
+                      {draftWasDeclined
+                        ? "Generate revised Draft"
+                        : "Generate Draft"}
                     </button>
-                  </div>
+                  </form>
                 ) : (
                   <form className={styles.composer} onSubmit={handleSubmit}>
                     <textarea

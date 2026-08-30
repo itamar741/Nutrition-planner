@@ -365,7 +365,7 @@ export function demoReducer(state: DemoState, action: DemoAction): DemoState {
           {
             id: messageId("assistant", action.commandId),
             role: "assistant",
-            text: "The Draft was declined. No Active Plan was changed.",
+            text: "The Draft was declined. No Active Plan was changed. Tell me what you would like different and I can propose a revised Draft.",
           },
         ],
       };

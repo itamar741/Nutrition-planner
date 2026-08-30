@@ -9,6 +9,7 @@ import {
 export const draftRequestSchema = z
   .object({
     commandId: z.string().min(8).max(100),
+    message: z.string().trim().max(1_000).optional(),
     profile: structuredProfileSchema,
   })
   .strict();

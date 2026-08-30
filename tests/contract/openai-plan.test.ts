@@ -52,6 +52,27 @@ describe("strict Draft model boundary", () => {
     );
   });
 
+  it("passes post-decline feedback into a new Draft request", async () => {
+    const creator = vi
+      .fn()
+      .mockResolvedValue(JSON.stringify(makeValidMaintenanceCandidate()));
+    await generateDraft(
+      {
+        commandId: "command-feedback-1",
+        message: "I would like a larger lunch portion.",
+        profile: makeReadyProfile(),
+      },
+      creator,
+    );
+
+    expect(JSON.parse(creator.mock.calls[0][0].userInput).feedback).toBe(
+      "I would like a larger lunch portion.",
+    );
+    expect(creator.mock.calls[0][0].instructions).toContain(
+      "Use this user feedback as a preference",
+    );
+  });
+
   it("rejects malformed output twice without returning a Draft", async () => {
     const creator = vi.fn().mockResolvedValue("not json");
     await expect(

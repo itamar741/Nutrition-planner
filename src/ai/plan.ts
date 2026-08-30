@@ -122,6 +122,7 @@ export async function generateDraft(
 
   const expectedMealIds = getExpectedMealIds(request.profile.mealPattern);
   const context = {
+    feedback: request.message?.trim() || null,
     goal: request.profile.goal,
     currentWeightKg: request.profile.currentWeightKg,
     mealPattern: request.profile.mealPattern,
@@ -145,6 +146,9 @@ export async function generateDraft(
           "Return alternatives: [] for every item unless you can verify the entire whole-day substitution independently. Do not add alternatives by default.",
           "Before returning, check every portion against its supplied practical min, max, and step; never exceed a maximum even when more energy is needed.",
           "Before returning, calculate the whole-day totals. A candidate below the energy or protein minimum is invalid even if its individual meals look reasonable.",
+          request.message?.trim()
+            ? `Use this user feedback as a preference for the new Draft, while keeping every catalog, nutrition, meal-pattern, and approval rule intact: ${request.message.trim()}`
+            : "No additional user preference was provided.",
           "Do not browse, invent food data, add meals, change the goal, or include instructions outside the schema.",
           repairIssue
             ? `Repair the previous invalid result: ${repairIssue}`
