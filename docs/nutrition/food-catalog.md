@@ -1,6 +1,6 @@
 # Closed Food Catalog v0.1
 
-Status: Turn 2 reviewed data record. Runtime code contains the same 16 entries in `src/data/food-catalog.ts`.
+Status: Turn 2 reviewed data record. Runtime code contains the same 17 entries in `src/data/food-catalog.ts`.
 
 ## Source and Retrieval
 
@@ -9,7 +9,7 @@ The catalog was curated on 2026-08-30 from the official USDA FoodData Central do
 - Foundation Foods, April 2026 JSON release.
 - SR Legacy, April 2018 final JSON release.
 
-USDA FoodData Central is the only nutrition source. Foundation Foods is preferred when the record contains all five project nutrients and a usable gram basis. SR Legacy is used where the required cooked/prepared form is absent from Foundation Foods or the Foundation record omits energy, protein, carbohydrate, fat, or fiber. No download, API request, search, manufacturer lookup, or AI-created nutrient value occurs at runtime.
+USDA FoodData Central is the primary nutrition source. Foundation Foods is preferred when the record contains all five project nutrients and a usable gram basis. SR Legacy is used where the required cooked/prepared form is absent from Foundation Foods or the Foundation record omits energy, protein, carbohydrate, fat, or fiber. One user-requested branded tortilla entry uses the Israeli FoodsDictionary product page as a secondary label source because a suitable whole-food USDA record was not available. No download, API request, search, manufacturer lookup, or AI-created nutrient value occurs at runtime.
 
 For Foundation Foods without legacy nutrient `1008`, the catalog uses the published food-specific Atwater energy nutrient `2048`. All other stored values are the named per-100 g USDA values. Display portions are explicit gram conversions from the selected source record. Calculations always use grams, never the portion label.
 
@@ -22,6 +22,7 @@ Each row lists: internal ID; USDA FDC ID and dataset; preparation; kcal, protein
 - `rolled-oats-dry`; FDC 173904, SR Legacy; dry; 379 kcal, 13.2 g protein, 67.7 g carbohydrate, 6.52 g fat, 10.1 g fiber; ⅓ cup = 27 g; neutral.
 - `white-rice-cooked`; FDC 168878, SR Legacy; cooked; 130 kcal, 2.69 g protein, 28.2 g carbohydrate, 0.28 g fat, 0.4 g fiber; 1 cup = 158 g; neutral.
 - `sweet-potato-baked`; FDC 168483, SR Legacy; baked flesh; 90 kcal, 2.01 g protein, 20.7 g carbohydrate, 0.15 g fat, 3.3 g fiber; 1 medium = 114 g; neutral.
+- `tortilla-wheat-regular`; FoodsDictionary product page for Willy Food wheat tortilla; ready to eat; 290 kcal, 7 g protein, 55 g carbohydrate, 4 g fat, 0 g fiber; 1 tortilla = 45 g; neutral. The source page reports no fiber; this entry records 0 g for the selected product only.
 
 ### Proteins
 
@@ -52,4 +53,4 @@ Each row lists: internal ID; USDA FDC ID and dataset; preparation; kcal, protein
 
 Every entry is manually marked `kosherCatalogApproved: true` for this project's simplified demo catalog. This is not certification. The catalog excludes non-kosher foods, and deterministic meal validation rejects a meal that combines the `meat` and `dairy` classifications. Fish, tofu, produce, grains, oil, and nuts are `neutral` solely for this narrow within-meal check. No broader kashrut subsystem is implied.
 
-Sources: [USDA FoodData Central Foundation Foods documentation](https://fdc.nal.usda.gov/Foundation_Foods_Documentation/), [USDA FoodData Central downloadable data](https://fdc.nal.usda.gov/download-datasets/), and [USDA FoodData Central API/data licensing guide](https://fdc.nal.usda.gov/api-guide/).
+Sources: [USDA FoodData Central Foundation Foods documentation](https://fdc.nal.usda.gov/Foundation_Foods_Documentation/), [USDA FoodData Central downloadable data](https://fdc.nal.usda.gov/download-datasets/), [USDA FoodData Central API/data licensing guide](https://fdc.nal.usda.gov/api-guide/), and [FoodsDictionary — Willy Food wheat tortilla](https://www.foodsdictionary.co.il/Products/91/%D7%A2%D7%9C%D7%99%20%D7%98%D7%ור%D7%98%D7%99%D7%99%D7%94).

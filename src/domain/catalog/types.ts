@@ -24,14 +24,20 @@ export interface CatalogFood {
   category: FoodCategory;
   mealClassification: MealClassification;
   kosherCatalogApproved: true;
-  source: {
-    provider: "USDA FoodData Central";
-    fdcId: number;
-    dataset: "Foundation Foods" | "SR Legacy";
-    release: string;
-    retrievedAt: "2026-08-30";
-    energyNutrient: "Energy" | "Energy (Atwater Specific Factors)";
-  };
+  source:
+    | {
+        provider: "USDA FoodData Central";
+        fdcId: number;
+        dataset: "Foundation Foods" | "SR Legacy";
+        release: string;
+        retrievedAt: "2026-08-30";
+        energyNutrient: "Energy" | "Energy (Atwater Specific Factors)";
+      }
+    | {
+        provider: "FoodsDictionary";
+        url: string;
+        retrievedAt: "2026-08-30";
+      };
   nutrientsPer100g: NutrientAmounts;
   displayPortion: CatalogPortion;
   practicalGrams: {
