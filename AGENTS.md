@@ -2,7 +2,7 @@
 
 ## Current phase
 
-The user accepted **Turn 1 — Foundation and Adaptive Onboarding** on 2026-08-30 and explicitly authorized **Turn 2 — Catalog, Food Grid, and Draft-to-Active Plan**. Turn 1 evidence is in `docs/verification-results/turn-1.md`. Turn 2 must be planned and implemented on its own branch with criterion-mapped verification. Do not begin Turn 3 weight-adjustment behavior without a new explicit authorization after Turn 2 review.
+The user accepted **Turn 1 — Foundation and Adaptive Onboarding** on 2026-08-30 and explicitly authorized **Turn 2 — Catalog, Food Grid, and Draft-to-Active Plan**. Turn 2 is implemented on `turn-2-catalog-and-plan`; its automated gates pass and its evidence is in `docs/verification-results/turn-2.md`. Human review and explicit acceptance are still required before merging Turn 2. Do not begin Turn 3 weight-adjustment behavior without a new explicit authorization after Turn 2 review.
 
 ## Read first
 

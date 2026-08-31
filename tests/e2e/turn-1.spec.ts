@@ -110,7 +110,7 @@ test("UI-05/UI-06 preserves the answer, locks controls, and shows slow feedback"
   page,
 }) => {
   await page.route("**/api/coach/onboarding", async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 1_450));
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
     await fulfillBasics(route);
   });
   await page.goto("/coach/new");

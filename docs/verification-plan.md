@@ -66,7 +66,7 @@ These tests are written from the specifications and nutrition documents, not inf
 
 ### Weight and Trend Controls
 
-- **VT-15:** Valid weights normalize to kilograms, accept one confirmed measurement per date, and append to the visualization data exactly once. Invalid values and duplicate-date commands do not create a plotted point.
+- **VT-15:** Valid weights normalize to kilograms. A new date appends exactly one plotted point; replacing a selected existing date updates that point without creating a duplicate. Invalid values do not create a plotted point.
 - **VT-16:** Fewer than 28 valid unique-date measurements in the most recent 35 days, a span shorter than 28 days, or any Active Plan change in the included span produces `insufficient_evidence` and no energy proposal.
 - **VT-17:** A qualifying fixture calculates ordinary-least-squares slope, weekly kilograms, mean weight, and weekly percentage from unrounded values. Only displayed values are rounded.
 
