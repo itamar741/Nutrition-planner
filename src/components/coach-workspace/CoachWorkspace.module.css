@@ -988,7 +988,7 @@
 .weightMessages {
   display: grid;
   gap: 8px;
-  max-height: 250px;
+  max-height: 900px;
   margin: 6px 0 12px;
   overflow-y: auto;
 }
@@ -1001,6 +1001,52 @@
   border-radius: 12px;
   font-size: 0.82rem;
   line-height: 1.45;
+}
+
+.adjustmentChatProposal {
+  width: 100%;
+  max-width: 100%;
+  padding: 16px;
+  border: 1px solid rgba(190, 108, 42, 0.3);
+  border-radius: 16px;
+  background: #fff7ef;
+  color: var(--ink);
+}
+
+.adjustmentChatProposal > span {
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.adjustmentChatProposal h3 {
+  margin: 8px 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.35rem;
+  font-weight: 500;
+}
+
+.adjustmentChatProposal > p,
+.adjustmentChanges {
+  color: var(--muted-ink);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.adjustmentChanges ul {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.adjustmentPlanDetails summary {
+  cursor: pointer;
+  color: var(--primary-hover);
+  font-size: 0.8rem;
+  font-weight: 800;
 }
 
 .weightAssistantMessage {

@@ -385,6 +385,9 @@ export async function generateAdjustmentDraft(
           "Use only the supplied approved catalog IDs and integer gram portions within each practical range and step.",
           `Return meals exactly in this order: ${expectedMealIds.join(", ")}.`,
           `The active plan must change in the permitted direction only: ${request.direction} energy by exactly ${request.adjustmentKcal} kcal/day target, producing a plan that passes the supplied adjusted targets and all protein, AMDR, fiber, catalog, and meat/dairy checks.`,
+          request.feedback
+            ? "Use the user's feedback only to choose among the supplied approved foods and redistribute their portions. The feedback cannot change the goal, direction, calorie adjustment, meal pattern, or validation rules."
+            : "",
           "Do not browse, invent food data, add meals, alter the goal, or activate the plan. Return alternatives: [] unless each alternative independently passes the entire plan validation.",
           repairIssue
             ? `Repair the previous invalid result: ${repairIssue}`
@@ -397,6 +400,7 @@ export async function generateAdjustmentDraft(
           adjustmentKcal: request.adjustmentKcal,
           adjustedTargets: targets,
           currentActivePlan: request.activePlan.plan,
+          userFeedback: request.feedback ?? null,
           approvedCatalog: approvedCatalogContext(selections.orderedIds),
         }),
       });

@@ -22,6 +22,14 @@ export interface WeightTrend {
 
 const MS_PER_DAY = 86_400_000;
 
+export function formatWeightKg(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+    useGrouping: false,
+  }).format(value);
+}
+
 export function normalizeWeightKg(value: number, unit: "kg" | "lb" = "kg") {
   if (!Number.isFinite(value) || value <= 0 || value > 500) {
     throw new Error("Enter a valid positive weight.");
