@@ -1,4 +1,8 @@
-import type { WeightMeasurement, WeightTrend } from "@/domain/weight/trend";
+import {
+  formatWeightKg,
+  type WeightMeasurement,
+  type WeightTrend,
+} from "@/domain/weight/trend";
 import styles from "./CoachWorkspace.module.css";
 
 const WIDTH = 680;
@@ -83,7 +87,7 @@ export function WeightTrendChart({
               x={PADDING.left - 8}
               y={yFor(tick) + 4}
             >
-              {tick.toFixed(1)}
+              {formatWeightKg(tick)}
             </text>
           </g>
         ))}
@@ -93,7 +97,7 @@ export function WeightTrendChart({
         ) : null}
         {ordered.map((item, index) => (
           <circle
-            aria-label={`Edit ${item.date}, ${item.weightKg.toFixed(1)} kilograms`}
+            aria-label={`Edit ${item.date}, ${formatWeightKg(item.weightKg)} kilograms`}
             className={styles.chartPoint}
             cx={xFor(index)}
             cy={yFor(item.weightKg)}

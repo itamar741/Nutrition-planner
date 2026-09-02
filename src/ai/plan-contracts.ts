@@ -78,6 +78,7 @@ export type DraftModificationModel = z.infer<
 export const adjustmentRequestSchema = z
   .object({
     commandId: z.string().min(8).max(100),
+    feedback: z.string().trim().min(1).max(1_000).optional(),
     profile: structuredProfileSchema,
     activePlan: activePlanSchema,
     direction: z.enum(["increase", "decrease"]),

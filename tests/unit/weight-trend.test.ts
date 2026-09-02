@@ -5,6 +5,7 @@ import {
 } from "@/data/demo-fixtures";
 import {
   calculateWeightTrend,
+  formatWeightKg,
   parseCurrentWeightMessage,
   type WeightMeasurement,
 } from "@/domain/weight/trend";
@@ -29,6 +30,12 @@ describe("weight trend controls", () => {
     expect(parseCurrentWeightMessage("80.4 kg")).toBe(80.4);
     expect(parseCurrentWeightMessage("80,4")).toBe(80.4);
     expect(parseCurrentWeightMessage("I weigh 80.4 kg")).toBeNull();
+  });
+
+  it("B-02 formats weights with no more than two decimal places", () => {
+    expect(formatWeightKg(80)).toBe("80");
+    expect(formatWeightKg(80.4)).toBe("80.4");
+    expect(formatWeightKg(81.0857142849)).toBe("81.09");
   });
 
   it("VT-17 calculates the seeded maintenance gain trend without rounding inputs", () => {

@@ -38,11 +38,13 @@ import { getChecklist } from "@/domain/profile/onboarding";
 import {
   adjustmentDirection,
   calculateWeightTrend,
+  formatWeightKg,
   normalizeWeightKg,
   parseCurrentWeightMessage,
   type WeightMeasurement,
 } from "@/domain/weight/trend";
 import type { DemoProfileId, QuickReplyOption } from "@/domain/profile/types";
+import type { DraftProposal, MealPlan } from "@/domain/plan/types";
 import { demoReducer, type PendingCommand } from "@/store/demo-reducer";
 import {
   clearNewDemoState,
@@ -65,6 +67,50 @@ function createCommandId() {
     globalThis.crypto?.randomUUID?.() ??
     `command-${Date.now()}-${Math.random()}`
   );
+}
+
+function describePlanChanges(current: MealPlan, proposed: MealPlan) {
+  const changes: string[] = [];
+  for (const proposedMeal of proposed.meals) {
+    const currentMeal = current.meals.find(
+      (meal) => meal.id === proposedMeal.id,
+    );
+    const count = Math.max(
+      currentMeal?.items.length ?? 0,
+      proposedMeal.items.length,
+    );
+    for (let index = 0; index < count; index += 1) {
+      const before = currentMeal?.items[index];
+      const after = proposedMeal.items[index];
+      if (!before && after) {
+        const food = foodCatalogById.get(after.catalogFoodId);
+        changes.push(
+          `${proposedMeal.name}: add ${food?.displayName ?? after.catalogFoodId} ${after.grams} g`,
+        );
+      } else if (before && !after) {
+        const food = foodCatalogById.get(before.catalogFoodId);
+        changes.push(
+          `${proposedMeal.name}: remove ${food?.displayName ?? before.catalogFoodId} ${before.grams} g`,
+        );
+      } else if (
+        before &&
+        after &&
+        before.catalogFoodId !== after.catalogFoodId
+      ) {
+        const beforeFood = foodCatalogById.get(before.catalogFoodId);
+        const afterFood = foodCatalogById.get(after.catalogFoodId);
+        changes.push(
+          `${proposedMeal.name}: ${beforeFood?.displayName ?? before.catalogFoodId} ${before.grams} g → ${afterFood?.displayName ?? after.catalogFoodId} ${after.grams} g`,
+        );
+      } else if (before && after && before.grams !== after.grams) {
+        const food = foodCatalogById.get(after.catalogFoodId);
+        changes.push(
+          `${proposedMeal.name}: ${food?.displayName ?? after.catalogFoodId} ${before.grams} g → ${after.grams} g`,
+        );
+      }
+    }
+  }
+  return changes;
 }
 
 function CatalogSection({ approvedIds }: { approvedIds: string[] }) {
@@ -125,11 +171,11 @@ function ExistingFoundation() {
     useState<WeightMeasurement | null>(null);
   const [editingWeight, setEditingWeight] = useState("");
   const [proposalState, setProposalState] = useState<
-    "pending" | "approved" | "rejected"
+    "pending" | "awaiting_feedback" | "approved"
   >("pending");
-  const [adjustmentDraft, setAdjustmentDraft] = useState<
-    import("@/domain/plan/types").DraftProposal | null
-  >(null);
+  const [adjustmentDraft, setAdjustmentDraft] = useState<DraftProposal | null>(
+    null,
+  );
   const [proposalError, setProposalError] = useState("");
   const [isGeneratingProposal, setIsGeneratingProposal] = useState(false);
 
@@ -190,7 +236,7 @@ function ExistingFoundation() {
         ...(source === "chat" ? [appendChat("user", `${weightKg} kg`)] : []),
         appendChat(
           "assistant",
-          `Recorded ${weightKg.toFixed(1)} kg for today. Your trend was recalculated.`,
+          `Recorded ${formatWeightKg(weightKg)} kg for today. Your trend was recalculated.`,
         ),
       ],
     }));
@@ -203,6 +249,15 @@ function ExistingFoundation() {
     const message = chatInput.trim();
     if (!message) return;
     setChatInput("");
+    if (proposalState === "awaiting_feedback") {
+      setExisting((current) => ({
+        ...current,
+        messages: [...current.messages, appendChat("user", message)],
+      }));
+      setProposalState("pending");
+      void generateAdjustmentProposal(message);
+      return;
+    }
     const weightKg = parseCurrentWeightMessage(message);
     if (weightKg === null) {
       setExisting((current) => ({
@@ -240,7 +295,7 @@ function ExistingFoundation() {
   }
   function startEditing(measurement: WeightMeasurement) {
     setEditingMeasurement(measurement);
-    setEditingWeight(String(measurement.weightKg));
+    setEditingWeight(formatWeightKg(measurement.weightKg));
   }
   function saveEditedWeight(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -259,7 +314,7 @@ function ExistingFoundation() {
           ...current.messages,
           appendChat(
             "assistant",
-            `Updated ${editingMeasurement.date} to ${weightKg.toFixed(1)} kg. Your trend was recalculated.`,
+            `Updated ${editingMeasurement.date} to ${formatWeightKg(weightKg)} kg. Your trend was recalculated.`,
           ),
         ],
       }));
@@ -291,12 +346,40 @@ function ExistingFoundation() {
         activatedAt: new Date().toISOString(),
         plan: adjustmentDraft.plan,
       },
+      messages: [
+        ...current.messages,
+        appendChat("user", "Approve proposal"),
+        appendChat(
+          "assistant",
+          `Approved. Your Active Plan is now version ${adjustmentDraft.plan.version}.`,
+        ),
+      ],
     }));
     setAdjustmentDraft(null);
     setProposalState("approved");
   }
-  async function generateAdjustmentProposal() {
-    if (!direction || isGeneratingProposal || proposalState !== "pending")
+  function declineAdjustment() {
+    if (!adjustmentDraft || proposalState !== "pending") return;
+    setAdjustmentDraft(null);
+    setProposalState("awaiting_feedback");
+    setExisting((current) => ({
+      ...current,
+      messages: [
+        ...current.messages,
+        appendChat("user", "Decline proposal"),
+        appendChat(
+          "assistant",
+          "Your Active Plan was not changed. What did you not like about the proposal? I can prepare one new bounded Draft using your approved foods.",
+        ),
+      ],
+    }));
+  }
+  async function generateAdjustmentProposal(feedback?: string) {
+    if (
+      !direction ||
+      isGeneratingProposal ||
+      (proposalState !== "pending" && !feedback)
+    )
       return;
     setIsGeneratingProposal(true);
     setProposalError("");
@@ -306,6 +389,7 @@ function ExistingFoundation() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           commandId: createCommandId(),
+          ...(feedback ? { feedback } : {}),
           profile: existingReadyProfile,
           activePlan: existing.activePlan,
           direction,
@@ -321,7 +405,20 @@ function ExistingFoundation() {
             : "The adjustment proposal could not be created.",
         );
       }
-      setAdjustmentDraft(adjustmentSuccessSchema.parse(body).draft);
+      const draft = adjustmentSuccessSchema.parse(body).draft;
+      setAdjustmentDraft(draft);
+      setExisting((current) => ({
+        ...current,
+        messages: [
+          ...current.messages,
+          appendChat(
+            "assistant",
+            feedback
+              ? "I used your feedback to prepare another validated Draft. Review the exact changes below."
+              : "I prepared a validated adjustment Draft. Review the exact changes below before deciding.",
+          ),
+        ],
+      }));
     } catch (error) {
       setProposalError(
         error instanceof Error
@@ -332,6 +429,9 @@ function ExistingFoundation() {
       setIsGeneratingProposal(false);
     }
   }
+  const adjustmentChanges = adjustmentDraft
+    ? describePlanChanges(existing.activePlan.plan, adjustmentDraft.plan)
+    : [];
   return (
     <section className={styles.existingLayout}>
       <p className={styles.kicker}>Prepared profile · foundation checkpoint</p>
@@ -413,7 +513,7 @@ function ExistingFoundation() {
               min="1"
               onChange={(event) => setWeightInput(event.target.value)}
               placeholder="kg"
-              step="0.1"
+              step="0.01"
               type="number"
               value={weightInput}
             />
@@ -438,19 +538,120 @@ function ExistingFoundation() {
                 {message.text}
               </div>
             ))}
+            {direction && proposalState === "pending" ? (
+              adjustmentDraft ? (
+                <div className={styles.adjustmentChatProposal}>
+                  <span>AI adjustment proposal · Draft</span>
+                  <h3>
+                    {direction === "increase" ? "Increase" : "Decrease"} by{" "}
+                    {adjustmentKcal} kcal/day
+                  </h3>
+                  <p>{adjustmentDraft.summary}</p>
+                  <div className={styles.adjustmentComparison}>
+                    <span>
+                      Current target
+                      <strong>
+                        {existing.activePlan.plan.targetSnapshot.energyKcal}{" "}
+                        kcal
+                      </strong>
+                    </span>
+                    <span aria-hidden="true">→</span>
+                    <span>
+                      Proposed target
+                      <strong>
+                        {adjustmentDraft.plan.targetSnapshot.energyKcal} kcal
+                      </strong>
+                    </span>
+                  </div>
+                  <div className={styles.adjustmentChanges}>
+                    <strong>Exact proposed changes</strong>
+                    {adjustmentChanges.length > 0 ? (
+                      <ul>
+                        {adjustmentChanges.map((change) => (
+                          <li key={change}>{change}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p>The daily composition is unchanged.</p>
+                    )}
+                  </div>
+                  <details className={styles.adjustmentPlanDetails}>
+                    <summary>View full proposed daily plan</summary>
+                    <PlanContents proposal={adjustmentDraft} />
+                  </details>
+                  <div className={styles.approvalActions}>
+                    <button
+                      className={styles.primaryAction}
+                      onClick={approveAdjustment}
+                      type="button"
+                    >
+                      Approve proposal
+                    </button>
+                    <button
+                      className={styles.secondaryAction}
+                      onClick={declineAdjustment}
+                      type="button"
+                    >
+                      Decline
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className={styles.weightAssistantMessage}>
+                  <p>
+                    Your deterministic trend supports a bounded {direction} of{" "}
+                    {adjustmentKcal} kcal/day.
+                  </p>
+                  <button
+                    className={styles.primaryAction}
+                    disabled={isGeneratingProposal}
+                    onClick={() => void generateAdjustmentProposal()}
+                    type="button"
+                  >
+                    {isGeneratingProposal
+                      ? "Creating validated proposal…"
+                      : "Generate AI proposal"}
+                  </button>
+                </div>
+              )
+            ) : null}
+            {isGeneratingProposal ? (
+              <div className={styles.processing} role="status">
+                <span className={styles.pulse} />
+                Creating a validated adjustment Draft…
+              </div>
+            ) : null}
+            {proposalError ? (
+              <p className={styles.errorBox} role="alert">
+                {proposalError}
+              </p>
+            ) : null}
           </div>
           <form className={styles.composer} onSubmit={submitWeightChat}>
             <textarea
-              aria-label="Today’s weight message"
-              maxLength={100}
+              aria-label={
+                proposalState === "awaiting_feedback"
+                  ? "Adjustment feedback"
+                  : "Today’s weight message"
+              }
+              disabled={isGeneratingProposal || Boolean(adjustmentDraft)}
+              maxLength={proposalState === "awaiting_feedback" ? 1_000 : 100}
               onChange={(event) => setChatInput(event.target.value)}
-              placeholder="Example: 80.4 kg"
+              placeholder={
+                proposalState === "awaiting_feedback"
+                  ? "Tell the coach what you want changed in the next Draft"
+                  : "Example: 80.4 kg"
+              }
               rows={2}
               value={chatInput}
             />
             <button
               className={styles.sendButton}
-              disabled={!chatInput.trim()}
+              disabled={
+                !chatInput.trim() ||
+                isGeneratingProposal ||
+                Boolean(adjustmentDraft)
+              }
               type="submit"
             >
               Send
@@ -471,7 +672,7 @@ function ExistingFoundation() {
               inputMode="decimal"
               min="1"
               onChange={(event) => setEditingWeight(event.target.value)}
-              step="0.1"
+              step="0.01"
               type="number"
               value={editingWeight}
             />
@@ -487,86 +688,6 @@ function ExistingFoundation() {
             </button>
           </form>
         </section>
-      ) : null}
-      {direction ? (
-        <article className={styles.existingCard}>
-          <span>AI adjustment proposal · Draft</span>
-          <h3>
-            {direction === "increase" ? "Increase" : "Decrease"} by{" "}
-            {adjustmentKcal} kcal/day
-          </h3>
-          <p>
-            The proposal is bounded by the deterministic trend result. The
-            Active Plan changes only after approval.
-          </p>
-          {proposalState === "pending" ? (
-            <div className={styles.quickReplies}>
-              {adjustmentDraft ? (
-                <>
-                  <p>{adjustmentDraft.summary}</p>
-                  <div className={styles.adjustmentComparison}>
-                    <span>
-                      Current target{" "}
-                      <strong>
-                        {existing.activePlan.plan.targetSnapshot.energyKcal}{" "}
-                        kcal
-                      </strong>
-                    </span>
-                    <span aria-hidden="true">→</span>
-                    <span>
-                      Proposed target{" "}
-                      <strong>
-                        {adjustmentDraft.plan.targetSnapshot.energyKcal} kcal
-                      </strong>
-                    </span>
-                  </div>
-                  <div className={styles.adjustmentPlanDetails}>
-                    <p className={styles.adjustmentDetailsTitle}>
-                      Proposed daily plan
-                    </p>
-                    <PlanContents proposal={adjustmentDraft} />
-                  </div>
-                  <button
-                    className={styles.primaryAction}
-                    onClick={approveAdjustment}
-                    type="button"
-                  >
-                    Approve proposal
-                  </button>
-                </>
-              ) : (
-                <button
-                  className={styles.primaryAction}
-                  disabled={isGeneratingProposal}
-                  onClick={generateAdjustmentProposal}
-                  type="button"
-                >
-                  {isGeneratingProposal
-                    ? "Creating validated proposal…"
-                    : "Generate AI proposal"}
-                </button>
-              )}
-              <button
-                className={styles.resetButton}
-                onClick={() => setProposalState("rejected")}
-                type="button"
-              >
-                Decline
-              </button>
-            </div>
-          ) : (
-            <p role="status">
-              {proposalState === "approved"
-                ? `Approved. Active Plan is now version ${existing.activePlan.version}.`
-                : "Declined. Active Plan was unchanged."}
-            </p>
-          )}
-          {proposalError ? (
-            <p className={styles.errorBox} role="alert">
-              {proposalError}
-            </p>
-          ) : null}
-        </article>
       ) : null}
       <div className={styles.existingGrid}>
         <article className={styles.existingCard}>

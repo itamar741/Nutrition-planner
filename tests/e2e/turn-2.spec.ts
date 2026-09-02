@@ -83,7 +83,12 @@ test("Demo A completes Food Grid, Draft modification, and explicit activation", 
 
   for (const food of foodCatalog) {
     await grid
-      .getByRole("button", { name: new RegExp(food.displayName, "i") })
+      .getByRole("button", {
+        name: new RegExp(
+          `^${food.displayName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s|$)`,
+          "i",
+        ),
+      })
       .click();
   }
   await expect(grid.getByText("All five groups are covered.")).toBeVisible();

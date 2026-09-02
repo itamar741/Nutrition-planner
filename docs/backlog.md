@@ -2,7 +2,7 @@
 
 ## B-01 — Conversational adjustment review
 
-Status: queued. Added from user feedback on 2026-08-30; not implemented yet.
+Status: completed in Turn 3 on 2026-09-01.
 
 The Existing Demo Profile's adjustment proposal must be part of the coach conversation rather than a separate dashboard card.
 
@@ -17,6 +17,6 @@ This item does not add general chat memory, arbitrary AI actions, new food looku
 
 ## B-02 — Weight display precision
 
-Status: queued. Added from user feedback on 2026-08-30; not implemented yet.
+Status: completed in Turn 3 on 2026-09-01.
 
 Display every editable or read-only weight value with at most two digits after the decimal point. Keep the unrounded stored value and deterministic calculations unchanged; this is a presentation-only rule.

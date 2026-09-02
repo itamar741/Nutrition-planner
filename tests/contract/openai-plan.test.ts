@@ -161,4 +161,27 @@ describe("strict Draft model boundary", () => {
     expect(draft.plan.validation.valid).toBe(true);
     expect(draft.plan.targetSnapshot.energyKcal).toBe(2_800);
   });
+
+  it("B-01 passes decline feedback into a bounded adjustment request", async () => {
+    const activePlan = createExistingActivePlan();
+    const creator = vi.fn().mockResolvedValue("not json");
+    await generateAdjustmentDraft(
+      {
+        commandId: "command-adjustment-feedback",
+        feedback: "I prefer more food in the evening.",
+        profile: existingReadyProfile,
+        activePlan,
+        direction: "decrease",
+        adjustmentKcal: 150,
+      },
+      creator,
+    );
+    expect(creator).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userInput: expect.stringContaining(
+          '"userFeedback":"I prefer more food in the evening."',
+        ),
+      }),
+    );
+  });
 });
