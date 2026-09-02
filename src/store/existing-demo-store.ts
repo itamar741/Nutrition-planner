@@ -14,10 +14,10 @@ export interface ExistingDemoState {
   activePlan: ActivePlan;
   measurements: WeightMeasurement[];
   messages: ExistingChatMessage[];
+  approvedCatalogFoodIds: string[];
 }
 
-const storageKey = "nutrition-coach:existing:v1";
-const existingStateSchema = z
+export const existingStateSchema = z
   .object({
     schemaVersion: z.literal(1),
     activePlan: activePlanSchema,
@@ -40,24 +40,6 @@ const existingStateSchema = z
         })
         .strict(),
     ),
+    approvedCatalogFoodIds: z.array(z.string().min(1).max(100)),
   })
   .strict();
-
-export function loadExistingDemoState(): ExistingDemoState | null {
-  try {
-    const value = window.localStorage.getItem(storageKey);
-    if (!value) return null;
-    const parsed = existingStateSchema.safeParse(JSON.parse(value));
-    return parsed.success ? parsed.data : null;
-  } catch {
-    return null;
-  }
-}
-
-export function saveExistingDemoState(state: ExistingDemoState) {
-  window.localStorage.setItem(storageKey, JSON.stringify(state));
-}
-
-export function clearExistingDemoState() {
-  window.localStorage.removeItem(storageKey);
-}

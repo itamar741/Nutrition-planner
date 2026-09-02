@@ -1,4 +1,8 @@
 import { calculateTargets } from "@/domain/nutrition/calculations";
+import {
+  baselineCatalogSnapshot,
+  type CatalogSnapshot,
+} from "@/domain/catalog/snapshot";
 import type { ActivePlan, DraftProposal } from "@/domain/plan/types";
 import {
   revalidatePlan,
@@ -87,7 +91,11 @@ function messageId(prefix: string, commandId: string) {
   return `${prefix}-${commandId}`;
 }
 
-export function demoReducer(state: DemoState, action: DemoAction): DemoState {
+export function demoReducer(
+  state: DemoState,
+  action: DemoAction,
+  catalog: CatalogSnapshot = baselineCatalogSnapshot,
+): DemoState {
   if (action.type === "hydrate") return action.state;
 
   if (
@@ -186,7 +194,7 @@ export function demoReducer(state: DemoState, action: DemoAction): DemoState {
     }
     case "apply_food_selection": {
       if (state.status === "processing") return state;
-      const selection = validateFoodSelections(action.ids);
+      const selection = validateFoodSelections(action.ids, catalog);
       if (!selection.valid) {
         return {
           ...state,
@@ -261,7 +269,7 @@ export function demoReducer(state: DemoState, action: DemoAction): DemoState {
       ) {
         return state;
       }
-      const plan = revalidatePlan(action.draft.plan, state.profile);
+      const plan = revalidatePlan(action.draft.plan, state.profile, catalog);
       if (!plan.validation.valid) {
         return {
           ...state,
@@ -295,7 +303,7 @@ export function demoReducer(state: DemoState, action: DemoAction): DemoState {
       ) {
         return state;
       }
-      const plan = revalidatePlan(action.draft.plan, state.profile);
+      const plan = revalidatePlan(action.draft.plan, state.profile, catalog);
       if (!plan.validation.valid) {
         return {
           ...state,
@@ -375,7 +383,7 @@ export function demoReducer(state: DemoState, action: DemoAction): DemoState {
       }
       const expectedBaseVersion = state.activePlan?.version ?? null;
       if (state.draft.basePlanVersion !== expectedBaseVersion) return state;
-      const plan = revalidatePlan(state.draft.plan, state.profile);
+      const plan = revalidatePlan(state.draft.plan, state.profile, catalog);
       if (!plan.validation.valid) return state;
       const activePlan: ActivePlan = {
         schemaVersion: 1,

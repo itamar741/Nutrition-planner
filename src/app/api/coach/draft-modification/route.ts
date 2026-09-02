@@ -10,16 +10,29 @@ import {
   draftModificationSuccessSchema,
   planFailureSchema,
 } from "@/ai/plan-contracts";
+import { requestHasAccess } from "@/security/demo-access";
+import { createCatalogSnapshot } from "@/domain/catalog/snapshot";
+import { listCatalogFoods } from "@/persistence/repository";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  if (!requestHasAccess(request)) {
+    return NextResponse.json(
+      { ok: false, message: "Demo access is required." },
+      { status: 401 },
+    );
+  }
   let commandId: string | null = null;
   try {
     const body: unknown = await request.json();
     const parsed = draftModificationRequestSchema.parse(body);
     commandId = parsed.commandId;
-    const result = await generateDraftModification(parsed);
+    const result = await generateDraftModification(
+      parsed,
+      undefined,
+      createCatalogSnapshot(await listCatalogFoods()),
+    );
     return NextResponse.json(
       draftModificationSuccessSchema.parse({
         ok: true,

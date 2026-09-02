@@ -1,4 +1,5 @@
-import { foodCatalogById } from "@/data/food-catalog";
+import { foodCatalog } from "@/data/food-catalog";
+import type { CatalogFood } from "@/domain/catalog/types";
 import type { ActivePlan, DraftProposal } from "@/domain/plan/types";
 import type { NutritionTargets } from "@/domain/profile/types";
 import styles from "./CoachWorkspace.module.css";
@@ -9,7 +10,14 @@ function formatNumber(value: number, digits = 0) {
   }).format(value);
 }
 
-export function PlanContents({ proposal }: { proposal: DraftProposal }) {
+export function PlanContents({
+  proposal,
+  catalog = foodCatalog,
+}: {
+  proposal: DraftProposal;
+  catalog?: readonly CatalogFood[];
+}) {
+  const catalogById = new Map(catalog.map((food) => [food.id, food]));
   const totals = proposal.plan.validation.totals;
   return (
     <>
@@ -30,7 +38,7 @@ export function PlanContents({ proposal }: { proposal: DraftProposal }) {
             <h4>{meal.name}</h4>
             <ul>
               {meal.items.map((item) => {
-                const food = foodCatalogById.get(item.catalogFoodId);
+                const food = catalogById.get(item.catalogFoodId);
                 return (
                   <li key={item.id}>
                     <span>{food?.displayName ?? item.catalogFoodId}</span>
@@ -40,7 +48,7 @@ export function PlanContents({ proposal }: { proposal: DraftProposal }) {
                         Or:{" "}
                         {item.alternatives
                           .map((alternative) => {
-                            const alternativeFood = foodCatalogById.get(
+                            const alternativeFood = catalogById.get(
                               alternative.catalogFoodId,
                             );
                             return `${alternativeFood?.displayName ?? alternative.catalogFoodId} ${alternative.grams} g`;
@@ -66,6 +74,7 @@ export function PlanPanel({
   disabled,
   onApprove,
   onReject,
+  catalog = foodCatalog,
 }: {
   draft: DraftProposal | null;
   activePlan: ActivePlan | null;
@@ -73,6 +82,7 @@ export function PlanPanel({
   disabled: boolean;
   onApprove: () => void;
   onReject: () => void;
+  catalog?: readonly CatalogFood[];
 }) {
   if (draft) {
     return (
@@ -85,7 +95,7 @@ export function PlanPanel({
           <span className={styles.validBadge}>Validated</span>
         </div>
         <p className={styles.planSummary}>{draft.summary}</p>
-        <PlanContents proposal={draft} />
+        <PlanContents catalog={catalog} proposal={draft} />
         {activePlan ? (
           <p className={styles.planNotice}>
             Your current Active Plan remains unchanged while this Draft is
@@ -137,7 +147,7 @@ export function PlanPanel({
           </div>
           <span className={styles.planVersion}>v{activePlan.version}</span>
         </div>
-        <PlanContents proposal={proposal} />
+        <PlanContents catalog={catalog} proposal={proposal} />
         <p className={styles.planNotice}>
           Active after your explicit approval. Weight-based adjustments arrive
           only in Turn 3.

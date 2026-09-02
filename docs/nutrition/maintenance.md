@@ -167,7 +167,7 @@ All calculations use grams internally:
 nutrient_for_portion = nutrient_per_100g × portion_grams / 100
 ```
 
-Runtime browsing, API calls to FoodData Central, manufacturer lookup, and AI-created food values are prohibited. Source data is reviewed and copied into the single local catalog during a later data-authoring step.
+Baseline source data is reviewed and copied into the curated catalog during data authoring. The deployed application permits one narrow exception for a user-requested food or packaged product: the Next.js server may use the bounded ScrapingBee/Fuder adapter to create a source-labelled candidate. The user must select the result and explicitly approve it before it becomes a catalog entry. The adapter reads the explicit per-100-g table column and stores a separate practical serving; it never treats a package total as a per-100-g value. Fuder's [methodology](https://www.fuder.co.il/%D7%9E%D7%A7%D7%95%D7%A8%D7%95%D7%AA-%D7%95%D7%9E%D7%AA%D7%95%D7%93%D7%95%D7%9C%D7%95%D7%92%D7%99%D7%94/) may omit unavailable nutrients, so missing fiber remains `null` rather than becoming zero. The adapter cannot bulk crawl, log in, bypass access controls, or pass raw source content to the model. If no valid source candidate is available, an AI-created value may be shown only as `AI estimate · Fuder not verified` and requires the same approval. Neither source path may change an Active Plan directly.
 
 ## 4. Shared Weight Trend and Evidence Rule
 

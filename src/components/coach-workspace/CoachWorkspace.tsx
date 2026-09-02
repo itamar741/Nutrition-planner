@@ -1,14 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import {
-  FormEvent,
-  useEffect,
-  useMemo,
-  useReducer,
-  useRef,
-  useState,
-} from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   onboardingFailureSchema,
   onboardingSuccessSchema,
@@ -21,8 +14,7 @@ import {
 } from "@/ai/plan-contracts";
 import {
   createNewDemoState,
-  createExistingActivePlan,
-  createExistingWeightHistory,
+  createExistingDemoState,
   demoProfileNames,
   existingProfileFoundation,
   existingReadyProfile,
@@ -45,21 +37,28 @@ import {
 } from "@/domain/weight/trend";
 import type { DemoProfileId, QuickReplyOption } from "@/domain/profile/types";
 import type { DraftProposal, MealPlan } from "@/domain/plan/types";
-import { demoReducer, type PendingCommand } from "@/store/demo-reducer";
 import {
-  clearNewDemoState,
-  loadNewDemoState,
-  saveNewDemoState,
-} from "@/store/local-demo-store";
+  CloudStateError,
+  loadCloudProfile,
+  resetCloudProfile,
+  sendCloudAction,
+} from "@/store/cloud-demo-client";
 import {
-  clearExistingDemoState,
-  loadExistingDemoState,
-  saveExistingDemoState,
-  type ExistingDemoState,
-} from "@/store/existing-demo-store";
+  demoReducer,
+  type DemoAction,
+  type PendingCommand,
+} from "@/store/demo-reducer";
+import {
+  existingDemoReducer,
+  type ExistingDemoAction,
+} from "@/store/existing-demo-reducer";
+import { type ExistingDemoState } from "@/store/existing-demo-store";
+import type { CatalogFood } from "@/domain/catalog/types";
+import { createCatalogSnapshot } from "@/domain/catalog/snapshot";
 import { FoodGrid } from "./FoodGrid";
 import { PlanContents, PlanPanel } from "./PlanPanel";
 import { WeightTrendChart } from "./WeightTrendChart";
+import { RuntimeFoodAssistant } from "@/components/RuntimeFoodAssistant";
 import styles from "./CoachWorkspace.module.css";
 
 function createCommandId() {
@@ -113,10 +112,14 @@ function describePlanChanges(current: MealPlan, proposed: MealPlan) {
   return changes;
 }
 
-function CatalogSection({ approvedIds }: { approvedIds: string[] }) {
-  const approvedFoods = foodCatalog.filter((food) =>
-    approvedIds.includes(food.id),
-  );
+function CatalogSection({
+  approvedIds,
+  catalog,
+}: {
+  approvedIds: string[];
+  catalog: readonly CatalogFood[];
+}) {
+  const approvedFoods = catalog.filter((food) => approvedIds.includes(food.id));
   return (
     <article className={styles.catalogCard}>
       <span>This demo profile’s food preferences</span>
@@ -143,28 +146,15 @@ function CatalogSection({ approvedIds }: { approvedIds: string[] }) {
   );
 }
 
-function createExistingFixture(): ExistingDemoState {
-  const now = new Date();
-  return {
-    schemaVersion: 1,
-    activePlan: createExistingActivePlan(now),
-    measurements: createExistingWeightHistory(now),
-    messages: [
-      {
-        id: "existing-welcome",
-        role: "assistant",
-        text: "Your weight history is ready. Send today’s weight in kilograms, or use the form beside the chart.",
-      },
-    ],
-  };
-}
-
 function ExistingFoundation() {
   const profile = existingProfileFoundation;
   const [existing, setExisting] = useState<ExistingDemoState>(
-    createExistingFixture,
+    createExistingDemoState,
   );
-  const [storageReady, setStorageReady] = useState(false);
+  const [catalog, setCatalog] = useState<CatalogFood[]>([...foodCatalog]);
+  const [cloudError, setCloudError] = useState("");
+  const cloudVersion = useRef(1);
+  const cloudQueue = useRef<Promise<void>>(Promise.resolve());
   const [weightInput, setWeightInput] = useState("");
   const [chatInput, setChatInput] = useState("");
   const [editingMeasurement, setEditingMeasurement] =
@@ -180,13 +170,54 @@ function ExistingFoundation() {
   const [isGeneratingProposal, setIsGeneratingProposal] = useState(false);
 
   useEffect(() => {
-    const stored = loadExistingDemoState();
-    if (stored) setExisting(stored);
-    setStorageReady(true);
+    let cancelled = false;
+    void loadCloudProfile<ExistingDemoState>("existing")
+      .then((result) => {
+        if (cancelled) return;
+        cloudVersion.current = result.profile.version;
+        setExisting(result.profile.state);
+        if (result.catalog.length > 0) setCatalog(result.catalog);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setCloudError(
+            error instanceof Error
+              ? error.message
+              : "The cloud demo state is unavailable.",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
-  useEffect(() => {
-    if (storageReady) saveExistingDemoState(existing);
-  }, [existing, storageReady]);
+
+  function dispatchExisting(action: ExistingDemoAction) {
+    setExisting((current) => existingDemoReducer(current, action));
+    cloudQueue.current = cloudQueue.current.then(async () => {
+      try {
+        const profile = await sendCloudAction<ExistingDemoState>({
+          profileId: "existing",
+          expectedVersion: cloudVersion.current,
+          commandId: action.commandId,
+          action,
+        });
+        cloudVersion.current = profile.version;
+        setExisting(profile.state);
+        setCloudError("");
+      } catch (error) {
+        if (error instanceof CloudStateError && error.current) {
+          cloudVersion.current = error.current.version;
+          setExisting(error.current.state as ExistingDemoState);
+        }
+        setCloudError(
+          error instanceof Error
+            ? error.message
+            : "The cloud demo state is unavailable.",
+        );
+      }
+    });
+  }
 
   const trend = useMemo(
     () =>
@@ -209,16 +240,17 @@ function ExistingFoundation() {
   function saveTodayWeight(weightKg: number, source: "chat" | "form") {
     const date = new Date().toISOString().slice(0, 10);
     if (existing.measurements.some((item) => item.date === date)) {
-      setExisting((current) => ({
-        ...current,
+      const commandId = createCommandId();
+      dispatchExisting({
+        type: "add_messages",
+        commandId,
         messages: [
-          ...current.messages,
           appendChat(
             "assistant",
             "Today’s weight is already recorded. Select its chart point to edit it.",
           ),
         ],
-      }));
+      });
       return;
     }
     const commandId = createCommandId();
@@ -228,18 +260,20 @@ function ExistingFoundation() {
       weightKg,
       commandId,
     };
-    setExisting((current) => ({
-      ...current,
-      measurements: [...current.measurements, measurement],
+    dispatchExisting({
+      type: "record_weight",
+      commandId,
+      measurement,
       messages: [
-        ...current.messages,
-        ...(source === "chat" ? [appendChat("user", `${weightKg} kg`)] : []),
+        ...(source === "chat"
+          ? [appendChat("user", `${formatWeightKg(weightKg)} kg`)]
+          : []),
         appendChat(
           "assistant",
           `Recorded ${formatWeightKg(weightKg)} kg for today. Your trend was recalculated.`,
         ),
       ],
-    }));
+    });
     setAdjustmentDraft(null);
     setProposalState("pending");
     setProposalError("");
@@ -250,27 +284,30 @@ function ExistingFoundation() {
     if (!message) return;
     setChatInput("");
     if (proposalState === "awaiting_feedback") {
-      setExisting((current) => ({
-        ...current,
-        messages: [...current.messages, appendChat("user", message)],
-      }));
+      const commandId = createCommandId();
+      dispatchExisting({
+        type: "add_messages",
+        commandId,
+        messages: [appendChat("user", message)],
+      });
       setProposalState("pending");
       void generateAdjustmentProposal(message);
       return;
     }
     const weightKg = parseCurrentWeightMessage(message);
     if (weightKg === null) {
-      setExisting((current) => ({
-        ...current,
+      const commandId = createCommandId();
+      dispatchExisting({
+        type: "add_messages",
+        commandId,
         messages: [
-          ...current.messages,
           appendChat("user", message),
           appendChat(
             "assistant",
             "Please send only today’s weight in kilograms, for example 80.4 kg.",
           ),
         ],
-      }));
+      });
       return;
     }
     saveTodayWeight(weightKg, "chat");
@@ -281,16 +318,17 @@ function ExistingFoundation() {
       saveTodayWeight(normalizeWeightKg(Number(weightInput)), "form");
       setWeightInput("");
     } catch (error) {
-      setExisting((current) => ({
-        ...current,
+      const commandId = createCommandId();
+      dispatchExisting({
+        type: "add_messages",
+        commandId,
         messages: [
-          ...current.messages,
           appendChat(
             "assistant",
             error instanceof Error ? error.message : "Enter a valid weight.",
           ),
         ],
-      }));
+      });
     }
   }
   function startEditing(measurement: WeightMeasurement) {
@@ -303,21 +341,18 @@ function ExistingFoundation() {
     try {
       const weightKg = normalizeWeightKg(Number(editingWeight));
       const commandId = createCommandId();
-      setExisting((current) => ({
-        ...current,
-        measurements: current.measurements.map((item) =>
-          item.date === editingMeasurement.date
-            ? { ...item, weightKg, commandId }
-            : item,
-        ),
+      dispatchExisting({
+        type: "edit_weight",
+        commandId,
+        date: editingMeasurement.date,
+        weightKg,
         messages: [
-          ...current.messages,
           appendChat(
             "assistant",
             `Updated ${editingMeasurement.date} to ${formatWeightKg(weightKg)} kg. Your trend was recalculated.`,
           ),
         ],
-      }));
+      });
       setEditingMeasurement(null);
       setAdjustmentDraft(null);
       setProposalState("pending");
@@ -328,9 +363,27 @@ function ExistingFoundation() {
       );
     }
   }
-  function resetExistingDemo() {
-    clearExistingDemoState();
-    setExisting(createExistingFixture());
+  async function resetExistingDemo() {
+    if (!window.confirm("Reset only the Existing demo to its seeded state?")) {
+      return;
+    }
+    try {
+      const profile = await resetCloudProfile<ExistingDemoState>({
+        profileId: "existing",
+        expectedVersion: cloudVersion.current,
+        commandId: createCommandId(),
+      });
+      cloudVersion.current = profile.version;
+      setExisting(profile.state);
+      setCloudError("");
+    } catch (error) {
+      if (error instanceof CloudStateError && error.current) {
+        cloudVersion.current = error.current.version;
+        setExisting(error.current.state as ExistingDemoState);
+      }
+      setCloudError(error instanceof Error ? error.message : "Reset failed.");
+      return;
+    }
     setEditingMeasurement(null);
     setAdjustmentDraft(null);
     setProposalError("");
@@ -338,23 +391,20 @@ function ExistingFoundation() {
   }
   function approveAdjustment() {
     if (!adjustmentDraft || proposalState !== "pending") return;
-    setExisting((current) => ({
-      ...current,
-      activePlan: {
-        ...current.activePlan,
-        version: adjustmentDraft.plan.version,
-        activatedAt: new Date().toISOString(),
-        plan: adjustmentDraft.plan,
-      },
+    const commandId = createCommandId();
+    dispatchExisting({
+      type: "approve_adjustment",
+      commandId,
+      draft: adjustmentDraft,
+      activatedAt: new Date().toISOString(),
       messages: [
-        ...current.messages,
         appendChat("user", "Approve proposal"),
         appendChat(
           "assistant",
           `Approved. Your Active Plan is now version ${adjustmentDraft.plan.version}.`,
         ),
       ],
-    }));
+    });
     setAdjustmentDraft(null);
     setProposalState("approved");
   }
@@ -362,17 +412,18 @@ function ExistingFoundation() {
     if (!adjustmentDraft || proposalState !== "pending") return;
     setAdjustmentDraft(null);
     setProposalState("awaiting_feedback");
-    setExisting((current) => ({
-      ...current,
+    const commandId = createCommandId();
+    dispatchExisting({
+      type: "add_messages",
+      commandId,
       messages: [
-        ...current.messages,
         appendChat("user", "Decline proposal"),
         appendChat(
           "assistant",
           "Your Active Plan was not changed. What did you not like about the proposal? I can prepare one new bounded Draft using your approved foods.",
         ),
       ],
-    }));
+    });
   }
   async function generateAdjustmentProposal(feedback?: string) {
     if (
@@ -390,7 +441,10 @@ function ExistingFoundation() {
         body: JSON.stringify({
           commandId: createCommandId(),
           ...(feedback ? { feedback } : {}),
-          profile: existingReadyProfile,
+          profile: {
+            ...existingReadyProfile,
+            approvedCatalogFoodIds: existing.approvedCatalogFoodIds,
+          },
           activePlan: existing.activePlan,
           direction,
           adjustmentKcal,
@@ -407,10 +461,11 @@ function ExistingFoundation() {
       }
       const draft = adjustmentSuccessSchema.parse(body).draft;
       setAdjustmentDraft(draft);
-      setExisting((current) => ({
-        ...current,
+      const messageCommandId = createCommandId();
+      dispatchExisting({
+        type: "add_messages",
+        commandId: messageCommandId,
         messages: [
-          ...current.messages,
           appendChat(
             "assistant",
             feedback
@@ -418,7 +473,7 @@ function ExistingFoundation() {
               : "I prepared a validated adjustment Draft. Review the exact changes below before deciding.",
           ),
         ],
-      }));
+      });
     } catch (error) {
       setProposalError(
         error instanceof Error
@@ -440,6 +495,11 @@ function ExistingFoundation() {
         This fixed profile includes an Active Plan and a seeded two-month weight
         history. No additional account is created.
       </p>
+      {cloudError ? (
+        <p className={styles.errorBox} role="alert">
+          {cloudError}
+        </p>
+      ) : null}
       <div className={styles.existingGrid}>
         <article className={styles.existingCard}>
           <span>Profile</span>
@@ -577,7 +637,10 @@ function ExistingFoundation() {
                   </div>
                   <details className={styles.adjustmentPlanDetails}>
                     <summary>View full proposed daily plan</summary>
-                    <PlanContents proposal={adjustmentDraft} />
+                    <PlanContents
+                      catalog={catalog}
+                      proposal={adjustmentDraft}
+                    />
                   </details>
                   <div className={styles.approvalActions}>
                     <button
@@ -703,6 +766,7 @@ function ExistingFoundation() {
           <details className={styles.activePlanDetails}>
             <summary>View active daily plan</summary>
             <PlanContents
+              catalog={catalog}
               proposal={{
                 schemaVersion: 1,
                 id: `active-${existing.activePlan.version}`,
@@ -715,8 +779,24 @@ function ExistingFoundation() {
           </details>
         </article>
       </div>
+      <RuntimeFoodAssistant
+        context="general"
+        getExpectedVersion={() => cloudVersion.current}
+        onFoodApproved={(food) =>
+          setCatalog((current) => [
+            ...current.filter((candidate) => candidate.id !== food.id),
+            food,
+          ])
+        }
+        onProfileUpdated={(cloudProfile) => {
+          cloudVersion.current = cloudProfile.version;
+          setExisting(cloudProfile.state as ExistingDemoState);
+        }}
+        profileId="existing"
+      />
       <CatalogSection
-        approvedIds={existingReadyProfile.approvedCatalogFoodIds}
+        approvedIds={existing.approvedCatalogFoodIds}
+        catalog={catalog}
       />
     </section>
   );
@@ -739,34 +819,88 @@ function DisabledComposer({ placeholder }: { placeholder: string }) {
 }
 
 export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
-  const [state, dispatch] = useReducer(
-    demoReducer,
-    undefined,
-    createNewDemoState,
-  );
+  const [state, setState] = useState(createNewDemoState);
+  const stateRef = useRef(state);
+  const [catalog, setCatalog] = useState<CatalogFood[]>([...foodCatalog]);
+  const [cloudError, setCloudError] = useState("");
+  const cloudVersion = useRef(1);
+  const cloudQueue = useRef<Promise<void>>(Promise.resolve());
   const [draftMessage, setDraftMessage] = useState("");
   const [selectedFoodIds, setSelectedFoodIds] = useState<string[]>([]);
   const [isSlow, setIsSlow] = useState(false);
   const turnLock = useRef(false);
-  const hasSeenInitialState = useRef(false);
   const messagesEnd = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (profileId === "new") {
-      const stored = loadNewDemoState();
-      if (stored) dispatch({ type: "hydrate", state: stored });
-    }
+    if (profileId !== "new") return;
+    let cancelled = false;
+    void loadCloudProfile<import("@/store/demo-reducer").DemoState>("new")
+      .then((result) => {
+        if (cancelled) return;
+        cloudVersion.current = result.profile.version;
+        stateRef.current = result.profile.state;
+        setState(result.profile.state);
+        if (result.catalog.length > 0) setCatalog(result.catalog);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setCloudError(
+            error instanceof Error
+              ? error.message
+              : "The cloud demo state is unavailable.",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [profileId]);
 
-  useEffect(() => {
-    if (!hasSeenInitialState.current) {
-      hasSeenInitialState.current = true;
+  function dispatch(action: DemoAction) {
+    if (action.type === "hydrate") {
+      stateRef.current = action.state;
+      setState(action.state);
       return;
     }
-    if (profileId === "new" && state.status === "idle") {
-      saveNewDemoState(state);
-    }
-  }, [profileId, state]);
+    setState((current) => {
+      const next = demoReducer(current, action, createCatalogSnapshot(catalog));
+      stateRef.current = next;
+      return next;
+    });
+    if (profileId !== "new") return;
+    cloudQueue.current = cloudQueue.current.then(async () => {
+      try {
+        const profile = await sendCloudAction<
+          import("@/store/demo-reducer").DemoState
+        >({
+          profileId: "new",
+          expectedVersion: cloudVersion.current,
+          commandId:
+            globalThis.crypto?.randomUUID?.() ??
+            `cloud-mutation-${Date.now()}-${Math.random()}`,
+          action,
+        });
+        cloudVersion.current = profile.version;
+        stateRef.current = profile.state;
+        setState(profile.state);
+        setCloudError("");
+      } catch (error) {
+        if (error instanceof CloudStateError && error.current) {
+          cloudVersion.current = error.current.version;
+          stateRef.current = error.current
+            .state as import("@/store/demo-reducer").DemoState;
+          setState(
+            error.current.state as import("@/store/demo-reducer").DemoState,
+          );
+        }
+        setCloudError(
+          error instanceof Error
+            ? error.message
+            : "The cloud demo state is unavailable.",
+        );
+      }
+    });
+  }
 
   useEffect(() => {
     if (typeof messagesEnd.current?.scrollIntoView === "function") {
@@ -782,7 +916,8 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
   const progress = Math.round((completeCount / checklist.length) * 100);
 
   async function sendOpenCommand(command: PendingCommand, retry = false) {
-    if (turnLock.current || state.status === "processing") return;
+    const confirmedState = stateRef.current;
+    if (turnLock.current || confirmedState.status === "processing") return;
     turnLock.current = true;
     setIsSlow(false);
     if (retry) {
@@ -799,7 +934,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
         body: JSON.stringify({
           commandId: command.id,
           message: command.message,
-          profile: state.profile,
+          profile: confirmedState.profile,
         }),
       });
       const body: unknown = await response.json();
@@ -843,8 +978,10 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
     command: PendingCommand,
     operation: "draft" | "modification",
     retry = false,
+    requiredCatalogFoodId?: string,
   ) {
-    if (turnLock.current || state.status === "processing") return;
+    const confirmedState = stateRef.current;
+    if (turnLock.current || confirmedState.status === "processing") return;
     turnLock.current = true;
     setIsSlow(false);
     if (retry) {
@@ -867,13 +1004,15 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
             ? {
                 commandId: command.id,
                 message: command.message,
-                profile: state.profile,
+                requiredCatalogFoodId,
+                profile: confirmedState.profile,
               }
             : {
                 commandId: command.id,
                 message: command.message,
-                profile: state.profile,
-                draft: state.draft,
+                requiredCatalogFoodId,
+                profile: confirmedState.profile,
+                draft: confirmedState.draft,
               },
         ),
       });
@@ -991,10 +1130,37 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
     }
   }
 
-  function handleReset() {
+  async function handleReset() {
+    if (
+      !window.confirm("Reset only the Fresh demo to its empty starting state?")
+    ) {
+      return;
+    }
     turnLock.current = false;
-    clearNewDemoState();
-    dispatch({ type: "hydrate", state: createNewDemoState() });
+    try {
+      const profile = await resetCloudProfile<
+        import("@/store/demo-reducer").DemoState
+      >({
+        profileId: "new",
+        expectedVersion: cloudVersion.current,
+        commandId: createCommandId(),
+      });
+      cloudVersion.current = profile.version;
+      stateRef.current = profile.state;
+      setState(profile.state);
+      setCloudError("");
+    } catch (error) {
+      if (error instanceof CloudStateError && error.current) {
+        cloudVersion.current = error.current.version;
+        stateRef.current = error.current
+          .state as import("@/store/demo-reducer").DemoState;
+        setState(
+          error.current.state as import("@/store/demo-reducer").DemoState,
+        );
+      }
+      setCloudError(error instanceof Error ? error.message : "Reset failed.");
+      return;
+    }
     setDraftMessage("");
     setSelectedFoodIds([]);
   }
@@ -1085,6 +1251,12 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                 </p>
               </header>
 
+              {cloudError ? (
+                <p className={styles.errorBox} role="alert">
+                  {cloudError}
+                </p>
+              ) : null}
+
               <div className={styles.messages} aria-live="polite">
                 {state.messages.map((message) => (
                   <div
@@ -1143,6 +1315,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                 ) : state.activeTurn.type === "food_grid" ? (
                   <>
                     <FoodGrid
+                      catalog={catalog}
                       disabled={state.status !== "idle"}
                       onSubmit={submitFoodSelection}
                       onToggle={toggleFood}
@@ -1293,18 +1466,63 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                   </summary>
                   <p>
                     {state.profile.approvedCatalogFoodIds
-                      .map((id) => foodCatalogById.get(id)?.displayName ?? id)
+                      .map(
+                        (id) =>
+                          catalog.find((food) => food.id === id)?.displayName ??
+                          id,
+                      )
                       .join(" · ")}
                   </p>
                 </details>
               ) : null}
               <PlanPanel
                 activePlan={state.activePlan}
+                catalog={catalog}
                 disabled={state.status !== "idle"}
                 draft={state.draft}
                 onApprove={handleApprove}
                 onReject={handleReject}
                 targets={state.targets}
+              />
+              <RuntimeFoodAssistant
+                context={
+                  state.draft
+                    ? "draft_modification"
+                    : state.targets
+                      ? "draft_creation"
+                      : "onboarding"
+                }
+                disabled={
+                  state.status !== "idle" ||
+                  state.activeTurn.type === "closed_question"
+                }
+                getExpectedVersion={() => cloudVersion.current}
+                onFoodApproved={(food) => {
+                  setCatalog((current) => [
+                    ...current.filter((candidate) => candidate.id !== food.id),
+                    food,
+                  ]);
+                  const current = stateRef.current;
+                  if (current.draft || current.targets) {
+                    const message = `Use ${food.displayName} in my next validated Draft.`;
+                    setDraftMessage(message);
+                    void sendPlanCommand(
+                      { id: createCommandId(), message },
+                      current.draft ? "modification" : "draft",
+                      false,
+                      food.id,
+                    );
+                  }
+                }}
+                onProfileUpdated={(cloudProfile) => {
+                  cloudVersion.current = cloudProfile.version;
+                  stateRef.current =
+                    cloudProfile.state as import("@/store/demo-reducer").DemoState;
+                  setState(
+                    cloudProfile.state as import("@/store/demo-reducer").DemoState,
+                  );
+                }}
+                profileId="new"
               />
             </aside>
           </>

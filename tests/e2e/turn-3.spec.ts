@@ -30,8 +30,19 @@ async function fulfillAdjustment(route: Route) {
   });
 }
 
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => window.localStorage.clear());
+test.beforeEach(async ({ request }) => {
+  const current = (await (
+    await request.get("/api/demo/state/existing")
+  ).json()) as {
+    profile: { version: number };
+  };
+  await request.post("/api/demo/state/existing", {
+    data: {
+      expectedVersion: current.profile.version,
+      commandId: `e2e-reset-${crypto.randomUUID()}`,
+      action: "reset",
+    },
+  });
 });
 
 test("B-01 reviews, declines, revises, and approves an adjustment in chat", async ({

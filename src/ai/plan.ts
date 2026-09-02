@@ -1,6 +1,9 @@
 import OpenAI from "openai";
 import { ZodError } from "zod";
-import { foodCatalogById } from "@/data/food-catalog";
+import {
+  baselineCatalogSnapshot,
+  type CatalogSnapshot,
+} from "@/domain/catalog/snapshot";
 import {
   calculateTargets,
   roundTo25HalfUp,
@@ -95,9 +98,9 @@ function repairMessage(error: unknown): string {
     : "Unknown structured-output error.";
 }
 
-function approvedCatalogContext(ids: string[]) {
+function approvedCatalogContext(ids: string[], catalog: CatalogSnapshot) {
   return ids.map((id) => {
-    const food = foodCatalogById.get(id);
+    const food = catalog.byId.get(id);
     if (!food)
       throw new PlanModelContractError(`Unknown food ${id}.`, "validation");
     return {
@@ -111,17 +114,46 @@ function approvedCatalogContext(ids: string[]) {
   });
 }
 
+function candidateContainsFood(
+  candidate: DraftCandidate,
+  catalogFoodId: string | undefined,
+) {
+  return (
+    !catalogFoodId ||
+    candidate.meals.some((meal) =>
+      meal.items.some(
+        (item) =>
+          item.catalogFoodId === catalogFoodId ||
+          item.alternatives.some(
+            (alternative) => alternative.catalogFoodId === catalogFoodId,
+          ),
+      ),
+    )
+  );
+}
+
 export async function generateDraft(
   request: DraftRequest,
   createResponse: PlanResponseCreator = defaultPlanResponseCreator,
+  catalog: CatalogSnapshot = baselineCatalogSnapshot,
 ): Promise<DraftProposal> {
   const selections = validateFoodSelections(
     request.profile.approvedCatalogFoodIds,
+    catalog,
   );
   const targets = calculateTargets(request.profile);
   if (!selections.valid || !targets || !request.profile.mealPattern) {
     throw new PlanModelContractError(
       selections.issues.join(" ") || "The profile is not ready for a Draft.",
+      "validation",
+    );
+  }
+  if (
+    request.requiredCatalogFoodId &&
+    !selections.orderedIds.includes(request.requiredCatalogFoodId)
+  ) {
+    throw new PlanModelContractError(
+      "The required food is not approved for this profile.",
       "validation",
     );
   }
@@ -134,7 +166,8 @@ export async function generateDraft(
     mealPattern: request.profile.mealPattern,
     expectedMealIds,
     targets,
-    approvedCatalog: approvedCatalogContext(selections.orderedIds),
+    approvedCatalog: approvedCatalogContext(selections.orderedIds, catalog),
+    requiredCatalogFoodId: request.requiredCatalogFoodId ?? null,
   };
   let repairIssue: string | undefined;
   let lastCandidate: DraftCandidate | undefined;
@@ -149,6 +182,9 @@ export async function generateDraft(
           "Create one repeatable daily meal plan for a healthy-adult nutrition demo.",
           "Use only the supplied approved catalog IDs and integer gram portions within each practical range and step.",
           "Approved foods may be reused in multiple meals; do not treat each catalog ID as limited to one occurrence.",
+          request.requiredCatalogFoodId
+            ? `The new Draft must include catalog food ${request.requiredCatalogFoodId} in at least one meal.`
+            : "No particular catalog food is required in this Draft.",
           `Return meals exactly in this order: ${expectedMealIds.join(", ")}.`,
           "Meet the supplied energy, protein, AMDR, fiber, and meat/dairy constraints. Fish is neutral for this project's narrow meal check.",
           "Return alternatives: [] for every item unless you can verify the entire whole-day substitution independently. Do not add alternatives by default.",
@@ -182,6 +218,12 @@ export async function generateDraft(
         }),
       });
       const candidate = draftCandidateSchema.parse(JSON.parse(raw));
+      if (!candidateContainsFood(candidate, request.requiredCatalogFoodId)) {
+        throw new PlanModelContractError(
+          `The Draft omitted required catalog food ${request.requiredCatalogFoodId}.`,
+          "validation",
+        );
+      }
       lastCandidate = candidate;
       const plan = validateAndBuildPlan({
         candidate,
@@ -189,6 +231,7 @@ export async function generateDraft(
         targets,
         planId: `plan-${request.commandId}`,
         version: 1,
+        catalog,
       });
       if (!plan.validation.valid) {
         throw new PlanModelContractError(
@@ -213,15 +256,21 @@ export async function generateDraft(
   const fallbackCandidates = lastCandidate
     ? [
         lastCandidate,
-        buildDeterministicSeedCandidate(request.profile) ?? undefined,
+        buildDeterministicSeedCandidate(request.profile, catalog) ?? undefined,
       ].filter((candidate): candidate is DraftCandidate => Boolean(candidate))
     : [];
 
   for (const fallbackCandidate of fallbackCandidates) {
+    if (
+      !candidateContainsFood(fallbackCandidate, request.requiredCatalogFoodId)
+    ) {
+      continue;
+    }
     const repairedCandidate = repairCandidateNutrition({
       candidate: fallbackCandidate,
       profile: request.profile,
       targets,
+      catalog,
     });
     if (repairedCandidate) {
       const plan = validateAndBuildPlan({
@@ -230,6 +279,7 @@ export async function generateDraft(
         targets,
         planId: `plan-${request.commandId}`,
         version: 1,
+        catalog,
       });
       if (plan.validation.valid) {
         return {
@@ -253,16 +303,27 @@ export async function generateDraft(
 export async function generateDraftModification(
   request: DraftModificationRequest,
   createResponse: PlanResponseCreator = defaultPlanResponseCreator,
+  catalog: CatalogSnapshot = baselineCatalogSnapshot,
 ): Promise<
   | { outcome: "modified"; draft: DraftProposal; message: string }
   | { outcome: "unsupported"; message: string }
 > {
   const selections = validateFoodSelections(
     request.profile.approvedCatalogFoodIds,
+    catalog,
   );
   if (!selections.valid || !request.draft.plan.validation.valid) {
     throw new PlanModelContractError(
       selections.issues.join(" ") || "The current Draft is not valid.",
+      "validation",
+    );
+  }
+  if (
+    request.requiredCatalogFoodId &&
+    !selections.orderedIds.includes(request.requiredCatalogFoodId)
+  ) {
+    throw new PlanModelContractError(
+      "The required food is not approved for this profile.",
       "validation",
     );
   }
@@ -271,7 +332,8 @@ export async function generateDraftModification(
     request: request.message,
     allowedActions: ["replace_food", "change_portion", "unsupported"],
     currentDraft: request.draft,
-    approvedCatalog: approvedCatalogContext(selections.orderedIds),
+    approvedCatalog: approvedCatalogContext(selections.orderedIds, catalog),
+    requiredCatalogFoodId: request.requiredCatalogFoodId ?? null,
   };
   let repairIssue: string | undefined;
 
@@ -287,6 +349,9 @@ export async function generateDraftModification(
           "Interpret one requested change to the supplied Draft.",
           "Return only replace_food, change_portion, or unsupported.",
           "Use an existing mealId and itemId. A replacement must use one approved catalog ID and a practical integer gram amount.",
+          request.requiredCatalogFoodId
+            ? `This continuation must replace one item with catalog food ${request.requiredCatalogFoodId}; do not choose a different food ID.`
+            : "No particular replacement food is required.",
           "Do not add meals, add foods, browse, create weekly variation, change the goal, or activate the plan.",
           "Use unsupported when the request cannot be represented by exactly one allowed operation.",
           repairIssue
@@ -298,6 +363,17 @@ export async function generateDraftModification(
         userInput: JSON.stringify(context),
       });
       const operation = draftModificationOperationSchema.parse(JSON.parse(raw));
+      if (
+        request.requiredCatalogFoodId &&
+        (operation.type !== "replace_food" ||
+          (operation.type === "replace_food" &&
+            operation.catalogFoodId !== request.requiredCatalogFoodId))
+      ) {
+        throw new PlanModelContractError(
+          `The modification omitted required catalog food ${request.requiredCatalogFoodId}.`,
+          "validation",
+        );
+      }
       if (operation.type === "unsupported") {
         return { outcome: "unsupported", message: operation.explanation };
       }
@@ -306,6 +382,7 @@ export async function generateDraftModification(
         operation,
         profile: request.profile,
         proposalId: `draft-${request.commandId}`,
+        catalog,
       });
       if (!draft.plan.validation.valid) {
         throw new PlanModelContractError(
@@ -333,9 +410,11 @@ export async function generateDraftModification(
 export async function generateAdjustmentDraft(
   request: AdjustmentRequest,
   createResponse: PlanResponseCreator = defaultPlanResponseCreator,
+  catalog: CatalogSnapshot = baselineCatalogSnapshot,
 ): Promise<DraftProposal> {
   const selections = validateFoodSelections(
     request.profile.approvedCatalogFoodIds,
+    catalog,
   );
   if (!selections.valid || !request.activePlan.plan.validation.valid) {
     throw new PlanModelContractError(
@@ -401,7 +480,10 @@ export async function generateAdjustmentDraft(
           adjustedTargets: targets,
           currentActivePlan: request.activePlan.plan,
           userFeedback: request.feedback ?? null,
-          approvedCatalog: approvedCatalogContext(selections.orderedIds),
+          approvedCatalog: approvedCatalogContext(
+            selections.orderedIds,
+            catalog,
+          ),
         }),
       });
       const candidate = draftCandidateSchema.parse(JSON.parse(raw));
@@ -411,6 +493,7 @@ export async function generateAdjustmentDraft(
         targets,
         planId: `plan-${request.commandId}`,
         version: request.activePlan.version + 1,
+        catalog,
       });
       if (!plan.validation.valid)
         throw new PlanModelContractError(
@@ -430,7 +513,7 @@ export async function generateAdjustmentDraft(
       repairIssue = repairMessage(error);
     }
   }
-  const fallback = buildDeterministicSeedCandidate(request.profile);
+  const fallback = buildDeterministicSeedCandidate(request.profile, catalog);
   const repairedFallback = fallback
     ? repairCandidateNutrition({
         candidate: fallback,
@@ -443,6 +526,7 @@ export async function generateAdjustmentDraft(
       candidate: repairedFallback,
       profile: request.profile,
       targets,
+      catalog,
       planId: `plan-${request.commandId}`,
       version: request.activePlan.version + 1,
     });

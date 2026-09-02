@@ -12,10 +12,17 @@ import {
   ModelContractError,
   OpenAIConfigurationError,
 } from "@/ai/onboarding";
+import { requestHasAccess } from "@/security/demo-access";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  if (!requestHasAccess(request)) {
+    return NextResponse.json(
+      { ok: false, message: "Demo access is required." },
+      { status: 401 },
+    );
+  }
   let commandId: string | null = null;
 
   try {

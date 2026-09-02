@@ -1,6 +1,6 @@
-# Project Framing v0.1
+# Project Framing v0.2
 
-Status: Approved for the documentation phase
+Status: Updated for the implemented Render persistence and controlled runtime-catalog extension on 2026-09-02.
 
 ## Problem Statement
 
@@ -27,7 +27,7 @@ The project is done when all of the following statements are true:
 5. Open questions accept free-text input.
 6. The food-preference stage presents one predefined food catalog as selectable grids grouped by carbohydrate, protein, fat, vegetable, and fruit categories.
 7. The system can calculate initial nutritional targets for one supported goal: **Fat Loss**, **Maintenance**, or **Muscle Gain**.
-8. The system can produce a Draft Meal Plan using only foods approved during food selection and nutritional values stored in the predefined catalog.
+8. The system can produce a Draft Meal Plan using only foods approved for the current profile and nutritional values stored in the curated catalog.
 9. The Draft contains practical food quantities and two or three interchangeable choices where appropriate, and its calculated values fall within the acceptance ranges defined by the project's researched nutrition guidance.
 10. The user can request a supported modification through the conversation and see the Draft change.
 11. The user can approve the Draft and see it become the Active Plan.
@@ -36,6 +36,9 @@ The project is done when all of the following statements are true:
 14. Deterministic code calculates the weight trend and whether sufficient tracking evidence exists for a plan adjustment.
 15. When sufficient evidence exists, the AI can use the calculated facts and the relevant nutrition guidance to propose an adjustment.
 16. An adjustment never modifies the Active Plan until the user explicitly approves it; after approval, the updated Active Plan is visibly rendered.
+17. PostgreSQL is the source of truth for both shared demo journeys, their conversations, the central catalog, and persistent lookup limits. Each journey has an independent Reset control.
+18. A missing food can enter the central catalog only through the bounded Fuder/ScrapingBee candidate flow or an explicitly authorized, permanently labelled AI estimate. The user selects and approves the exact record before storage.
+19. The deployed demo is protected by one shared access code without adding accounts or a general authentication system.
 
 Nutrition formulas, target rates, acceptance ranges, and adjustment thresholds are intentionally not repeated in this framing document. They are established and cited in the goal-specific nutrition guidance and incorporated into the product specification.
 
@@ -46,7 +49,7 @@ The project deliberately does not include:
 - Authentication, registration, authorization, account management, or a general multi-user system.
 - Real users or profiles beyond the two predefined demonstration profiles.
 - Allergies, intolerances, medical conditions, clinical nutrition, or related safety screening.
-- Runtime internet food search, foods outside the predefined catalog, or tools that allow the AI to browse or access unrestricted external systems.
+- Unrestricted runtime food search, general crawling, foods that bypass the catalog-approval workflow, or tools that allow the AI to browse or access unrestricted external systems. The sole exception is the documented, low-volume, server-owned Fuder lookup through ScrapingBee that requires explicit candidate selection and approval.
 - Workout programming or workout tracking.
 - Food-intake or adherence tracking.
 - Micronutrient calculation or optimization.

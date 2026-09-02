@@ -5,11 +5,8 @@ import {
 } from "@/domain/profile/schemas";
 import { activePlanSchema, draftProposalSchema } from "@/domain/plan/schemas";
 import { z } from "zod";
-import type { DemoState } from "./demo-reducer";
 
-const storageKey = "nutrition-coach:new:v2";
-
-const persistedStateSchema = z
+export const persistedStateSchema = z
   .object({
     schemaVersion: z.literal(2),
     profileId: z.literal("new"),
@@ -39,24 +36,3 @@ const persistedStateSchema = z
     error: z.string().nullable(),
   })
   .strict();
-
-export function loadNewDemoState(): DemoState | null {
-  try {
-    const value = window.localStorage.getItem(storageKey);
-    if (!value) return null;
-    const result = persistedStateSchema.safeParse(JSON.parse(value));
-    if (!result.success) return null;
-    if (result.data.status !== "idle") return null;
-    return result.data as DemoState;
-  } catch {
-    return null;
-  }
-}
-
-export function saveNewDemoState(state: DemoState) {
-  window.localStorage.setItem(storageKey, JSON.stringify(state));
-}
-
-export function clearNewDemoState() {
-  window.localStorage.removeItem(storageKey);
-}

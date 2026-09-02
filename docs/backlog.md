@@ -20,3 +20,14 @@ This item does not add general chat memory, arbitrary AI actions, new food looku
 Status: completed in Turn 3 on 2026-09-01.
 
 Display every editable or read-only weight value with at most two digits after the decimal point. Keep the unrounded stored value and deterministic calculations unchanged; this is a presentation-only rule.
+
+## B-03 — Credentialed Render staging
+
+Status: pending external deployment credentials.
+
+The Turn 4 application, Blueprint, migrations, access gate, cloud repository, bounded source adapter, runtime-food interface, and deterministic tests are complete locally. Before Turn 4 is accepted as deployed:
+
+- create the Render Blueprint resources;
+- supply the server-only OpenAI, ScrapingBee, and demo-access secrets;
+- complete the cooked-food, packaged-product, controlled-failure, reset, persistence, and cross-profile checks in `docs/deployment.md`; and
+- record the deployed URL, commit SHA, and evidence without recording secrets.

@@ -8,14 +8,13 @@ import {
   makeReadyState,
   makeValidDraft,
 } from "../fixtures/turn-2";
+import { installNewCloudProfile } from "./helpers/cloud-profile";
 
-const storageKey = "nutrition-coach:new:v2";
-
-async function startWithState(page: Page, state: unknown) {
-  await page.addInitScript(
-    ({ key, value }) => window.localStorage.setItem(key, value),
-    { key: storageKey, value: JSON.stringify(state) },
-  );
+async function startWithState(
+  page: Page,
+  state: ReturnType<typeof makeReadyState>,
+) {
+  await installNewCloudProfile(page, state);
   await page.goto("/coach/new");
 }
 
@@ -100,7 +99,9 @@ test("Demo A completes Food Grid, Draft modification, and explicit activation", 
   ).toBeVisible();
   await page.waitForTimeout(300);
   await page.getByRole("button", { name: "Generate Draft" }).click();
-  await expect(page.getByRole("status")).toContainText("Still composing");
+  await expect(page.getByRole("status")).toContainText(
+    "Building and validating your Draft",
+  );
   await expect(
     page.locator('[data-role="user"]', { hasText: "Generate my Draft" }),
   ).toHaveCount(1);

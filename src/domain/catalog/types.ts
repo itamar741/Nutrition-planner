@@ -11,6 +11,13 @@ export interface NutrientAmounts {
   fiberG: number;
 }
 
+export interface CatalogNutrientAmounts extends Omit<
+  NutrientAmounts,
+  "fiberG"
+> {
+  fiberG: number | null;
+}
+
 export interface CatalogPortion {
   label: string;
   grams: number;
@@ -21,28 +28,46 @@ export interface CatalogFood {
   id: string;
   displayName: string;
   preparation: string;
+  brand?: string;
   category: FoodCategory;
   mealClassification: MealClassification;
-  kosherCatalogApproved: true;
+  kosherCatalogApproved: boolean;
+  kosherReview?: "reviewed" | "not_checked";
   source:
     | {
         provider: "USDA FoodData Central";
         fdcId: number;
         dataset: "Foundation Foods" | "SR Legacy";
         release: string;
-        retrievedAt: "2026-08-30";
+        retrievedAt: string;
         energyNutrient: "Energy" | "Energy (Atwater Specific Factors)";
       }
     | {
         provider: "FoodsDictionary";
         url: string;
-        retrievedAt: "2026-08-30";
+        retrievedAt: string;
+      }
+    | {
+        provider: "Fuder";
+        url: string;
+        retrievedAt: string;
+        verification: "fuder_verified";
+      }
+    | {
+        provider: "AI estimate";
+        retrievedAt: string;
+        verification: "ai_estimate";
+        sourceUnavailableReason: string;
       };
-  nutrientsPer100g: NutrientAmounts;
+  nutrientsPer100g: CatalogNutrientAmounts;
   displayPortion: CatalogPortion;
   practicalGrams: {
     min: number;
     max: number;
     step: number;
+  };
+  runtimeApproval?: {
+    approvedAt: string;
+    approvedByProfileId: "new" | "existing";
   };
 }

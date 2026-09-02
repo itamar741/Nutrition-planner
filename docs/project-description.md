@@ -1,8 +1,8 @@
-# Project Description v0.1
+# Project Description v0.2
 
 ## Product Summary
 
-The product is a conversational nutrition coach for adults aged 18 and older who exercise but are beginners in nutrition. It helps a user provide the information needed for a practical meal plan, choose foods from a closed catalog, activate a plan, and understand when weight progress may justify a plan adjustment.
+The product is a conversational nutrition coach for adults aged 18 and older who exercise but are beginners in nutrition. It helps a user provide the information needed for a practical meal plan, choose foods from a curated catalog, activate a plan, and understand when weight progress may justify a plan adjustment.
 
 The coach supports exactly three fixed goals: **Fat Loss**, **Maintenance**, and **Muscle Gain**. It is a narrow course demonstration rather than a production health platform or a general nutrition assistant.
 
@@ -35,13 +35,23 @@ The interface uses two question modes:
 
 All input is disabled while a response is being processed. This prevents a click and a typed message, or two clicks, from racing to answer the same turn.
 
-## Food Preferences and the Closed Catalog
+## Food Preferences and Catalog Additions
 
-The product uses one local, predefined Food Catalog for both preference selection and nutritional values. There is no second food database and no runtime lookup.
+The product starts with one curated Food Catalog for both preference selection and nutritional values. Approved additions become part of the same catalog; there is no separate nutrition source used by planning.
 
 The preference stage presents foods in selectable grids grouped into five categories: carbohydrates, proteins, fats, vegetables, and fruits. Each category may contain roughly a grid-sized set of common choices; the exact item count is not a product requirement. Selecting an item marks that catalog food as approved.
 
-The plan generator may use only supported catalog foods approved for the profile. If the user names an unknown food, the coach explains that it is not supported and asks the user to choose a catalog alternative. The coach does not search for it, invent nutrition data, or add it to the catalog.
+The plan generator may use only catalog foods approved for the profile. A user can request a missing food or packaged product through the coach conversation on any workspace screen. This is a bounded addition workflow:
+
+1. The application checks the central catalog first.
+2. If the item already exists, the coach offers one explicit **Add to my foods** action; it does not perform an external lookup.
+3. If preparation state or display unit is material and missing, the coach asks one short clarification question.
+4. The Next.js server uses the bounded ScrapingBee adapter synchronously to search the public Fuder interface for foods and packaged products only. Recipes, restaurant items, and composite dishes are excluded.
+5. The user chooses an explicit result when more than one match is available.
+6. The application shows a source-labelled nutrition proposal and requires **Approve** or **Reject** before any catalog write.
+7. Approval adds the item to the central catalog and to the current profile's approved foods. A later plan change remains a Draft until separately approved.
+
+If Fuder is unavailable, blocked, malformed, or has no suitable result, the coach may show a clearly labelled `AI estimate · Fuder not verified` proposal. It still requires the same explicit approval. The model never treats an estimate as source-verified data.
 
 For project-level kosher simplification, non-kosher foods are absent from the catalog and a single meal does not combine meat and dairy. This is a catalog and meal-composition constraint, not a general kashrut system.
 
@@ -88,5 +98,18 @@ The AI is limited to:
 - Creating or modifying a Draft within catalog and nutrition constraints.
 - Recognizing a weight-reporting intent and passing the value to deterministic validation.
 - Explaining calculated trend facts and proposing a bounded adjustment when deterministic code says enough evidence exists.
+- Classifying a food-addition request, requesting only missing food context, and requesting one server-controlled lookup action from a closed action set.
 
-The interaction follows two governing principles: **open language, closed actions** and **closed food catalog**. The AI cannot browse, invent nutrition facts, introduce new action types, directly mutate an Active Plan, or operate arbitrary tools.
+The interaction follows two governing principles: **open language, closed actions** and **approved catalog data**. The AI cannot browse freely, introduce new action types, write to the database, directly mutate an Active Plan, or operate arbitrary tools.
+
+## Deployed Runtime Architecture
+
+The deployed product uses Render only:
+
+- A **Render Web Service** hosts the Next.js application and its narrow API routes.
+- The same Web Service performs the low-volume, bounded Fuder lookup synchronously through ScrapingBee. It is not a general crawler and fails cleanly on its bounded timeout.
+- **Render PostgreSQL** persists both versioned demo states, conversations, the central catalog, lookup requests, candidate records, source metadata, command results, and rate-limit events.
+
+The two profiles are deliberately shared and use optimistic versions; a stale browser reloads the latest state and asks the user to retry. The browser holds only temporary rendered state and a signed access cookie. The server never logs in to Fuder, bypasses access controls, crawls in bulk, or sends raw source HTML to the browser or model.
+
+Each profile has an independent **Reset demo** control. Fresh reset restores only the empty onboarding seed. Existing reset restores only its prepared plan, conversation, and generated weight history. Runtime catalog foods and persistent rate-limit events survive both resets.
