@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { candidateRejectRequestSchema } from "@/domain/catalog/api-contracts";
 import {
   getCandidate,
+  getLookup,
   replaceCandidate,
   updateLookup,
 } from "@/persistence/repository";
@@ -19,6 +20,10 @@ export async function POST(request: Request) {
   try {
     const input = candidateRejectRequestSchema.parse(await request.json());
     const candidate = await getCandidate(input.candidateId);
+    const lookup = await getLookup(candidate.lookupId);
+    if (lookup.profileId !== input.profileId) {
+      throw new Error("This candidate belongs to the other demo profile.");
+    }
     if (candidate.status !== "detailed") {
       throw new Error("Only a candidate awaiting review can be rejected.");
     }

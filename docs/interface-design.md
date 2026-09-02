@@ -24,7 +24,7 @@ This document specifies behavior and ordering rather than colors, typography, or
 8. Calculate targets, generate a Draft Meal Plan, and render it in the plan area while keeping the conversation visible.
 9. Let the user request a supported modification; show processing feedback and then render the changed Draft.
 10. Present an explicit approval choice. Approval promotes the Draft to Active; declining or requesting another change leaves the Draft unactivated.
-11. A missing food can be requested through the catalog assistant. If approved during planning, the conversation automatically resumes with a new validated Draft that contains that food.
+11. A missing basic food can be requested inside the main coach conversation in Hebrew or English. If approved during planning, the conversation automatically resumes with a new validated Draft that contains that food.
 
 The system does not enable Draft generation when required information or food selection is incomplete. It identifies the missing requirement and returns the user to the relevant conversational step.
 
@@ -64,7 +64,7 @@ The coaching product uses these bounded interaction primitives:
 - **Chat message:** displays coach or user text.
 - **Chat message with quick replies:** presents a closed question with predefined choices inside the conversation.
 - **Food Grid:** presents selectable predefined catalog foods during the dedicated preference step.
-- **Catalog candidate list:** presents at most five Fuder food records in source order and requires one user selection.
+- **Catalog candidate list:** presents at most five USDA Foundation Foods or SR Legacy records in USDA relevance order and requires one user selection.
 - **Catalog approval card:** presents normalized source data with Approve and Reject actions.
 
 ### Turn Rules
@@ -108,7 +108,7 @@ Feedback must make the current state, accepted action, and next available action
 - While a message, plan, or adjustment is processing, show an in-conversation progress indicator describing the current operation in plain language.
 - Disable text input, quick replies, Food Grid controls, and approval controls until the operation resolves.
 - Plan generation and modification use specific messages such as **Building your draft plan…** rather than a generic spinner with no context.
-- Source search and detail loading use distinct messages so a slow ScrapingBee request is visible.
+- USDA search and detail loading use distinct messages so a slow API request is visible.
 - If processing takes longer than expected, keep the user's submitted action visible and replace silent waiting with a delayed-state message. Do not allow duplicate submission.
 
 ### Empty States
@@ -123,7 +123,7 @@ Feedback must make the current state, accepted action, and next available action
 - Missing onboarding requirements prevent Draft generation and identify the specific missing checklist items.
 - An invalid or implausibly formatted weight is not stored; the user's original message remains visible and the coach asks for a corrected value with the expected unit or format.
 - An unknown food is not added or assigned invented nutrition values. The coach checks the central catalog, asks for material clarification, or starts the bounded source workflow.
-- A missing Fuder nutrient remains **Unknown**. Fiber is never displayed as zero merely because the source omitted it.
+- A missing USDA fiber value remains **Unknown**. Fiber is never displayed as zero merely because the source omitted it.
 - An incomplete Food Grid submission identifies the categories that still need a selection.
 - An invalid or out-of-contract AI response is rejected by the application and never rendered as a new control or committed state.
 - A plan that fails deterministic nutrition or catalog validation remains a Draft failure and cannot become Active.

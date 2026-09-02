@@ -5,6 +5,11 @@ import {
   verifyAccessToken,
 } from "@/security/demo-access";
 import { rateIdentity } from "@/security/rate-identity";
+import {
+  candidateDetailRequestSchema,
+  candidateRejectRequestSchema,
+  estimateRequestSchema,
+} from "@/domain/catalog/api-contracts";
 
 const originalCode = process.env.DEMO_ACCESS_CODE;
 const originalSecret = process.env.COOKIE_SIGNING_SECRET;
@@ -48,5 +53,23 @@ describe("shared demo access", () => {
     expect(first.ipHash).not.toContain("203.0.113.42");
     expect(first.sessionHash).not.toContain("test-session");
     expect(first.ipHash).toHaveLength(64);
+  });
+
+  it("requires profile ownership on every candidate follow-up", () => {
+    const candidateId = "f00d0000-0000-4000-8000-000000000001";
+    const lookupId = "100d0000-0000-4000-8000-000000000001";
+    expect(
+      candidateDetailRequestSchema.safeParse({ candidateId }).success,
+    ).toBe(false);
+    expect(
+      candidateRejectRequestSchema.safeParse({ candidateId }).success,
+    ).toBe(false);
+    expect(estimateRequestSchema.safeParse({ lookupId }).success).toBe(false);
+    expect(
+      candidateDetailRequestSchema.safeParse({
+        profileId: "new",
+        candidateId,
+      }).success,
+    ).toBe(true);
   });
 });

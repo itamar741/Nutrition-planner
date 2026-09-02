@@ -25,7 +25,7 @@ services:
         sync: false
       - key: OPENAI_MODEL
         value: gpt-5.4-mini
-      - key: SCRAPINGBEE_API_KEY
+      - key: USDA_FDC_API_KEY
         sync: false
       - key: DEMO_ACCESS_CODE
         sync: false

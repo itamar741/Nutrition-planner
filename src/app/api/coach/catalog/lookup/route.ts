@@ -18,7 +18,11 @@ import {
 } from "@/persistence/repository";
 import { requestHasAccess } from "@/security/demo-access";
 import { rateIdentity } from "@/security/rate-identity";
-import { FuderUnavailableError, searchFuder } from "@/sources/fuder";
+import {
+  searchUsdaFoods,
+  UsdaUnavailableError,
+  usdaFoodUrl,
+} from "@/sources/usda";
 
 export const runtime = "nodejs";
 
@@ -91,7 +95,7 @@ export async function POST(request: Request) {
             conversation: input.context,
             toolArguments: arguments_,
           });
-          return searchFuder(arguments_);
+          return searchUsdaFoods(arguments_);
         },
       });
       if (result.outcome === "clarification") {
@@ -114,13 +118,14 @@ export async function POST(request: Request) {
         result.candidates.map((candidate) => ({
           id: candidate.id,
           lookupId: lookup.id,
-          sourceUrl: candidate.sourceUrl,
-          sourceIdentifier: candidate.sourceUrl,
+          sourceUrl: usdaFoodUrl(candidate.fdcId),
+          sourceIdentifier: `usda:${candidate.fdcId}`,
           status: "summary" as const,
           data: {
             title: candidate.title,
             description: candidate.description,
-            sourceUrl: candidate.sourceUrl,
+            fdcId: candidate.fdcId,
+            dataType: candidate.dataType,
             toolArguments: result.arguments_,
           },
         })),
@@ -134,7 +139,7 @@ export async function POST(request: Request) {
         candidates: result.candidates,
       });
     } catch (error) {
-      const sourceFailed = error instanceof FuderUnavailableError;
+      const sourceFailed = error instanceof UsdaUnavailableError;
       const configurationFailed =
         error instanceof FoodCatalogConfigurationError;
       const modelFailed = error instanceof FoodCatalogModelError;
@@ -164,7 +169,7 @@ export async function POST(request: Request) {
           ok: false,
           code: "source_unavailable",
           message: sourceFailed
-            ? "Fuder could not return a safe candidate. Your catalog and profile were not changed."
+            ? "USDA FoodData Central could not return a safe candidate. Your catalog and profile were not changed."
             : configurationFailed
               ? "The AI food lookup is not configured. Confirm OPENAI_API_KEY and OPENAI_MODEL in Render, then deploy again."
               : "The AI could not prepare this lookup. Check the Render service logs for the lookup failure code; your catalog and profile were not changed.",

@@ -1,6 +1,6 @@
-# Implementation Plan v0.3
+# Implementation Plan v0.4
 
-Status: Turns 1–3 are implemented. Turn 4 is implemented and verified locally on `turn-4-render-runtime-catalog`; credentialed Render staging remains required before deployment acceptance.
+Status: Turns 1–4 are implemented. Turn 5 USDA migration is implemented locally; complete verification and credentialed Render staging remain required.
 
 This plan is governed by the project framing, description, interface design, product specification, nutrition guidance, and verification plan. The narrower documented boundary wins if two documents conflict.
 
@@ -11,7 +11,7 @@ This plan is governed by the project framing, description, interface design, pro
 - One Render PostgreSQL database as the authoritative store.
 - `pg` with plain, idempotent SQL migrations; no ORM.
 - OpenAI Responses API from server-only code with `store: false`.
-- ScrapingBee as the only source adapter for low-volume Fuder requests.
+- USDA FoodData Central as the only verified runtime source for basic foods.
 - Zod at every browser, model, source, and persisted-state boundary.
 - CSS Modules, Vitest, React Testing Library, and Playwright.
 
@@ -31,7 +31,7 @@ Render Web Service (Next.js)
   optimistic version check
   deterministic reducers and nutrition rules
   strict OpenAI contracts
-  bounded synchronous ScrapingBee/Fuder adapter
+  bounded synchronous USDA FoodData Central adapter
                         |
                         v
 Render PostgreSQL
@@ -43,7 +43,7 @@ Render PostgreSQL
   persistent rate-limit events
 ```
 
-There is no background worker, browser-owned authoritative profile, general crawler, or runtime browser tool. The server performs a bounded synchronous lookup with a 35-second abort deadline; the interface shows a loading state and handles timeout or source failure without state mutation.
+There is no background worker, browser-owned authoritative profile, general crawler, or runtime browser tool. The server performs a bounded synchronous USDA lookup with a 15-second abort deadline; the interface shows a loading state and handles timeout or source failure without state mutation.
 
 ## 3. Authoritative Data
 
@@ -78,7 +78,7 @@ Resetting one profile never resets the other. Runtime catalog foods and rate-lim
 - One shared course-demo code; no account or authentication system.
 - Constant-time comparison for equal-length codes.
 - Signed `HttpOnly`, `Secure` in production, `SameSite=Lax` cookie with a 12-hour expiry.
-- Required secrets remain server-side: `DATABASE_URL`, `DEMO_ACCESS_CODE`, `COOKIE_SIGNING_SECRET`, `OPENAI_API_KEY`, `OPENAI_MODEL`, and `SCRAPINGBEE_API_KEY`.
+- Required secrets remain server-side: `DATABASE_URL`, `DEMO_ACCESS_CODE`, `COOKIE_SIGNING_SECRET`, `OPENAI_API_KEY`, `OPENAI_MODEL`, and `USDA_FDC_API_KEY`.
 - At most 10 food-lookup workflows per hour for the same hashed session or IP.
 - At most 30 food-lookup workflows per day globally.
 - Only HMAC hashes are stored; raw IP addresses are never persisted.
@@ -99,27 +99,27 @@ QUERY
                      -> OPTIONAL_VALIDATED_DRAFT_CONTINUATION
 ```
 
-The model receives exactly one function tool: `search_food_source`. Its strict arguments contain only normalized query, `cooked | raw | packaged`, optional brand, and optional serving hint. The model receives no URL, SQL, database handle, ScrapingBee setting, browser instruction, or arbitrary tool.
+The model receives exactly one function tool: `search_usda_foods`. Its strict arguments contain only `normalizedEnglishQuery` and `cooked | raw | packaged`. The model receives no URL, USDA response, SQL, database handle, source credential, browser instruction, or arbitrary tool.
 
-Foods that normally require cooking default to cooked. The model asks a clarification only when preparation, brand, package size, or customary unit is materially ambiguous. A query such as rice does not require a cooked/raw clarification.
+Foods that normally require cooking default to cooked. The model asks a clarification only when preparation is materially ambiguous. Hebrew and English requests are normalized to concise English; a query such as rice does not require a cooked/raw clarification.
 
 The server:
 
 1. checks the central catalog deterministically;
 2. validates model tool arguments again;
-3. constructs the allowlisted Fuder URL itself;
-4. uses JavaScript rendering only for search when needed;
-5. accepts only Fuder `/foods/` links and at most five source-order candidates;
-6. fetches details only for the user's selected candidate;
-7. extracts allowlisted nutrition fields and never exposes raw HTML;
-8. normalizes values to per 100 g plus a practical display serving; and
+3. calls only USDA Foundation Foods and SR Legacy search with a five-result limit;
+4. stores the returned `fdcId` behind an application candidate UUID;
+5. preserves USDA relevance order and requires explicit user selection;
+6. fetches details only for the stored selected `fdcId`;
+7. extracts nutrients deterministically by IDs 1008, 1003, 1005, 1004, and 1079;
+8. normalizes values to per 100 g plus one unambiguous gram-based serving when available; and
 9. requires explicit approval before one transactional catalog/profile write.
 
 Unknown fiber is stored as `null` and contributes zero to deterministic fiber totals. Runtime foods use `kosherReview: "not_checked"` and still receive a closed `neutral | meat | dairy` classification. Meat and dairy in the same meal remains invalid.
 
 Approval is idempotent by normalized identity and source identifier. The new food becomes visible to both profiles but is selected only for the requesting profile. If the request occurred during planning, a successful approval resumes the conversation and requires the new validated Draft to contain that food. The Active Plan never changes directly.
 
-If Fuder or ScrapingBee fails, the interface may offer `Use an AI estimate` only after explicit confirmation. Any approved fallback remains permanently labelled `AI estimate · Fuder not verified`.
+If USDA fails or returns no valid basic food, the interface may offer `Use an AI estimate` only after explicit confirmation. Any approved fallback remains permanently labelled `AI estimate · USDA not verified`.
 
 ## 7. Bounded Endpoints
 
@@ -147,11 +147,11 @@ All state and catalog endpoints enforce shared access in production. All untrust
 ## 9. Verification and Deployment Sequence
 
 1. Run formatting, lint, type checking, unit tests, production build, and serial Playwright tests.
-2. Confirm the repository contains no secrets or generated test failures.
+2. Run `security:check`, dependency audit, and a separate security review; confirm the repository contains no secrets or generated test failures.
 3. Create the Render Blueprint from `render.yaml`.
 4. Add all required secret variables in Render.
 5. Allow the migration command and health check to initialize and seed PostgreSQL.
-6. Run two or three staging lookups: one cooked food, one packaged product, and one controlled failure if practical.
+6. Run staging lookups for cooked jasmine rice, tomato, pasta, and one controlled failure if practical.
 7. Verify profile isolation, both resets, catalog persistence, persistent limits, source labels, and Draft-only continuation.
 8. Record staging evidence before merge/deployment acceptance.
 
@@ -159,7 +159,7 @@ All state and catalog endpoints enforce shared access in production. All untrust
 
 - Two shared profile rows are appropriate for a sequential lecturer demo, not unrelated concurrent public users.
 - Optimistic conflicts avoid WebSockets but may require a retry.
-- Synchronous ScrapingBee avoids a paid worker but can take several seconds.
+- Synchronous USDA requests avoid a worker but still require a visible timeout and failure path.
 - JSONB aggregates simplify reset and migrations but are not designed for analytics.
 - One shared access code is privacy gating, not production authentication.
-- The source adapter is experimental and low-volume; changed markup must fail closed.
+- The source adapter is low-volume and basic-food only; changed or malformed API responses fail closed.

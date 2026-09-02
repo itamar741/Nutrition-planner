@@ -1,6 +1,6 @@
 # Product Specification v0.3
 
-Status: Active specification. Turns 1–4 are implemented locally; Render staging verification remains pending.
+Status: Active specification. Turns 1–4 are implemented; Turn 5 USDA migration is implemented locally and awaits full verification and Render staging.
 
 This specification is governed by [Project Framing](project-framing.md), [Project Description](project-description.md), and [Interface Design](interface-design.md). If a future interpretation expands the product beyond those documents, the narrower documented scope wins until the specification is deliberately revised.
 
@@ -55,7 +55,7 @@ Each criterion must produce a clear pass or fail result. Nutrition criteria use 
 
 - **SC-12 — Five catalog categories:** The Food Grid exposes selectable catalog foods grouped as carbohydrates, proteins, fats, vegetables, and fruits.
 - **SC-13 — Selected-food persistence:** Submitting a valid Food Grid selection stores the chosen catalog identifiers as the profile's approved foods and visibly completes food preference progress.
-- **SC-14 — Controlled catalog addition:** A missing food or packaged product can enter the catalog only after an existing-catalog check, any required clarification, explicit user selection of a returned Fuder candidate or a clearly labelled AI estimate, deterministic validation, and explicit approval. Recipes, restaurant items, composite dishes, bulk import, and automatic catalog mutation are rejected.
+- **SC-14 — Controlled catalog addition:** A missing basic food can enter the catalog only after an existing-catalog check, any required preparation clarification, explicit user selection of a returned USDA candidate or a clearly labelled AI estimate, deterministic validation, and explicit approval. Recipes, restaurant items, branded products, composite dishes, bulk import, and automatic catalog mutation are rejected.
 - **SC-15 — Shared source of food truth:** The preference grid and plan calculations use the same curated catalog entries and nutritional values. A runtime source may produce a reviewable candidate, but only an approved validated record becomes a catalog entry.
 - **SC-16 — Kosher simplification:** Every catalog item used by the application is from the pre-reviewed kosher-oriented catalog, and deterministic validation rejects a meal containing both meat and dairy classifications. No separate kashrut workflow or inference system is present.
 
@@ -97,14 +97,14 @@ Each criterion must produce a clear pass or fail result. Nutrition criteria use 
 - **SC-41 — Optimistic conflict:** Every mutation supplies an expected version and idempotency command. A stale request returns `409`, reloads the current profile, and applies no stale overwrite.
 - **SC-42 — Shared access:** Deployed routes require one shared access code represented by a signed, `HttpOnly`, `Secure`, `SameSite=Lax` cookie. This gate does not create accounts or a general authentication system.
 - **SC-43 — Persistent source limits:** Food lookups are limited to 10 workflows per hour for the same HMAC-hashed session or IP and 30 per day globally. Raw IP addresses are never stored, and reset does not clear events.
-- **SC-44 — Bounded source workflow:** The model receives only the strict `search_food_source` function tool. The server constructs the allowlisted Fuder target, returns at most five `/foods/` candidates in source order, fetches only the selected detail, exposes no raw HTML, and requires explicit approval.
+- **SC-44 — Bounded source workflow:** The model receives only the strict `search_usda_foods` function tool with normalized English query and preparation. The server searches only Foundation Foods and SR Legacy, returns at most five USDA candidates in relevance order, fetches only the stored selected `fdcId`, extracts nutrients by a fixed ID allowlist, and requires explicit approval.
 - **SC-45 — Runtime plan continuation:** Approval adds one idempotent central food and selects it only for the requesting profile. If the request arose during planning, the conversation creates a new validated Draft that contains the approved food and never directly changes the Active Plan.
 
 ## Part 3 — Architectural Guidance
 
 Keep the implementation boundary small: a chat-and-state interface communicates with an application layer that owns structured profile, catalog, plan, and weight state. Deterministic modules own all nutrition arithmetic, catalog validation, weight-trend calculations, evidence thresholds, idempotency, and Draft-to-Active transitions; the language model receives narrow structured context and returns only validated response types. The model has no browser, unrestricted tool access, database write path, or direct write path to the Active Plan or weight history.
 
-Use one central Food Catalog as the sole source for preference choices and nutritional values. The Next.js server may query the public Fuder interface through ScrapingBee for one explicitly requested candidate workflow at a time; raw source content is parsed into allowlisted fields and is never shown to the model or browser. Keep exactly two deterministic demo-state fixtures in PostgreSQL, and derive the Existing Demo Profile from structured seeded data rather than simulated long-term chat memory. Preserve clear Draft and Active Plan representations so every proposal is reversible until an explicit approval command succeeds.
+Use one central Food Catalog as the sole source for preference choices and nutritional values. The Next.js server may query USDA FoodData Central for one explicitly requested basic-food workflow at a time; API results are parsed deterministically and are never shown to the model or browser. Keep exactly two deterministic demo-state fixtures in PostgreSQL, and derive the Existing Demo Profile from structured seeded data rather than simulated long-term chat memory. Preserve clear Draft and Active Plan representations so every proposal is reversible until an explicit approval command succeeds.
 
 Implementation-specific frameworks, filenames, component trees, database choices, and internal function names are intentionally left to the later implementation plan, provided they preserve these boundaries.
 
@@ -199,7 +199,7 @@ Run the Existing Demo Profile from its committed seeded fixture and record a pas
 
 ### Gate 7 — Out-of-Scope Audit
 
-Before accepting an implementation turn, inspect the application and dependency/tool configuration for accidental additions. Fail the gate if it introduces an extra profile flow, accounts, unrestricted runtime browsing, a general crawler, arbitrary AI tools, direct AI or source-adapter state mutation without explicit approval, or any feature listed as out of scope in the framing document. The only permitted runtime source interaction is the documented low-volume, server-owned Fuder candidate flow through ScrapingBee.
+Before accepting an implementation turn, inspect the application and dependency/tool configuration for accidental additions. Fail the gate if it introduces an extra profile flow, accounts, unrestricted runtime browsing, a general crawler, arbitrary AI tools, direct AI or source-adapter state mutation without explicit approval, or any feature listed as out of scope in the framing document. The only permitted verified runtime source interaction is the documented low-volume, server-owned USDA basic-food candidate flow.
 
 ## Part 5 — Known Pitfalls
 

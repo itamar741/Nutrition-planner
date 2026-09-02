@@ -6,6 +6,7 @@ import {
 import { getPool, hasPostgresConfiguration } from "./database";
 
 const migrationSql = `
+CREATE TABLE IF NOT EXISTS schema_migrations (filename text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS demo_profiles (profile_id text PRIMARY KEY CHECK (profile_id IN ('new', 'existing')), version integer NOT NULL DEFAULT 1 CHECK (version > 0), state jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS demo_commands (profile_id text NOT NULL REFERENCES demo_profiles(profile_id) ON DELETE CASCADE, command_id text NOT NULL, response jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (profile_id, command_id));
 CREATE TABLE IF NOT EXISTS catalog_foods (id text PRIMARY KEY, normalized_identity text NOT NULL UNIQUE, source_identifier text NOT NULL UNIQUE, data jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now());

@@ -6,16 +6,17 @@ import { foodLookupToolArgumentsSchema } from "@/domain/catalog/runtime";
 import type { CatalogFood } from "@/domain/catalog/types";
 import {
   getCandidate,
+  getLookup,
   replaceCandidate,
   updateLookup,
 } from "@/persistence/repository";
 import { requestHasAccess } from "@/security/demo-access";
 import {
   dynamicFoodId,
-  fetchFuderFood,
-  FuderUnavailableError,
+  fetchUsdaFood,
+  UsdaUnavailableError,
   validateNutritionPlausibility,
-} from "@/sources/fuder";
+} from "@/sources/usda";
 
 export const runtime = "nodejs";
 
@@ -31,7 +32,11 @@ export async function POST(request: Request) {
     const input = candidateDetailRequestSchema.parse(await request.json());
     requestedCandidateId = input.candidateId;
     const stored = await getCandidate(input.candidateId);
-    if (!stored.sourceUrl || stored.status === "rejected") {
+    const lookup = await getLookup(stored.lookupId);
+    if (lookup.profileId !== input.profileId) {
+      throw new Error("This candidate belongs to the other demo profile.");
+    }
+    if (stored.status === "rejected") {
       throw new Error("The selected candidate is unavailable.");
     }
     if (stored.status === "detailed" || stored.status === "approved") {
@@ -40,17 +45,33 @@ export async function POST(request: Request) {
     const summary = z
       .object({
         title: z.string().min(1),
+        fdcId: z.number().int().positive(),
+        dataType: z.enum(["Foundation", "SR Legacy"]),
         toolArguments: foodLookupToolArgumentsSchema,
       })
       .passthrough()
       .parse(stored.data);
-    const sourced = await fetchFuderFood(stored.sourceUrl);
+    if (stored.sourceIdentifier !== `usda:${summary.fdcId}`) {
+      throw new Error("The selected USDA candidate identity is invalid.");
+    }
+    const sourced = await fetchUsdaFood(summary.fdcId);
+    if (sourced.fdcId !== summary.fdcId) {
+      throw new Error("USDA returned a different food record.");
+    }
+    const expectedDataset =
+      summary.dataType === "Foundation" ? "Foundation Foods" : "SR Legacy";
+    if (sourced.dataset !== expectedDataset) {
+      throw new Error("USDA returned a different dataset record.");
+    }
     const classification = await classifySourcedFood({
       title: sourced.title || summary.title,
       requestedPreparation: summary.toolArguments.preparation,
     });
     const estimate = validateNutritionPlausibility({
-      ...classification,
+      displayName: sourced.title,
+      preparation: summary.toolArguments.preparation,
+      category: classification.category,
+      mealClassification: classification.mealClassification,
       displayPortionLabel: sourced.displayPortion.label,
       displayPortionGrams: sourced.displayPortion.grams,
       energyKcal: sourced.energyKcal,
@@ -66,16 +87,17 @@ export async function POST(request: Request) {
       id: dynamicFoodId(stored.sourceIdentifier),
       displayName: estimate.displayName,
       preparation: estimate.preparation,
-      brand: summary.toolArguments.brand ?? sourced.brand ?? undefined,
       category: estimate.category,
       mealClassification: estimate.mealClassification,
       kosherCatalogApproved: false,
       kosherReview: "not_checked",
       source: {
-        provider: "Fuder",
-        url: stored.sourceUrl,
+        provider: "USDA FoodData Central",
+        fdcId: sourced.fdcId,
+        dataset: sourced.dataset,
+        release: sourced.release,
         retrievedAt: new Date().toISOString(),
-        verification: "fuder_verified",
+        energyNutrient: "Energy",
       },
       nutrientsPer100g: {
         energyKcal: estimate.energyKcal,
@@ -98,12 +120,12 @@ export async function POST(request: Request) {
       id: stored.id,
       lookupId: stored.lookupId,
       food,
-      sourceLabel: "Fuder verified" as const,
+      sourceLabel: "USDA FoodData Central verified" as const,
     };
     await replaceCandidate({ ...stored, status: "detailed", data });
     return NextResponse.json({ ok: true, candidate: data });
   } catch (error) {
-    if (error instanceof FuderUnavailableError && requestedCandidateId) {
+    if (error instanceof UsdaUnavailableError && requestedCandidateId) {
       const candidate = await getCandidate(requestedCandidateId).catch(
         () => null,
       );
@@ -117,7 +139,7 @@ export async function POST(request: Request) {
             ok: false,
             code: "source_unavailable",
             message:
-              "Fuder could not return a safe nutrition record. Your catalog and profile were not changed.",
+              "USDA FoodData Central could not return a safe nutrition record. Your catalog and profile were not changed.",
             lookupId: candidate.lookupId,
             offerAiEstimate: true,
           },

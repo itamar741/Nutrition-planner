@@ -5,10 +5,13 @@ export const foodPreparationSchema = z.enum(["cooked", "raw", "packaged"]);
 
 export const foodLookupToolArgumentsSchema = z
   .object({
-    query: z.string().trim().min(2).max(120),
+    normalizedEnglishQuery: z
+      .string()
+      .trim()
+      .min(2)
+      .max(120)
+      .regex(/^[A-Za-z0-9\s,'()\-/]+$/),
     preparation: foodPreparationSchema,
-    brand: z.string().trim().min(1).max(80).nullable(),
-    servingHint: z.string().trim().min(1).max(80).nullable(),
   })
   .strict();
 
@@ -19,9 +22,10 @@ export type FoodLookupToolArguments = z.infer<
 export const foodSearchCandidateSchema = z
   .object({
     id: z.string().uuid(),
+    fdcId: z.number().int().positive(),
     title: z.string().trim().min(1).max(200),
     description: z.string().trim().max(300),
-    sourceUrl: z.string().url(),
+    dataType: z.enum(["Foundation", "SR Legacy"]),
   })
   .strict();
 
@@ -41,7 +45,8 @@ export interface FoodApprovalCandidate {
   id: string;
   lookupId: string;
   food: CatalogFood;
-  sourceLabel: "Fuder verified" | "AI estimate · Fuder not verified";
+  sourceLabel:
+    "USDA FoodData Central verified" | "AI estimate · USDA not verified";
 }
 
 export const catalogFoodJsonSchema = {
