@@ -253,12 +253,10 @@ export async function generateDraft(
     }
   }
 
-  const fallbackCandidates = lastCandidate
-    ? [
-        lastCandidate,
-        buildDeterministicSeedCandidate(request.profile, catalog) ?? undefined,
-      ].filter((candidate): candidate is DraftCandidate => Boolean(candidate))
-    : [];
+  const fallbackCandidates = [
+    lastCandidate,
+    buildDeterministicSeedCandidate(request.profile, catalog) ?? undefined,
+  ].filter((candidate): candidate is DraftCandidate => Boolean(candidate));
 
   for (const fallbackCandidate of fallbackCandidates) {
     if (

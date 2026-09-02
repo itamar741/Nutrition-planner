@@ -6,6 +6,26 @@ import {
 } from "../fixtures/turn-2";
 
 describe("runtime-food plan continuation", () => {
+  it("uses the deterministic seed when both model responses fail before producing a candidate", async () => {
+    const createResponse = vi.fn(async () => {
+      throw new Error("Malformed model response");
+    });
+
+    const draft = await generateDraft(
+      {
+        commandId: "deterministic-seed-fallback",
+        profile: makeReadyProfile(),
+      },
+      createResponse,
+    );
+
+    expect(createResponse).toHaveBeenCalledTimes(2);
+    expect(draft.plan.validation.valid).toBe(true);
+    expect(draft.summary).toBe(
+      "A validated repeatable day built from your approved foods.",
+    );
+  });
+
   it("requires an approved food before asking the model to include it", async () => {
     const createResponse = vi.fn(async () =>
       JSON.stringify(makeValidMaintenanceCandidate()),
@@ -43,24 +63,29 @@ describe("runtime-food plan continuation", () => {
     ).toBe(true);
   });
 
-  it("rejects repeated model results that omit the required food", async () => {
+  it("uses a validated fallback containing the required food after repeated omissions", async () => {
     const withoutOats = makeValidMaintenanceCandidate();
     withoutOats.meals[0].items = withoutOats.meals[0].items.filter(
       (item) => item.catalogFoodId !== "rolled-oats-dry",
     );
     const createResponse = vi.fn(async () => JSON.stringify(withoutOats));
 
-    await expect(
-      generateDraft(
-        {
-          commandId: "required-food-omitted",
-          message: "Use rolled oats.",
-          requiredCatalogFoodId: "rolled-oats-dry",
-          profile: makeReadyProfile(),
-        },
-        createResponse,
-      ),
-    ).rejects.toMatchObject({ kind: "validation" });
+    const draft = await generateDraft(
+      {
+        commandId: "required-food-omitted",
+        message: "Use rolled oats.",
+        requiredCatalogFoodId: "rolled-oats-dry",
+        profile: makeReadyProfile(),
+      },
+      createResponse,
+    );
+
     expect(createResponse).toHaveBeenCalledTimes(2);
+    expect(draft.plan.validation.valid).toBe(true);
+    expect(
+      draft.plan.meals.some((meal) =>
+        meal.items.some((item) => item.catalogFoodId === "rolled-oats-dry"),
+      ),
+    ).toBe(true);
   });
 });

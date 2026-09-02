@@ -37,6 +37,20 @@ export async function POST(request: Request) {
       draftSuccessSchema.parse({ ok: true, commandId, draft }),
     );
   } catch (error) {
+    console.error("draft_generation_failed", {
+      commandId,
+      name: error instanceof Error ? error.name : "UnknownError",
+      kind:
+        error instanceof PlanModelContractError ? error.kind : "unclassified",
+      reason:
+        error instanceof PlanModelContractError
+          ? error.message.slice(0, 500)
+          : error instanceof ZodError
+            ? "request_schema_rejected"
+            : error instanceof OpenAIPlanConfigurationError
+              ? "openai_not_configured"
+              : "unexpected_failure",
+    });
     const failure = planFailureSchema.parse({
       ok: false,
       commandId,
