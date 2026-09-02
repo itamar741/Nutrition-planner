@@ -1,12 +1,9 @@
-import {
-  foodCategoryLabels,
-  foodCategoryOrder,
-  getFoodsByCategory,
-} from "@/data/food-catalog";
-import { foodCatalogById } from "@/data/food-catalog";
+import { foodCategoryLabels, foodCategoryOrder } from "@/data/food-catalog";
+import type { CatalogFood } from "@/domain/catalog/types";
 import styles from "./CoachWorkspace.module.css";
 
 interface FoodGridProps {
+  catalog: readonly CatalogFood[];
   selectedIds: string[];
   disabled: boolean;
   onToggle: (id: string) => void;
@@ -14,14 +11,16 @@ interface FoodGridProps {
 }
 
 export function FoodGrid({
+  catalog,
   selectedIds,
   disabled,
   onToggle,
   onSubmit,
 }: FoodGridProps) {
+  const catalogById = new Map(catalog.map((food) => [food.id, food]));
   const missingCategories = foodCategoryOrder.filter(
     (category) =>
-      !selectedIds.some((id) => foodCatalogById.get(id)?.category === category),
+      !selectedIds.some((id) => catalogById.get(id)?.category === category),
   );
   const complete = missingCategories.length === 0;
 
@@ -43,29 +42,31 @@ export function FoodGrid({
           <fieldset className={styles.foodGroup} key={category}>
             <legend>{foodCategoryLabels[category]}</legend>
             <div className={styles.foodOptions}>
-              {getFoodsByCategory(category).map((food) => {
-                const selected = selectedIds.includes(food.id);
-                return (
-                  <button
-                    aria-pressed={selected}
-                    className={`${styles.foodOption} ${
-                      selected ? styles.foodOptionSelected : ""
-                    }`}
-                    disabled={disabled}
-                    key={food.id}
-                    onClick={() => onToggle(food.id)}
-                    type="button"
-                  >
-                    <span className={styles.foodCheck} aria-hidden="true">
-                      {selected ? "✓" : "+"}
-                    </span>
-                    <span>
-                      <strong>{food.displayName}</strong>
-                      <small>{food.preparation}</small>
-                    </span>
-                  </button>
-                );
-              })}
+              {catalog
+                .filter((food) => food.category === category)
+                .map((food) => {
+                  const selected = selectedIds.includes(food.id);
+                  return (
+                    <button
+                      aria-pressed={selected}
+                      className={`${styles.foodOption} ${
+                        selected ? styles.foodOptionSelected : ""
+                      }`}
+                      disabled={disabled}
+                      key={food.id}
+                      onClick={() => onToggle(food.id)}
+                      type="button"
+                    >
+                      <span className={styles.foodCheck} aria-hidden="true">
+                        {selected ? "✓" : "+"}
+                      </span>
+                      <span>
+                        <strong>{food.displayName}</strong>
+                        <small>{food.preparation}</small>
+                      </span>
+                    </button>
+                  );
+                })}
             </div>
           </fieldset>
         ))}

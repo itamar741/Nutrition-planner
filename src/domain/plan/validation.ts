@@ -1,8 +1,8 @@
+import { foodCategoryOrder } from "@/data/food-catalog";
 import {
-  foodCatalog,
-  foodCatalogById,
-  foodCategoryOrder,
-} from "@/data/food-catalog";
+  baselineCatalogSnapshot,
+  type CatalogSnapshot,
+} from "@/domain/catalog/snapshot";
 import type { CatalogFood, NutrientAmounts } from "@/domain/catalog/types";
 import type {
   MealPattern,
@@ -26,6 +26,12 @@ const zeroNutrients = (): NutrientAmounts => ({
   fatG: 0,
   fiberG: 0,
 });
+
+function isCatalogFoodAvailable(food: CatalogFood | undefined) {
+  return Boolean(
+    food && (food.kosherCatalogApproved || food.kosherReview === "not_checked"),
+  );
+}
 
 const mealPatternIds: Record<MealPattern, PlanMealId[]> = {
   three_meals: ["breakfast", "lunch", "dinner"],
@@ -62,7 +68,7 @@ export function calculatePortionNutrients(
     proteinG: food.nutrientsPer100g.proteinG * factor,
     carbohydrateG: food.nutrientsPer100g.carbohydrateG * factor,
     fatG: food.nutrientsPer100g.fatG * factor,
-    fiberG: food.nutrientsPer100g.fiberG * factor,
+    fiberG: (food.nutrientsPer100g.fiberG ?? 0) * factor,
   };
 }
 
@@ -92,7 +98,10 @@ function subtractNutrients(
   };
 }
 
-export function validateFoodSelections(ids: string[]): {
+export function validateFoodSelections(
+  ids: string[],
+  catalog: CatalogSnapshot = baselineCatalogSnapshot,
+): {
   valid: boolean;
   issues: string[];
   orderedIds: string[];
@@ -105,15 +114,15 @@ export function validateFoodSelections(ids: string[]): {
   }
 
   for (const id of uniqueIds) {
-    const food = foodCatalogById.get(id);
-    if (!food || !food.kosherCatalogApproved) {
+    const food = catalog.byId.get(id);
+    if (!food || !isCatalogFoodAvailable(food)) {
       issues.push(`Unknown or unavailable catalog food: ${id}.`);
     }
   }
 
   for (const category of foodCategoryOrder) {
     const hasCategory = uniqueIds.some(
-      (id) => foodCatalogById.get(id)?.category === category,
+      (id) => catalog.byId.get(id)?.category === category,
     );
     if (!hasCategory) {
       issues.push(`Select at least one food in ${category}.`);
@@ -123,7 +132,7 @@ export function validateFoodSelections(ids: string[]): {
   return {
     valid: issues.length === 0,
     issues,
-    orderedIds: foodCatalog
+    orderedIds: catalog.foods
       .filter((food) => uniqueIds.includes(food.id))
       .map((food) => food.id),
   };
@@ -218,10 +227,13 @@ function mealCompositionIssues(
     : [];
 }
 
-function calculateMealTotals(meals: PlanMeal[]): NutrientAmounts {
+function calculateMealTotals(
+  meals: PlanMeal[],
+  catalog: CatalogSnapshot,
+): NutrientAmounts {
   return meals.reduce((dayTotal, meal) => {
     const mealTotal = meal.items.reduce((itemTotal, item) => {
-      const food = foodCatalogById.get(item.catalogFoodId);
+      const food = catalog.byId.get(item.catalogFoodId);
       return food
         ? addNutrients(itemTotal, calculatePortionNutrients(food, item.grams))
         : itemTotal;
@@ -236,8 +248,16 @@ export function validateAndBuildPlan(input: {
   targets: NutritionTargets;
   planId: string;
   version: number;
+  catalog?: CatalogSnapshot;
 }): MealPlan {
-  const { candidate, profile, targets, planId, version } = input;
+  const {
+    candidate,
+    profile,
+    targets,
+    planId,
+    version,
+    catalog = baselineCatalogSnapshot,
+  } = input;
   const structuralIssues: string[] = [];
   const allowedIds = new Set(profile.approvedCatalogFoodIds);
   const expectedIds = profile.mealPattern
@@ -264,8 +284,8 @@ export function validateAndBuildPlan(input: {
     const resolvedFoods: CatalogFood[] = [];
     const items = meal.items.map((item, itemIndex) => {
       const itemId = `${meal.id}-item-${itemIndex + 1}`;
-      const food = foodCatalogById.get(item.catalogFoodId);
-      if (!food || !food.kosherCatalogApproved) {
+      const food = catalog.byId.get(item.catalogFoodId);
+      if (!food || !isCatalogFoodAvailable(food)) {
         structuralIssues.push(`Unknown catalog food: ${item.catalogFoodId}.`);
       } else {
         resolvedFoods.push(food);
@@ -279,8 +299,8 @@ export function validateAndBuildPlan(input: {
 
       const seenAlternativeIds = new Set<string>();
       const alternatives = item.alternatives.map((alternative, index) => {
-        const alternativeFood = foodCatalogById.get(alternative.catalogFoodId);
-        if (!alternativeFood || !alternativeFood.kosherCatalogApproved) {
+        const alternativeFood = catalog.byId.get(alternative.catalogFoodId);
+        if (!alternativeFood || !isCatalogFoodAvailable(alternativeFood)) {
           structuralIssues.push(
             `Unknown catalog alternative: ${alternative.catalogFoodId}.`,
           );
@@ -326,20 +346,20 @@ export function validateAndBuildPlan(input: {
     };
   });
 
-  const totals = calculateMealTotals(meals);
+  const totals = calculateMealTotals(meals, catalog);
   const baseNutritionIssues = nutritionIssues(totals, profile, targets);
   const alternativeIssues: string[] = [];
 
   for (const meal of meals) {
     for (const item of meal.items) {
-      const defaultFood = foodCatalogById.get(item.catalogFoodId);
+      const defaultFood = catalog.byId.get(item.catalogFoodId);
       if (!defaultFood) continue;
       const defaultNutrients = calculatePortionNutrients(
         defaultFood,
         item.grams,
       );
       for (const alternative of item.alternatives) {
-        const alternativeFood = foodCatalogById.get(alternative.catalogFoodId);
+        const alternativeFood = catalog.byId.get(alternative.catalogFoodId);
         if (!alternativeFood) continue;
         const variantTotals = addNutrients(
           subtractNutrients(totals, defaultNutrients),
@@ -347,9 +367,7 @@ export function validateAndBuildPlan(input: {
         );
         const otherMealFoods = meal.items
           .filter((candidateItem) => candidateItem.id !== item.id)
-          .map((candidateItem) =>
-            foodCatalogById.get(candidateItem.catalogFoodId),
-          )
+          .map((candidateItem) => catalog.byId.get(candidateItem.catalogFoodId))
           .filter((food): food is CatalogFood => Boolean(food));
         const variantIssues = [
           ...mealCompositionIssues(meal.id, [
@@ -410,9 +428,10 @@ export function candidateFromPlan(plan: MealPlan): DraftCandidate {
 
 export function buildDeterministicSeedCandidate(
   profile: StructuredProfile,
+  catalog: CatalogSnapshot = baselineCatalogSnapshot,
 ): DraftCandidate | null {
   if (!profile.mealPattern) return null;
-  const selected = foodCatalog.filter((food) =>
+  const selected = catalog.foods.filter((food) =>
     profile.approvedCatalogFoodIds.includes(food.id),
   );
   const foodsFor = (category: CatalogFood["category"]) =>
@@ -481,7 +500,9 @@ export function repairCandidateNutrition(input: {
   candidate: DraftCandidate;
   profile: StructuredProfile;
   targets: NutritionTargets;
+  catalog?: CatalogSnapshot;
 }): DraftCandidate | null {
+  const catalog = input.catalog ?? baselineCatalogSnapshot;
   const candidate: DraftCandidate = {
     summary: input.candidate.summary,
     meals: input.candidate.meals.map((meal) => ({
@@ -496,7 +517,7 @@ export function repairCandidateNutrition(input: {
 
   for (const meal of candidate.meals) {
     for (const item of meal.items) {
-      const food = foodCatalogById.get(item.catalogFoodId);
+      const food = catalog.byId.get(item.catalogFoodId);
       if (!food || !input.profile.approvedCatalogFoodIds.includes(food.id)) {
         return null;
       }
@@ -513,13 +534,14 @@ export function repairCandidateNutrition(input: {
       targets: input.targets,
       planId: "deterministic-repair",
       version: 1,
+      catalog,
     });
 
   const appendApprovedFood = (
     category: CatalogFood["category"],
     nutrient: keyof NutrientAmounts,
   ) => {
-    const foods = foodCatalog
+    const foods = catalog.foods
       .filter(
         (food) =>
           food.category === category &&
@@ -527,13 +549,14 @@ export function repairCandidateNutrition(input: {
       )
       .sort(
         (left, right) =>
-          right.nutrientsPer100g[nutrient] - left.nutrientsPer100g[nutrient],
+          (right.nutrientsPer100g[nutrient] ?? 0) -
+          (left.nutrientsPer100g[nutrient] ?? 0),
       );
     for (const meal of [...candidate.meals].reverse()) {
       if (meal.items.length >= 8) continue;
       const classes = new Set(
         meal.items
-          .map((item) => foodCatalogById.get(item.catalogFoodId))
+          .map((item) => catalog.byId.get(item.catalogFoodId))
           .filter((food): food is CatalogFood => Boolean(food))
           .map((food) => food.mealClassification),
       );
@@ -583,7 +606,7 @@ export function repairCandidateNutrition(input: {
 
     const refs = [...candidate.meals].reverse().flatMap((meal) =>
       meal.items.flatMap((item) => {
-        const food = foodCatalogById.get(item.catalogFoodId);
+        const food = catalog.byId.get(item.catalogFoodId);
         return food ? [{ item, food }] : [];
       }),
     );
@@ -657,8 +680,8 @@ export function repairCandidateNutrition(input: {
       appendNutrient = "fiberG";
       ranked = [...eligible].sort(
         (left, right) =>
-          right.food.nutrientsPer100g.fiberG -
-          left.food.nutrientsPer100g.fiberG,
+          (right.food.nutrientsPer100g.fiberG ?? 0) -
+          (left.food.nutrientsPer100g.fiberG ?? 0),
       );
     } else if (
       energyLow ||
@@ -711,6 +734,7 @@ export function repairCandidateNutrition(input: {
 export function revalidatePlan(
   plan: MealPlan,
   profile: StructuredProfile,
+  catalog: CatalogSnapshot = baselineCatalogSnapshot,
 ): MealPlan {
   return validateAndBuildPlan({
     candidate: candidateFromPlan(plan),
@@ -718,6 +742,7 @@ export function revalidatePlan(
     targets: plan.targetSnapshot,
     planId: plan.id,
     version: plan.version,
+    catalog,
   });
 }
 
@@ -726,6 +751,7 @@ export function applyModificationToDraft(input: {
   operation: Exclude<DraftModificationOperation, { type: "unsupported" }>;
   profile: StructuredProfile;
   proposalId: string;
+  catalog?: CatalogSnapshot;
 }): DraftProposal {
   const { draft, operation, profile, proposalId } = input;
   const candidate = candidateFromPlan(draft.plan);
@@ -759,6 +785,7 @@ export function applyModificationToDraft(input: {
     targets: draft.plan.targetSnapshot,
     planId: `${draft.plan.id}-v${draft.plan.version + 1}`,
     version: draft.plan.version + 1,
+    catalog: input.catalog,
   });
   return {
     schemaVersion: 1,

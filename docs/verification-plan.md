@@ -1,6 +1,6 @@
-# Verification Plan v0.1
+# Verification Plan v0.2
 
-Status: Draft for review. The planned command contract is now selected, but application code and executable commands remain unauthorized until the implementation plan is approved.
+Status: Active verification plan. Turn 4 automated controls pass locally; credentialed Render staging controls remain pending.
 
 ## Purpose
 
@@ -52,7 +52,9 @@ These tests are written from the specifications and nutrition documents, not inf
 ### Plan and Catalog Controls
 
 - **VT-06:** A valid Draft uses only approved catalog identifiers and calculates food nutrients from stored per-100 g values and gram portions.
-- **VT-07:** A nonexistent catalog identifier, a food not approved for the profile, or a runtime lookup request is rejected without creating a food or nutrition value.
+- **VT-07:** A nonexistent catalog identifier or food not approved for the profile is rejected by plan validation. A missing-food request may create only a bounded lookup job; it cannot create a catalog item or nutrition value before explicit candidate approval.
+- **VT-07a:** An existing central-catalog food is offered as **Add to my foods** without an external lookup. The action adds it only to the requesting PostgreSQL profile aggregate and is idempotent.
+- **VT-07b:** A source result with missing fiber stores fiber as unknown and does not contribute to the plan's fiber total.
 - **VT-08:** A meal that combines a `meat` and `dairy` classification fails validation; a neutral or single-classification meal can pass.
 - **VT-09:** Each displayed food alternative independently passes the applicable daily energy tolerance, protein range, age-appropriate AMDR ranges, fiber minimum, catalog, and meal-composition checks.
 - **VT-10:** A plan outside ±5% of goal energy, below fiber minimum, outside macro ranges, or outside goal protein range cannot become Active.
@@ -63,6 +65,15 @@ These tests are written from the specifications and nutrition documents, not inf
 - **VT-12:** Approving the exact current valid Draft promotes it to Active once.
 - **VT-13:** Rejecting a Draft, retrying a failed approval, or submitting the same approval command twice does not duplicate or alter state.
 - **VT-14:** Approval of a stale Draft or adjustment proposal whose base Active Plan version no longer matches is rejected.
+
+### Cloud Persistence Controls
+
+- **VT-14a:** Fresh and Existing mutations are isolated. A stale expected version returns the current state and makes no write.
+- **VT-14b:** Reusing one mutation command returns the original result without incrementing the profile version twice.
+- **VT-14c:** Resetting Fresh does not alter Existing, runtime catalog foods, or rate-limit events. Resetting Existing restores its original plan and generated weights without altering Fresh.
+- **VT-14d:** Approving one runtime food inserts the catalog record and selects it for the requesting profile in one transaction. A stale approval inserts neither half of that transaction.
+- **VT-14e:** A signed access token accepts no tampering; the wrong shared code fails; rate identities contain only stable HMAC hashes.
+- **VT-14f:** The eleventh hourly workflow for one hashed session/IP and the thirty-first global daily workflow are rejected, including after a profile reset.
 
 ### Weight and Trend Controls
 
@@ -98,6 +109,8 @@ Run these controls with mocked or recorded model responses. Do not rely on varia
 - **AI-06:** Prose where a structured response is required, an unknown response type, arbitrary widget instruction, unknown action, invented food identifier, missing required field, or invalid enum is rejected before it can render controls or mutate state.
 - **AI-07:** The model cannot bypass deterministic insufficient-evidence status, change an allowed adjustment direction or magnitude, write weight history, or mark a proposal Active.
 - **AI-08:** A model timeout or transport failure preserves confirmed state and returns a retryable failure without duplicate effects.
+- **AI-09:** Food-addition routing accepts only its closed action union. User text and parsed source fields that attempt to override instructions, invoke tools, provide URLs, or request database writes are treated as data and cannot create an action outside that union.
+- **AI-10:** An AI-estimate candidate is visibly and structurally labelled `AI estimate · Fuder not verified`; it has no verified-source URL and cannot be stored without explicit approval.
 
 Evidence: input fixture, expected contract result, actual validator result, and unchanged-state assertion for every rejected response.
 
@@ -115,6 +128,9 @@ Use browser-level tests where feasible and manual acceptance scripts for visual 
 - **UI-08:** An invalid weight stays out of the chart, retains the submitted message, and prompts for correction.
 - **UI-09:** A failed Draft, trend, proposal, or approval operation leaves confirmed state visible and never labels a failed proposal as Active.
 - **UI-10:** Draft, proposal, and Active labels are visible and unambiguous before and after every approval or rejection.
+- **UI-11:** A missing-food request shows one clear sequence: clarification when required, explicit candidate choices when multiple results exist, source-labelled review, and Approve/Reject controls.
+- **UI-12:** An existing central-catalog match shows **Add to my foods** and never starts a Fuder lookup.
+- **UI-13:** Queued, slow, blocked, zero-result, malformed-source, and fallback states preserve the confirmed profile and plan while explaining the next available action.
 
 Evidence: automated trace where available, plus a screenshot or short manual pass/fail note for each visual control.
 
@@ -143,15 +159,33 @@ Evidence: automated trace where available, plus a screenshot or short manual pas
 
 Evidence: one checklist per demo, linked screenshots, fixture version, and a human pass/fail decision.
 
+### Runtime Catalog Demonstration
+
+1. Request a food already in the central catalog and verify the **Add to my foods** path without a source request.
+2. Request one missing packaged product or food; answer any preparation/unit clarification and choose one explicit Fuder result.
+3. Verify the source, retrieved time, per-100 g values, optional serving information, and the approval requirement before persistence.
+4. Approve once; verify one central catalog record and current-profile approval. Retry once and verify no duplicate record.
+5. Request a plan change using the newly approved food and verify that it creates only a Draft.
+6. Exercise a blocked, zero-result, or malformed-source fixture; verify the catalog and Active Plan remain unchanged and the optional AI estimate is visibly unverified.
+
 ## Gate 6 — Scope and Security Audit
 
 Before accepting an implementation turn, inspect the visible product, dependencies, model configuration, and data flows for scope leakage.
 
-The audit fails if it finds authentication, additional profiles, runtime internet search, external food lookup, browser-enabled AI, arbitrary tools or actions, unvalidated AI output, direct AI writes to Active Plan or weight history, allergy/medical features, target weight, goal switching, plan history, weekly plan variation, workout/adherence tracking, hydration, micronutrient optimization, or a kashrut subsystem.
+The audit fails if it finds authentication, additional profiles, unrestricted runtime internet search, a general crawler, browser-enabled AI, arbitrary tools or actions, unvalidated AI output, direct AI writes to PostgreSQL, Active Plan, or weight history, allergy/medical features, target weight, goal switching, plan history, weekly plan variation, workout/adherence tracking, hydration, micronutrient optimization, or a kashrut subsystem.
 
-Also inspect for secrets in tracked files and confirm all food data is preloaded rather than fetched at runtime.
+Also inspect for secrets in tracked files; confirm the Fuder adapter is server-owned, host-restricted, low-volume, and cannot log in, bypass CAPTCHA/rate limits, crawl in bulk, or pass raw HTML to the model.
 
-## Gate 7 — Human Merge-Readiness Review
+## Gate 7 — Render Deployment and Source Controls
+
+- **DP-01:** The Web Service can start with only its documented Render environment variables; no credential is present in tracked files or browser bundles.
+- **DP-02:** PostgreSQL migrations run safely on an empty staging database and are idempotent when reapplied through the chosen migration tool.
+- **DP-03:** The Web Service performs one bounded synchronous source workflow, constructs the Fuder URL itself, and cannot accept a public arbitrary URL.
+- **DP-04:** A bounded timeout, `403`, `429`, CAPTCHA/interstitial, unexpected markup, or database error returns a controlled failure without mutating the catalog or profile.
+- **DP-05:** The Web Service reports searching, candidate-selection, review, and failure states without exposing raw source content, ScrapingBee credentials, or database details.
+- **DP-06:** A Render staging deployment completes one approved candidate flow and one controlled failure flow.
+
+## Gate 8 — Human Merge-Readiness Review
 
 The user reviews the change only after automated and end-to-end gates pass. The review records five evidence-backed conclusions:
 

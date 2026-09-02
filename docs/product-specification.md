@@ -1,6 +1,6 @@
-# Product Specification v0.1
+# Product Specification v0.3
 
-Status: Review-ready. The nutrition-research dependencies and implementation plan have been documented, but implementation remains prohibited until the user explicitly approves `implementation-plan.md` and authorizes Turn 1.
+Status: Active specification. Turns 1–4 are implemented locally; Render staging verification remains pending.
 
 This specification is governed by [Project Framing](project-framing.md), [Project Description](project-description.md), and [Interface Design](interface-design.md). If a future interpretation expands the product beyond those documents, the narrower documented scope wins until the specification is deliberately revised.
 
@@ -11,7 +11,7 @@ This specification is governed by [Project Framing](project-framing.md), [Projec
 Build a narrow demonstration application containing exactly two predefined profiles in which a conversational nutrition coach:
 
 - adaptively collects the information needed for a beginner's nutrition plan;
-- builds one repeatable daily meal plan from a closed, predefined food catalog;
+- builds one repeatable daily meal plan from a curated catalog with explicit, reviewed additions;
 - separates every proposed plan from the Active Plan until the user approves it; and
 - uses deterministic weight-trend facts to support a bounded AI adjustment proposal.
 
@@ -36,9 +36,9 @@ Each criterion must produce a clear pass or fail result. Nutrition criteria use 
 
 ### Demonstration Boundary
 
-- **SC-01 — Exactly two profiles:** The entry view offers only **New Demo Profile** and **Existing Demo Profile**. It offers no registration, authentication, new-profile creation, or account management.
+- **SC-01 — Exactly two profiles:** After the optional shared-code gate, the entry view offers only **New Demo Profile** and **Existing Demo Profile**. It offers no accounts, registration, new-profile creation, or account management.
 - **SC-02 — Fixed goals:** Goal selection offers only **Fat Loss**, **Maintenance**, and **Muscle Gain**. After onboarding, the selected goal cannot be changed.
-- **SC-03 — Closed action space:** Every state-changing user action maps to one supported application action. Free text cannot cause browsing, catalog mutation, arbitrary tool use, or an unrecognized state transition.
+- **SC-03 — Closed action space:** Every state-changing user action maps to one supported application action. Free text cannot cause free browsing, direct catalog mutation, arbitrary tool use, or an unrecognized state transition.
 
 ### New Demo Profile and Adaptive Onboarding
 
@@ -51,12 +51,12 @@ Each criterion must produce a clear pass or fail result. Nutrition criteria use 
 - **SC-10 — Processing lock:** While the system processes a user action, all input controls are disabled and visible progress feedback is present.
 - **SC-11 — Required profile fields:** A Draft cannot be requested until the structured profile contains age, biological sex, height, current weight, one supported goal, sufficient daily-routine and movement information, exercise type, exercise frequency, approximate session duration, an accepted meal pattern, and completed food preferences.
 
-### Closed Food Catalog and Preference Grid
+### Catalog and Preference Grid
 
 - **SC-12 — Five catalog categories:** The Food Grid exposes selectable catalog foods grouped as carbohydrates, proteins, fats, vegetables, and fruits.
 - **SC-13 — Selected-food persistence:** Submitting a valid Food Grid selection stores the chosen catalog identifiers as the profile's approved foods and visibly completes food preference progress.
-- **SC-14 — Catalog-only behavior:** A food absent from the predefined catalog is not stored, assigned nutrition values, searched for, or added. The conversation requests a supported alternative.
-- **SC-15 — Shared source of food truth:** The preference grid and plan calculations use the same catalog entries and nutritional values; no second runtime food source is consulted.
+- **SC-14 — Controlled catalog addition:** A missing food or packaged product can enter the catalog only after an existing-catalog check, any required clarification, explicit user selection of a returned Fuder candidate or a clearly labelled AI estimate, deterministic validation, and explicit approval. Recipes, restaurant items, composite dishes, bulk import, and automatic catalog mutation are rejected.
+- **SC-15 — Shared source of food truth:** The preference grid and plan calculations use the same curated catalog entries and nutritional values. A runtime source may produce a reviewable candidate, but only an approved validated record becomes a catalog entry.
 - **SC-16 — Kosher simplification:** Every catalog item used by the application is from the pre-reviewed kosher-oriented catalog, and deterministic validation rejects a meal containing both meat and dairy classifications. No separate kashrut workflow or inference system is present.
 
 ### Targets and Draft Meal Plan
@@ -87,14 +87,24 @@ Each criterion must produce a clear pass or fail result. Nutrition criteria use 
 - **SC-34 — Failure preserves confirmed state:** A failed message, Draft, weight-recording, trend, proposal, or approval operation never claims or renders a state change that the deterministic store did not confirm.
 - **SC-35 — Retry is idempotent:** Retrying the same failed action cannot create duplicate chat actions, weight records, activations, or adjustment approvals.
 - **SC-36 — Invalid AI contract:** AI output that does not match an allowed structured response is rejected before it can render controls or mutate application state.
-- **SC-37 — No unsupported product surfaces:** The demonstrable interface contains no authentication, additional-user management, allergies or intolerances, workout tracking, adherence tracking, hydration, micronutrient optimization, supplement recommendation workflow, target weight, goal switching, plan history, weekly plan variation, or internet food search.
+- **SC-37 — No unsupported product surfaces:** The demonstrable interface contains no authentication, additional-user management, allergies or intolerances, workout tracking, adherence tracking, hydration, micronutrient optimization, supplement recommendation workflow, target weight, goal switching, plan history, weekly plan variation, unrestricted internet search, or a general-purpose crawler.
 - **SC-38 — No unapproved Active Plan mutation:** Across all validation and error cases, the Active Plan changes only after a valid, explicit approval action tied to the currently displayed Draft or adjustment proposal.
+
+### Cloud Persistence and Runtime Food Addition
+
+- **SC-39 — Cloud authority:** PostgreSQL is authoritative for both versioned profile aggregates, conversations, catalog foods, source provenance, lookup requests, candidates, idempotent command results, and rate-limit events. The browser never supplies an authoritative replacement profile.
+- **SC-40 — Independent reset:** Fresh reset restores only the empty Fresh seed. Existing reset restores only its prepared profile, Active Plan, conversation, and generated weight history. Neither reset deletes runtime foods or rate-limit events, and there is no Reset all control.
+- **SC-41 — Optimistic conflict:** Every mutation supplies an expected version and idempotency command. A stale request returns `409`, reloads the current profile, and applies no stale overwrite.
+- **SC-42 — Shared access:** Deployed routes require one shared access code represented by a signed, `HttpOnly`, `Secure`, `SameSite=Lax` cookie. This gate does not create accounts or a general authentication system.
+- **SC-43 — Persistent source limits:** Food lookups are limited to 10 workflows per hour for the same HMAC-hashed session or IP and 30 per day globally. Raw IP addresses are never stored, and reset does not clear events.
+- **SC-44 — Bounded source workflow:** The model receives only the strict `search_food_source` function tool. The server constructs the allowlisted Fuder target, returns at most five `/foods/` candidates in source order, fetches only the selected detail, exposes no raw HTML, and requires explicit approval.
+- **SC-45 — Runtime plan continuation:** Approval adds one idempotent central food and selects it only for the requesting profile. If the request arose during planning, the conversation creates a new validated Draft that contains the approved food and never directly changes the Active Plan.
 
 ## Part 3 — Architectural Guidance
 
-Keep the implementation boundary small: a chat-and-state interface communicates with an application layer that owns structured profile, catalog, plan, and weight state. Deterministic modules own all nutrition arithmetic, catalog validation, weight-trend calculations, evidence thresholds, idempotency, and Draft-to-Active transitions; the language model receives narrow structured context and returns only validated response types. The model has no browser, runtime food lookup, unrestricted tool access, or direct write path to the Active Plan or weight history.
+Keep the implementation boundary small: a chat-and-state interface communicates with an application layer that owns structured profile, catalog, plan, and weight state. Deterministic modules own all nutrition arithmetic, catalog validation, weight-trend calculations, evidence thresholds, idempotency, and Draft-to-Active transitions; the language model receives narrow structured context and returns only validated response types. The model has no browser, unrestricted tool access, database write path, or direct write path to the Active Plan or weight history.
 
-Use one predefined Food Catalog as the sole source for preference choices and nutritional values. Keep exactly two deterministic demo-state fixtures, and derive the Existing Demo Profile from structured seeded data rather than simulated long-term chat memory. Preserve clear Draft and Active Plan representations so every proposal is reversible until an explicit approval command succeeds.
+Use one central Food Catalog as the sole source for preference choices and nutritional values. The Next.js server may query the public Fuder interface through ScrapingBee for one explicitly requested candidate workflow at a time; raw source content is parsed into allowlisted fields and is never shown to the model or browser. Keep exactly two deterministic demo-state fixtures in PostgreSQL, and derive the Existing Demo Profile from structured seeded data rather than simulated long-term chat memory. Preserve clear Draft and Active Plan representations so every proposal is reversible until an explicit approval command succeeds.
 
 Implementation-specific frameworks, filenames, component trees, database choices, and internal function names are intentionally left to the later implementation plan, provided they preserve these boundaries.
 
@@ -105,6 +115,7 @@ The implementation plan must define and validate narrow contracts equivalent to 
 - A structured demo profile and onboarding-completion state.
 - An assistant message with either no interaction, one predefined quick-reply set, or the dedicated Food Grid step.
 - A catalog-backed Draft Meal Plan and an Active Plan.
+- A source-labelled Food Addition Candidate plus explicit approval or rejection command.
 - A validated weight-record command and deterministic trend result.
 - A bounded adjustment proposal tied to a specific Active Plan state.
 - An explicit approval or rejection command tied to the proposal currently shown.
@@ -188,13 +199,13 @@ Run the Existing Demo Profile from its committed seeded fixture and record a pas
 
 ### Gate 7 — Out-of-Scope Audit
 
-Before accepting an implementation turn, inspect the application and dependency/tool configuration for accidental additions. Fail the gate if it introduces an extra profile flow, authentication, runtime browsing, an external food lookup, arbitrary AI tools, direct AI state mutation, or any feature listed as out of scope in the framing document.
+Before accepting an implementation turn, inspect the application and dependency/tool configuration for accidental additions. Fail the gate if it introduces an extra profile flow, accounts, unrestricted runtime browsing, a general crawler, arbitrary AI tools, direct AI or source-adapter state mutation without explicit approval, or any feature listed as out of scope in the framing document. The only permitted runtime source interaction is the documented low-volume, server-owned Fuder candidate flow through ScrapingBee.
 
 ## Part 5 — Known Pitfalls
 
 - **Research rules treated as implementation suggestions:** The documented EER equations, goal rates, tolerances, evidence gate, and adjustment bounds are specification requirements. A coding agent may not replace them with remembered formulas or preferred fitness conventions.
 - **AI prose instead of structured data:** A fluent response may fail the required contract. Reject it without parsing arbitrary prose into a state-changing action.
-- **Invented nutrition facts or foods:** The model may name unsupported foods or quantities. Resolve every food through the predefined catalog and recalculate totals deterministically.
+- **Invented nutrition facts or foods:** The model may name unsupported foods or quantities. Resolve every plan food through the approved catalog and recalculate totals deterministically. A requested missing item can enter only through the explicitly selected, source-labelled, validated, and approved catalog-addition flow.
 - **Premature Draft generation:** Natural conversation can appear complete while required structured fields are missing. The checklist state, not the tone of the conversation, controls readiness.
 - **Duplicate turn submission:** Animations, network latency, a quick-reply click, and keyboard input can race. Lock synchronously at the first accepted action and enforce idempotency below the UI.
 - **Stale approval:** A user may approve a proposal after a newer Draft or Active Plan exists. Bind approval to the exact proposal and base plan version currently displayed.
@@ -207,9 +218,10 @@ Before accepting an implementation turn, inspect the application and dependency/
 - **False trend confidence:** A chart may look persuasive when evidence is insufficient. The deterministic evidence rule controls proposal eligibility and the UI states that result plainly.
 - **Kosher simplification leaking into a subsystem:** The constraint is limited to catalog curation and rejection of meat/dairy combinations within one meal. Do not add certification, waiting-time, kitchen, or inference features.
 - **Open language mistaken for open capability:** The user may request unsupported medical advice, allergens, supplements, new goals, or arbitrary plan actions. Respond within the narrow product boundary without inventing a new command.
+- **Source lookup mistaken for safe data:** A public source can be blocked, change markup, omit nutrients, or contain hostile text. Restrict it to one bounded synchronous candidate workflow, parse only expected fields, treat its content as untrusted data, record a controlled failure, and never let it write a catalog record without user approval.
 - **Scope language mistaken for medical safety:** The product is a course demonstration for adults and excludes clinical nutrition. Its interface and claims must not present it as medical care or as handling conditions it does not support.
 
-## Nutrition Rules Incorporated in v0.1
+## Nutrition Rules Incorporated
 
 The research phase resolved the previously open nutrition items in:
 
@@ -219,4 +231,4 @@ The research phase resolved the previously open nutrition items in:
 
 Together they now define the exact structured inputs, 2023 EER equations, deterministic PAL heuristic, goal energy rules, protein targets, AMDR and fiber validation, ±5% plan-energy tolerance, 28-measurement evidence gate, ordinary-least-squares trend, goal-specific weekly rate bands, 5% bounded energy adjustment, catalog source method, serving normalization, and reference arithmetic fixtures.
 
-Remaining pre-implementation conditions are user review of these research decisions, a committed verification plan derived from the gates above, a project context file that constrains the coding agent, and a Git restore point before any implementation turn. Until those conditions are complete, an agent may plan but must not write application code.
+The nutrition rules remain unchanged by Turn 4. Runtime foods must pass the same catalog, portion, macro, fiber, energy, and meal-classification checks as baseline foods; an omitted source fiber value remains unknown and contributes nothing to the deterministic fiber minimum.

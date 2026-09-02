@@ -11,6 +11,7 @@ export const draftRequestSchema = z
   .object({
     commandId: z.string().min(8).max(100),
     message: z.string().trim().max(1_000).optional(),
+    requiredCatalogFoodId: z.string().min(1).max(100).optional(),
     profile: structuredProfileSchema,
   })
   .strict();
@@ -41,6 +42,7 @@ export const draftModificationRequestSchema = z
   .object({
     commandId: z.string().min(8).max(100),
     message: z.string().trim().min(1).max(1_000),
+    requiredCatalogFoodId: z.string().min(1).max(100).optional(),
     profile: structuredProfileSchema,
     draft: draftProposalSchema,
   })

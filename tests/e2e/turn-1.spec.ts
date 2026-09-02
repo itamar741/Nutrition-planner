@@ -1,4 +1,6 @@
 import { expect, test, type Route } from "@playwright/test";
+import { createNewDemoState } from "@/data/demo-fixtures";
+import { installNewCloudProfile } from "./helpers/cloud-profile";
 
 const profileAfterBasics = {
   schemaVersion: 1,
@@ -77,6 +79,7 @@ test("SC-01 entry exposes exactly the two demo profiles", async ({ page }) => {
 test("UI-01/UI-02/AI-01 moves from one open answer to locked quick replies", async ({
   page,
 }) => {
+  await installNewCloudProfile(page, createNewDemoState());
   await page.route("**/api/coach/onboarding", fulfillBasics);
   await page.goto("/coach/new");
 
@@ -109,6 +112,7 @@ test("UI-01/UI-02/AI-01 moves from one open answer to locked quick replies", asy
 test("UI-05/UI-06 preserves the answer, locks controls, and shows slow feedback", async ({
   page,
 }) => {
+  await installNewCloudProfile(page, createNewDemoState());
   await page.route("**/api/coach/onboarding", async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 2_000));
     await fulfillBasics(route);
@@ -134,6 +138,7 @@ test("UI-05/UI-06 preserves the answer, locks controls, and shows slow feedback"
 test("UI-09 retry preserves state and does not duplicate the submitted action", async ({
   page,
 }) => {
+  await installNewCloudProfile(page, createNewDemoState());
   let calls = 0;
   await page.route("**/api/coach/onboarding", async (route) => {
     calls += 1;

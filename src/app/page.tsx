@@ -1,5 +1,9 @@
 import Link from "next/link";
+import { AccessGate } from "@/components/AccessGate";
+import { hasServerAccess } from "@/security/demo-access";
 import styles from "./page.module.css";
+
+export const dynamic = "force-dynamic";
 
 const profiles = [
   {
@@ -18,7 +22,8 @@ const profiles = [
   },
 ] as const;
 
-export default function Home() {
+export default async function Home() {
+  const hasAccess = await hasServerAccess();
   return (
     <main className={styles.main}>
       <div className={styles.shell}>
@@ -37,28 +42,34 @@ export default function Home() {
           </p>
         </section>
 
-        <section
-          className={styles.profileGrid}
-          aria-label="Choose a demo profile"
-        >
-          {profiles.map((profile) => (
-            <Link
-              className={styles.profileCard}
-              href={`/coach/${profile.id}`}
-              key={profile.id}
+        {hasAccess ? (
+          <>
+            <section
+              className={styles.profileGrid}
+              aria-label="Choose a demo profile"
             >
-              <span className={styles.number}>{profile.number}</span>
-              <h2>{profile.title}</h2>
-              <p>{profile.description}</p>
-              <span className={styles.arrow} aria-hidden="true">
-                →
-              </span>
-            </Link>
-          ))}
-        </section>
-        <p className={styles.note}>
-          No sign-up. No additional profiles. Demo data only.
-        </p>
+              {profiles.map((profile) => (
+                <Link
+                  className={styles.profileCard}
+                  href={`/coach/${profile.id}`}
+                  key={profile.id}
+                >
+                  <span className={styles.number}>{profile.number}</span>
+                  <h2>{profile.title}</h2>
+                  <p>{profile.description}</p>
+                  <span className={styles.arrow} aria-hidden="true">
+                    →
+                  </span>
+                </Link>
+              ))}
+            </section>
+            <p className={styles.note}>
+              No sign-up. No additional profiles. Demo data only.
+            </p>
+          </>
+        ) : (
+          <AccessGate />
+        )}
       </div>
     </main>
   );

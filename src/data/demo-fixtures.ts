@@ -5,6 +5,7 @@ import type { ActivePlan, DraftCandidate } from "@/domain/plan/types";
 import type { DemoProfileId, StructuredProfile } from "@/domain/profile/types";
 import type { WeightMeasurement } from "@/domain/weight/trend";
 import type { DemoState } from "@/store/demo-reducer";
+import type { ExistingDemoState } from "@/store/existing-demo-store";
 
 export const demoProfileNames: Record<DemoProfileId, string> = {
   new: "New Demo Profile",
@@ -163,6 +164,22 @@ export function createExistingActivePlan(now = new Date()): ActivePlan {
     version: 1,
     activatedAt: new Date(now.getTime() - 61 * 86_400_000).toISOString(),
     plan,
+  };
+}
+
+export function createExistingDemoState(now = new Date()): ExistingDemoState {
+  return {
+    schemaVersion: 1,
+    activePlan: createExistingActivePlan(now),
+    measurements: createExistingWeightHistory(now),
+    messages: [
+      {
+        id: "existing-welcome",
+        role: "assistant",
+        text: "Your weight history is ready. Send today’s weight in kilograms, or use the form beside the chart.",
+      },
+    ],
+    approvedCatalogFoodIds: [...existingApprovedFoodIds],
   };
 }
 

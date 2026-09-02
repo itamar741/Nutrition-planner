@@ -1,0 +1,119 @@
+.card {
+  margin-top: 24px;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--paper);
+}
+
+.card > span,
+.review > span {
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.card h2,
+.review h3 {
+  margin: 8px 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 500;
+}
+
+.card > p,
+.review p {
+  color: var(--muted-ink);
+  line-height: 1.5;
+}
+
+.card form,
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.card textarea {
+  width: 100%;
+  padding: 11px 12px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: white;
+  font: inherit;
+}
+
+.card button {
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font: inherit;
+  font-weight: 800;
+}
+
+.primary {
+  background: var(--primary);
+  color: white;
+}
+
+.candidates {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.candidates button {
+  display: grid;
+  gap: 5px;
+  text-align: left;
+  border: 1px solid var(--border);
+  background: white;
+}
+
+.candidates small {
+  color: var(--muted-ink);
+  font-weight: 400;
+}
+
+.review {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid rgba(190, 108, 42, 0.3);
+  border-radius: 16px;
+  background: #fff7ef;
+}
+
+.review dl {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.review dl div {
+  padding: 9px;
+}
+
+.review dt {
+  color: var(--muted-ink);
+  font-size: 0.68rem;
+}
+
+.review dd {
+  margin: 4px 0 0;
+  font-weight: 800;
+}
+
+@media (max-width: 700px) {
+  .card form,
+  .actions {
+    display: grid;
+  }
+
+  .review dl {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

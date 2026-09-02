@@ -2,7 +2,9 @@ import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CoachWorkspace } from "@/components/coach-workspace/CoachWorkspace";
-import { emptyProfile } from "@/data/demo-fixtures";
+import { createNewDemoState, emptyProfile } from "@/data/demo-fixtures";
+import { foodCatalog } from "@/data/food-catalog";
+import { demoReducer, type DemoState } from "@/store/demo-reducer";
 
 vi.mock("next/link", () => ({
   default: ({
@@ -58,6 +60,45 @@ function successResponse() {
   };
 }
 
+function installCloudFetch(
+  onboarding: () => Promise<{ ok: boolean; json: () => Promise<unknown> }>,
+) {
+  let state: DemoState = createNewDemoState();
+  let version = 1;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/demo/state/new" && !init?.method) {
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            profile: { profileId: "new", version, state },
+            catalog: foodCatalog,
+          }),
+        };
+      }
+      if (url === "/api/demo/state/new" && init?.method === "PATCH") {
+        const body = JSON.parse(String(init.body)) as {
+          action: Parameters<typeof demoReducer>[1];
+        };
+        state = demoReducer(state, body.action);
+        version += 1;
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            profile: { profileId: "new", version, state },
+          }),
+        };
+      }
+      if (url === "/api/coach/onboarding") return onboarding();
+      throw new Error(`Unexpected request: ${url}`);
+    }),
+  );
+}
+
 describe("CoachWorkspace", () => {
   it("UI-01 starts with text enabled and no quick replies", () => {
     render(<CoachWorkspace profileId="new" />);
@@ -69,14 +110,11 @@ describe("CoachWorkspace", () => {
   it("UI-02 switches to quick replies and disables free text", async () => {
     const user = userEvent.setup();
     const payload = successResponse();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockImplementation(async () => {
-        const body = await payload.json();
-        body.commandId = "command-12345";
-        return { ok: true, json: async () => body };
-      }),
-    );
+    installCloudFetch(async () => {
+      const body = await payload.json();
+      body.commandId = "command-12345";
+      return { ok: true, json: async () => body };
+    });
     render(<CoachWorkspace profileId="new" />);
 
     await user.type(
@@ -94,15 +132,14 @@ describe("CoachWorkspace", () => {
 
   it("UI-05 locks input while processing and keeps the submitted message visible", async () => {
     const user = userEvent.setup();
-    let resolveFetch: ((value: unknown) => void) | undefined;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        () =>
-          new Promise((resolve) => {
-            resolveFetch = resolve;
-          }),
-      ),
+    let resolveFetch:
+      | ((value: { ok: boolean; json: () => Promise<unknown> }) => void)
+      | undefined;
+    installCloudFetch(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        }),
     );
     render(<CoachWorkspace profileId="new" />);
 
