@@ -40,7 +40,12 @@ export interface CatalogFood {
         dataset: "Foundation Foods" | "SR Legacy";
         release: string;
         retrievedAt: string;
-        energyNutrient: "Energy" | "Energy (Atwater Specific Factors)";
+        energyNutrient:
+          | "Energy"
+          | "Energy (Atwater General Factors)"
+          | "Energy (Atwater Specific Factors)";
+        energyNutrientId?: 1008 | 2047 | 2048;
+        verification?: "detail" | "search_summary";
       }
     | {
         provider: "FoodsDictionary";

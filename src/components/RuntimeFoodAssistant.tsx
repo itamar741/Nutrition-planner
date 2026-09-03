@@ -61,6 +61,11 @@ export function RuntimeFoodAssistant({
   const [existingFood, setExistingFood] = useState<CatalogFood | null>(null);
   const [existingApproved, setExistingApproved] = useState(false);
   const [submittedQuery, setSubmittedQuery] = useState("");
+  const [diagnostics, setDiagnostics] = useState<{
+    stage: string;
+    failureCode: string;
+    lookupId?: string | null;
+  } | null>(null);
 
   async function lookup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -73,6 +78,7 @@ export function RuntimeFoodAssistant({
     setCandidates([]);
     setReview(null);
     setExistingFood(null);
+    setDiagnostics(null);
     try {
       const response = await fetch("/api/coach/catalog/lookup", {
         method: "POST",
@@ -88,7 +94,13 @@ export function RuntimeFoodAssistant({
         candidates?: FoodSearchCandidate[];
         food?: CatalogFood;
         alreadyApproved?: boolean;
+        diagnostics?: {
+          stage: string;
+          failureCode: string;
+          lookupId?: string | null;
+        };
       };
+      setDiagnostics(body.diagnostics ?? null);
       if (body.outcome === "existing" && body.food) {
         setExistingFood(body.food);
         setExistingApproved(Boolean(body.alreadyApproved));
@@ -143,7 +155,13 @@ export function RuntimeFoodAssistant({
         candidate?: FoodApprovalCandidate;
         lookupId?: string;
         offerAiEstimate?: boolean;
+        diagnostics?: {
+          stage: string;
+          failureCode: string;
+          lookupId?: string | null;
+        };
       };
+      setDiagnostics(body.diagnostics ?? null);
       if (body.offerAiEstimate && body.lookupId) {
         setLookupId(body.lookupId);
         setCandidates([]);
@@ -311,6 +329,16 @@ export function RuntimeFoodAssistant({
       <p className={styles.assistantBubble} aria-live="polite">
         {message}
       </p>
+      {diagnostics ? (
+        <details className={styles.diagnostics}>
+          <summary>Technical details</summary>
+          <span>Stage: {diagnostics.stage}</span>
+          <span>Failure: {diagnostics.failureCode}</span>
+          {diagnostics.lookupId ? (
+            <span>Lookup: {diagnostics.lookupId}</span>
+          ) : null}
+        </details>
+      ) : null}
 
       {candidates.length > 0 ? (
         <div className={styles.candidates} aria-label="USDA food candidates">
@@ -322,6 +350,22 @@ export function RuntimeFoodAssistant({
             >
               <strong>{candidate.title}</strong>
               <small>{candidate.description}</small>
+              <span className={styles.candidateMacros}>
+                <span>
+                  {format(candidate.nutrientsPer100g.energyKcal)} kcal
+                </span>
+                <span>P {format(candidate.nutrientsPer100g.proteinG)} g</span>
+                <span>
+                  C {format(candidate.nutrientsPer100g.carbohydrateG)} g
+                </span>
+                <span>F {format(candidate.nutrientsPer100g.fatG)} g</span>
+              </span>
+              <small>
+                Per 100 g ·{" "}
+                {candidate.verification === "detail"
+                  ? "USDA detail verified"
+                  : "USDA search data"}
+              </small>
             </button>
           ))}
         </div>

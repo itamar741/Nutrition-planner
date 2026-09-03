@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Turns 1–4 are implemented. Turn 5 replaces the experimental Fuder lookup with USDA FoodData Central and moves runtime food addition into the main coach conversation. Do not claim Turn 5 or deployment acceptance until its complete local and credentialed Render gates pass.
+Turns 1–5 are implemented. Turn 6 makes USDA candidates nutrition-complete and cached before display. Do not claim deployment acceptance until its credentialed Render gates pass.
 
 ## Read first
 
@@ -23,7 +23,7 @@ The written specification wins over conversational memory. Resolve any conflict 
 - PostgreSQL is authoritative for both profile aggregates, conversations, catalog, lookup records, command results, and persistent limits.
 - The browser holds temporary rendered state and the signed access cookie only.
 - The only verified runtime source is the server-owned USDA FoodData Central API adapter, restricted to Foundation Foods and SR Legacy basic foods.
-- The model receives exactly one food-source function tool with closed arguments. It never receives arbitrary URLs, USDA response bodies, SQL, browser control, source credentials, or database writes.
+- The model receives exactly one food-source function tool with closed arguments. It never receives arbitrary URLs, raw USDA response bodies, SQL, browser control, source credentials, or database writes.
 - Never add accounts, additional profiles, allergies/intolerances, clinical advice, workout/adherence tracking, hydration, micronutrient optimization, target weight, goal switching, plan history, long-term memory infrastructure, weekly variation, or arbitrary AI actions.
 - Protein powder remains an ordinary catalog food. There is no supplements workflow or kashrut subsystem.
 
@@ -31,7 +31,7 @@ The written specification wins over conversational memory. Resolve any conflict 
 
 Application code owns profile state, catalog validation, target calculations, plan totals, weight storage, trend calculations, evidence eligibility, optimistic versions, command idempotency, rate limits, reset, and every Draft-to-Active transition.
 
-The model may extract bounded facts, produce strict Draft content, return a closed category/classification, ask one material food clarification, or call `search_usda_foods`. Every result is revalidated. Nutrition extraction is deterministic, and no model output directly mutates PostgreSQL or an Active Plan.
+The model may extract bounded facts, produce strict Draft content, return a closed category/classification, ask one material food clarification, or call `search_usda_foods`. Every result is revalidated. USDA candidates are bulk-validated and cached before display; selection never refetches the source. Nutrition extraction is deterministic, and no model output directly mutates PostgreSQL or an Active Plan.
 
 ## Interaction and safety invariants
 

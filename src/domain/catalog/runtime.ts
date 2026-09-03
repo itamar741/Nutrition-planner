@@ -26,6 +26,29 @@ export const foodSearchCandidateSchema = z
     title: z.string().trim().min(1).max(200),
     description: z.string().trim().max(300),
     dataType: z.enum(["Foundation", "SR Legacy"]),
+    verification: z.enum(["detail", "search_summary"]),
+    release: z.string().trim().min(1).max(80),
+    retrievedAt: z.string().datetime(),
+    energyNutrientId: z.union([
+      z.literal(1008),
+      z.literal(2047),
+      z.literal(2048),
+    ]),
+    nutrientsPer100g: z
+      .object({
+        energyKcal: z.number().nonnegative().max(1_000),
+        proteinG: z.number().nonnegative().max(100),
+        carbohydrateG: z.number().nonnegative().max(100),
+        fatG: z.number().nonnegative().max(100),
+        fiberG: z.number().nonnegative().max(100).nullable(),
+      })
+      .strict(),
+    displayPortion: z
+      .object({
+        label: z.string().trim().min(1).max(80),
+        grams: z.number().positive().max(1_000),
+      })
+      .strict(),
   })
   .strict();
 
@@ -46,7 +69,9 @@ export interface FoodApprovalCandidate {
   lookupId: string;
   food: CatalogFood;
   sourceLabel:
-    "USDA FoodData Central verified" | "AI estimate · USDA not verified";
+    | "USDA FoodData Central verified"
+    | "USDA FoodData Central search data"
+    | "AI estimate · USDA not verified";
 }
 
 export const catalogFoodJsonSchema = {

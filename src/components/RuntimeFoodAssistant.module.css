@@ -126,6 +126,41 @@
   font-weight: 400;
 }
 
+.candidateMacros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.candidateMacros span {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--surface-muted, #f3f1ea);
+  color: var(--ink);
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.diagnostics {
+  margin: -4px 0 12px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--muted-ink);
+  font-size: 0.76rem;
+}
+
+.diagnostics summary {
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.diagnostics span {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
 .review {
   margin-top: 16px;
   padding: 16px;

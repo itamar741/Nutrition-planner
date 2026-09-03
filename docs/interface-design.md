@@ -64,7 +64,7 @@ The coaching product uses these bounded interaction primitives:
 - **Chat message:** displays coach or user text.
 - **Chat message with quick replies:** presents a closed question with predefined choices inside the conversation.
 - **Food Grid:** presents selectable predefined catalog foods during the dedicated preference step.
-- **Catalog candidate list:** presents at most five USDA Foundation Foods or SR Legacy records in USDA relevance order and requires one user selection.
+- **Catalog candidate list:** presents the first one to five nutrition-complete USDA Foundation Foods or SR Legacy records in USDA relevance order. Each card shows the four required macros per 100 g and requires one user selection.
 - **Catalog approval card:** presents normalized source data with Approve and Reject actions.
 
 ### Turn Rules
@@ -79,6 +79,7 @@ The coaching product uses these bounded interaction primitives:
 - The next set of controls is rendered only from a validated, narrow response type; the AI cannot request arbitrary widgets or actions.
 - A rejected catalog candidate returns to a text correction prompt; it does not end the conversation.
 - If the source is unavailable, **Use an AI estimate** appears only as an explicit opt-in action.
+- A source failure includes a friendly explanation and optional technical details containing only the safe stage, failure code, and lookup identifier.
 
 ### Plan and Adjustment Rules
 
