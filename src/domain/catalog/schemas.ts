@@ -8,7 +8,15 @@ const sourceSchema = z.discriminatedUnion("provider", [
       dataset: z.enum(["Foundation Foods", "SR Legacy"]),
       release: z.string().min(1),
       retrievedAt: z.string().min(1),
-      energyNutrient: z.enum(["Energy", "Energy (Atwater Specific Factors)"]),
+      energyNutrient: z.enum([
+        "Energy",
+        "Energy (Atwater General Factors)",
+        "Energy (Atwater Specific Factors)",
+      ]),
+      energyNutrientId: z
+        .union([z.literal(1008), z.literal(2047), z.literal(2048)])
+        .optional(),
+      verification: z.enum(["detail", "search_summary"]).optional(),
     })
     .strict(),
   z

@@ -46,9 +46,9 @@ The plan generator may use only catalog foods approved for the profile. A user c
 1. The application checks the central catalog first.
 2. If the item already exists, the coach offers one explicit **Add to my foods** action; it does not perform an external lookup.
 3. If preparation state or display unit is material and missing, the coach asks one short clarification question.
-4. The Next.js server synchronously searches only USDA FoodData Central Foundation Foods and SR Legacy, returning at most five basic-food candidates in source relevance order. Recipes, restaurant items, branded products, and composite dishes are excluded.
+4. The Next.js server synchronously searches only USDA FoodData Central Foundation Foods and SR Legacy. It requests ten search results, bulk-fetches their details, validates the required nutrition, and returns the first five safe basic-food or generic-product candidates in source relevance order. Recipes, restaurant items, branded products, and composite dishes are excluded.
 5. The user chooses an explicit result when more than one match is available.
-6. The application shows a source-labelled nutrition proposal and requires **Approve** or **Reject** before any catalog write.
+6. Candidate nutrition is cached before display. Selection never triggers another USDA request. The application shows a source-labelled nutrition proposal and requires **Approve** or **Reject** before any catalog write.
 7. Approval adds the item to the central catalog and to the current profile's approved foods. A later plan change remains a Draft until separately approved.
 
 If USDA is unavailable, blocked, malformed, or has no suitable result, the coach may show a clearly labelled `AI estimate · USDA not verified` proposal only after explicit opt-in. It still requires the same approval. The model never treats an estimate as source-verified data.

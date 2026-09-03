@@ -9,6 +9,15 @@ import type {
 const USDA_API_ORIGIN = "https://api.nal.usda.gov";
 const USDA_WEB_ORIGIN = "https://fdc.nal.usda.gov";
 const ALLOWED_DATA_TYPES = ["Foundation", "SR Legacy"] as const;
+const ENERGY_NUTRIENT_IDS = [2048, 2047, 1008] as const;
+
+export type UsdaLookupStage =
+  | "search_started"
+  | "search_completed"
+  | "bulk_started"
+  | "bulk_completed"
+  | "candidate_filtered"
+  | "candidate_cached";
 
 export class UsdaUnavailableError extends Error {
   constructor(
@@ -19,11 +28,21 @@ export class UsdaUnavailableError extends Error {
       | "blocked"
       | "no_results"
       | "malformed_source",
+    public readonly stage:
+      "search" | "bulk" | "normalization" = "normalization",
   ) {
     super(message);
     this.name = "UsdaUnavailableError";
   }
 }
+
+const flatNutrientSchema = z
+  .object({
+    nutrientId: z.number().int().positive(),
+    unitName: z.string().optional(),
+    value: z.number().nonnegative(),
+  })
+  .passthrough();
 
 const searchFoodSchema = z
   .object({
@@ -32,6 +51,8 @@ const searchFoodSchema = z
     dataType: z.enum(ALLOWED_DATA_TYPES),
     scientificName: z.string().trim().max(200).optional(),
     foodCategory: z.string().trim().max(200).optional(),
+    publishedDate: z.string().trim().max(40).optional(),
+    foodNutrients: z.array(z.unknown()).optional(),
   })
   .passthrough();
 
@@ -39,12 +60,11 @@ const searchResponseSchema = z
   .object({ foods: z.array(z.unknown()) })
   .passthrough();
 
-const nutrientSchema = z
+const detailNutrientSchema = z
   .object({
     nutrient: z
       .object({
         id: z.number().int().positive(),
-        name: z.string().optional(),
         unitName: z.string().optional(),
       })
       .passthrough(),
@@ -72,12 +92,19 @@ const detailResponseSchema = z
   })
   .passthrough();
 
-async function usdaRequest(path: string, init?: RequestInit) {
+type SearchFood = z.infer<typeof searchFoodSchema>;
+
+async function usdaRequest(
+  path: string,
+  init: RequestInit | undefined,
+  stage: "search" | "bulk",
+) {
   const apiKey = process.env.USDA_FDC_API_KEY;
   if (!apiKey) {
     throw new UsdaUnavailableError(
       "USDA FoodData Central is not configured.",
       "not_configured",
+      stage,
     );
   }
   const endpoint = new URL(path, USDA_API_ORIGIN);
@@ -94,12 +121,14 @@ async function usdaRequest(path: string, init?: RequestInit) {
       throw new UsdaUnavailableError(
         "USDA FoodData Central rejected or limited the request.",
         "blocked",
+        stage,
       );
     }
     if (!response.ok) {
       throw new UsdaUnavailableError(
         `USDA FoodData Central returned status ${response.status}.`,
         "malformed_source",
+        stage,
       );
     }
     return await response.json();
@@ -109,11 +138,13 @@ async function usdaRequest(path: string, init?: RequestInit) {
       throw new UsdaUnavailableError(
         "USDA FoodData Central timed out.",
         "timeout",
+        stage,
       );
     }
     throw new UsdaUnavailableError(
       "USDA FoodData Central was unavailable.",
       "malformed_source",
+      stage,
     );
   } finally {
     clearTimeout(timer);
@@ -124,7 +155,7 @@ export function usdaFoodUrl(fdcId: number) {
   return `${USDA_WEB_ORIGIN}/food-details/${fdcId}/nutrients`;
 }
 
-function candidateDescription(food: z.infer<typeof searchFoodSchema>) {
+function candidateDescription(food: SearchFood) {
   return [
     food.dataType === "Foundation" ? "Foundation Foods" : "SR Legacy",
     food.foodCategory,
@@ -135,33 +166,29 @@ function candidateDescription(food: z.infer<typeof searchFoodSchema>) {
     .slice(0, 300);
 }
 
-export function parseUsdaSearchResponse(value: unknown): FoodSearchCandidate[] {
+export function parseUsdaSearchResponse(value: unknown): SearchFood[] {
   const response = searchResponseSchema.safeParse(value);
   if (!response.success) {
     throw new UsdaUnavailableError(
       "USDA returned an invalid search response.",
       "malformed_source",
+      "search",
     );
   }
-  const results: FoodSearchCandidate[] = [];
+  const results: SearchFood[] = [];
   const seen = new Set<number>();
   for (const value of response.data.foods) {
-    if (results.length >= 5) break;
+    if (results.length >= 10) break;
     const food = searchFoodSchema.safeParse(value);
     if (!food.success || seen.has(food.data.fdcId)) continue;
     seen.add(food.data.fdcId);
-    results.push({
-      id: randomUUID(),
-      fdcId: food.data.fdcId,
-      title: food.data.description,
-      description: candidateDescription(food.data),
-      dataType: food.data.dataType,
-    });
+    results.push(food.data);
   }
   if (results.length === 0) {
     throw new UsdaUnavailableError(
       "No matching basic USDA foods were found.",
       "no_results",
+      "search",
     );
   }
   return results;
@@ -181,33 +208,42 @@ export function buildUsdaSearchQuery(input: FoodLookupToolArguments) {
     : `${sourceVocabulary} ${input.preparation}`;
 }
 
-export async function searchUsdaFoods(
-  input: FoodLookupToolArguments,
-): Promise<FoodSearchCandidate[]> {
-  const result = await usdaRequest("/fdc/v1/foods/search", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      query: buildUsdaSearchQuery(input),
-      dataType: [...ALLOWED_DATA_TYPES],
-      pageSize: 5,
-      pageNumber: 1,
-    }),
-  });
-  return parseUsdaSearchResponse(result);
-}
-
-function nutrientAmount(
-  nutrients: Array<z.infer<typeof nutrientSchema>>,
-  nutrientId: number,
+function nutrientFromFlat(
+  values: unknown[] | undefined,
+  ids: readonly number[],
   expectedUnit: "KCAL" | "G",
 ) {
-  const entry = nutrients.find(
-    (candidate) =>
-      candidate.nutrient.id === nutrientId &&
-      candidate.nutrient.unitName?.toUpperCase() === expectedUnit,
-  );
-  return entry?.amount ?? null;
+  const nutrients = (values ?? [])
+    .map((value) => flatNutrientSchema.safeParse(value))
+    .filter((value) => value.success)
+    .map((value) => value.data);
+  const entry = ids
+    .map((id) =>
+      nutrients.find(
+        (candidate) =>
+          candidate.nutrientId === id &&
+          candidate.unitName?.toUpperCase() === expectedUnit,
+      ),
+    )
+    .find(Boolean);
+  return entry ? { id: entry.nutrientId, amount: entry.value } : null;
+}
+
+function nutrientFromDetail(
+  values: Array<z.infer<typeof detailNutrientSchema>>,
+  ids: readonly number[],
+  expectedUnit: "KCAL" | "G",
+) {
+  const entry = ids
+    .map((id) =>
+      values.find(
+        (candidate) =>
+          candidate.nutrient.id === id &&
+          candidate.nutrient.unitName?.toUpperCase() === expectedUnit,
+      ),
+    )
+    .find(Boolean);
+  return entry ? { id: entry.nutrient.id, amount: entry.amount } : null;
 }
 
 function displayPortion(value: unknown[] | undefined) {
@@ -231,69 +267,233 @@ function displayPortion(value: unknown[] | undefined) {
   };
 }
 
+function plausibleMacros(input: {
+  energyKcal: number;
+  proteinG: number;
+  carbohydrateG: number;
+  fatG: number;
+}) {
+  const macroEnergy =
+    input.proteinG * 4 + input.carbohydrateG * 4 + input.fatG * 9;
+  const tolerance = Math.max(35, input.energyKcal * 0.35);
+  return Math.abs(input.energyKcal - macroEnergy) <= tolerance;
+}
+
+function normalizedRecord(input: {
+  fdcId: number;
+  title: string;
+  dataType: (typeof ALLOWED_DATA_TYPES)[number];
+  release?: string;
+  nutrients: {
+    energy: { id: number; amount: number } | null;
+    protein: { amount: number } | null;
+    carbohydrate: { amount: number } | null;
+    fat: { amount: number } | null;
+    fiber: { amount: number } | null;
+  };
+  portion: { label: string; grams: number };
+  verification: "detail" | "search_summary";
+}) {
+  const { energy, protein, carbohydrate, fat, fiber } = input.nutrients;
+  if (!energy || !protein || !carbohydrate || !fat) return null;
+  const macros = {
+    energyKcal: energy.amount,
+    proteinG: protein.amount,
+    carbohydrateG: carbohydrate.amount,
+    fatG: fat.amount,
+    fiberG: fiber?.amount ?? null,
+  };
+  if (!plausibleMacros(macros)) return null;
+  return {
+    fdcId: input.fdcId,
+    title: input.title,
+    dataset:
+      input.dataType === "Foundation"
+        ? ("Foundation Foods" as const)
+        : ("SR Legacy" as const),
+    release: input.release || "Current FoodData Central record",
+    ...macros,
+    energyNutrientId: energy.id as 1008 | 2047 | 2048,
+    displayPortion: input.portion,
+    verification: input.verification,
+  };
+}
+
 export function parseUsdaFoodDetail(value: unknown) {
   const parsed = detailResponseSchema.safeParse(value);
   if (!parsed.success) {
     throw new UsdaUnavailableError(
       "USDA returned an invalid food record.",
       "malformed_source",
+      "normalization",
     );
   }
   const nutrients = parsed.data.foodNutrients
-    .map((candidate) => nutrientSchema.safeParse(candidate))
+    .map((candidate) => detailNutrientSchema.safeParse(candidate))
     .filter((candidate) => candidate.success)
     .map((candidate) => candidate.data);
-  const energyKcal = nutrientAmount(nutrients, 1008, "KCAL");
-  const proteinG = nutrientAmount(nutrients, 1003, "G");
-  const carbohydrateG = nutrientAmount(nutrients, 1005, "G");
-  const fatG = nutrientAmount(nutrients, 1004, "G");
-  const fiberG = nutrientAmount(nutrients, 1079, "G");
-  if (
-    energyKcal === null ||
-    proteinG === null ||
-    carbohydrateG === null ||
-    fatG === null
-  ) {
-    throw new UsdaUnavailableError(
-      "USDA did not provide all required per-100-g nutrients.",
-      "malformed_source",
-    );
-  }
-  return {
+  const record = normalizedRecord({
     fdcId: parsed.data.fdcId,
     title: parsed.data.description,
-    dataset:
-      parsed.data.dataType === "Foundation"
-        ? ("Foundation Foods" as const)
-        : ("SR Legacy" as const),
-    release: parsed.data.publicationDate || "Current FoodData Central record",
-    energyKcal,
-    proteinG,
-    carbohydrateG,
-    fatG,
-    fiberG,
-    displayPortion: displayPortion(parsed.data.foodPortions),
-  };
-}
-
-export async function fetchUsdaFood(fdcId: number) {
-  if (!Number.isInteger(fdcId) || fdcId <= 0) {
+    dataType: parsed.data.dataType,
+    release: parsed.data.publicationDate,
+    nutrients: {
+      energy: nutrientFromDetail(nutrients, ENERGY_NUTRIENT_IDS, "KCAL"),
+      protein: nutrientFromDetail(nutrients, [1003], "G"),
+      fat: nutrientFromDetail(nutrients, [1004], "G"),
+      carbohydrate: nutrientFromDetail(nutrients, [1005], "G"),
+      fiber: nutrientFromDetail(nutrients, [1079], "G"),
+    },
+    portion: displayPortion(parsed.data.foodPortions),
+    verification: "detail",
+  });
+  if (!record) {
     throw new UsdaUnavailableError(
-      "The selected USDA identifier is invalid.",
+      "USDA did not provide plausible values for all required per-100-g nutrients.",
       "malformed_source",
+      "normalization",
     );
   }
-  return parseUsdaFoodDetail(await usdaRequest(`/fdc/v1/food/${fdcId}`));
+  return record;
+}
+
+function parseSearchSummary(food: SearchFood) {
+  return normalizedRecord({
+    fdcId: food.fdcId,
+    title: food.description,
+    dataType: food.dataType,
+    release: food.publishedDate,
+    nutrients: {
+      energy: nutrientFromFlat(food.foodNutrients, ENERGY_NUTRIENT_IDS, "KCAL"),
+      protein: nutrientFromFlat(food.foodNutrients, [1003], "G"),
+      fat: nutrientFromFlat(food.foodNutrients, [1004], "G"),
+      carbohydrate: nutrientFromFlat(food.foodNutrients, [1005], "G"),
+      fiber: nutrientFromFlat(food.foodNutrients, [1079], "G"),
+    },
+    portion: { label: "100 g", grams: 100 },
+    verification: "search_summary",
+  });
+}
+
+export async function searchUsdaFoods(
+  input: FoodLookupToolArguments,
+  options?: {
+    onStage?: (
+      stage: UsdaLookupStage,
+      details?: Record<string, unknown>,
+    ) => void;
+  },
+): Promise<FoodSearchCandidate[]> {
+  options?.onStage?.("search_started");
+  const searchJson = await usdaRequest(
+    "/fdc/v1/foods/search",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: buildUsdaSearchQuery(input),
+        dataType: [...ALLOWED_DATA_TYPES],
+        pageSize: 10,
+        pageNumber: 1,
+      }),
+    },
+    "search",
+  );
+  const summaries = parseUsdaSearchResponse(searchJson);
+  options?.onStage?.("search_completed", { count: summaries.length });
+
+  options?.onStage?.("bulk_started", { count: summaries.length });
+  let details: unknown[] = [];
+  try {
+    const bulkJson = await usdaRequest(
+      "/fdc/v1/foods",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fdcIds: summaries.map((food) => food.fdcId) }),
+      },
+      "bulk",
+    );
+    if (!Array.isArray(bulkJson)) {
+      throw new UsdaUnavailableError(
+        "USDA returned an invalid bulk response.",
+        "malformed_source",
+        "bulk",
+      );
+    }
+    details = bulkJson;
+    options?.onStage?.("bulk_completed", { count: details.length });
+  } catch (error) {
+    options?.onStage?.("bulk_completed", {
+      count: 0,
+      fallback: "search_summary",
+      code: error instanceof UsdaUnavailableError ? error.code : "unknown",
+    });
+  }
+
+  const detailById = new Map<number, ReturnType<typeof parseUsdaFoodDetail>>();
+  for (const value of details) {
+    try {
+      const detail = parseUsdaFoodDetail(value);
+      detailById.set(detail.fdcId, detail);
+    } catch {
+      // One malformed record must not discard the other safe candidates.
+    }
+  }
+
+  const retrievedAt = new Date().toISOString();
+  const candidates: FoodSearchCandidate[] = [];
+  for (const summary of summaries) {
+    const record = detailById.get(summary.fdcId) ?? parseSearchSummary(summary);
+    if (!record) {
+      options?.onStage?.("candidate_filtered", {
+        fdcId: summary.fdcId,
+        reason: "missing_or_implausible_macros",
+      });
+      continue;
+    }
+    const candidate: FoodSearchCandidate = {
+      id: randomUUID(),
+      fdcId: summary.fdcId,
+      title: record.title,
+      description: candidateDescription(summary),
+      dataType: summary.dataType,
+      verification: record.verification,
+      release: record.release,
+      retrievedAt,
+      energyNutrientId: record.energyNutrientId,
+      nutrientsPer100g: {
+        energyKcal: record.energyKcal,
+        proteinG: record.proteinG,
+        carbohydrateG: record.carbohydrateG,
+        fatG: record.fatG,
+        fiberG: record.fiberG,
+      },
+      displayPortion: record.displayPortion,
+    };
+    candidates.push(candidate);
+    options?.onStage?.("candidate_cached", {
+      fdcId: candidate.fdcId,
+      verification: candidate.verification,
+    });
+    if (candidates.length >= 5) break;
+  }
+  if (candidates.length === 0) {
+    throw new UsdaUnavailableError(
+      "No matching USDA food contained all required nutrition values.",
+      "no_results",
+      "normalization",
+    );
+  }
+  return candidates;
 }
 
 export function validateNutritionPlausibility(food: EstimatedFood) {
-  const macroEnergy =
-    food.proteinG * 4 + food.carbohydrateG * 4 + food.fatG * 9;
-  const tolerance = Math.max(35, food.energyKcal * 0.35);
-  if (Math.abs(food.energyKcal - macroEnergy) > tolerance) {
+  if (!plausibleMacros(food)) {
     throw new UsdaUnavailableError(
       "The nutrition values were internally inconsistent.",
       "malformed_source",
+      "normalization",
     );
   }
   return food;

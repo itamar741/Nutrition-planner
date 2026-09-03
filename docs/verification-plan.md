@@ -113,6 +113,7 @@ Run these controls with mocked or recorded model responses. Do not rely on varia
 - **AI-10:** An AI-estimate candidate is visibly and structurally labelled `AI estimate · USDA not verified`; it has no verified-source URL and cannot be stored without explicit approval.
 - **AI-11:** The food tool accepts only a normalized English query and closed preparation enum. Hebrew and English user text, injected URLs, SQL, tool names, or database instructions cannot add arguments or actions.
 - **AI-12:** USDA response bodies are never supplied to the model. The model may return only the closed category and meal classification for the selected title; it cannot create or change nutrition values.
+- **AI-13:** USDA search candidates are bulk-validated and cached before display. Selection reads the cached nutrition and performs no second USDA request.
 
 Evidence: input fixture, expected contract result, actual validator result, and unchanged-state assertion for every rejected response.
 

@@ -107,13 +107,14 @@ The server:
 
 1. checks the central catalog deterministically;
 2. validates model tool arguments again;
-3. calls only USDA Foundation Foods and SR Legacy search with a five-result limit;
-4. stores the returned `fdcId` behind an application candidate UUID;
-5. preserves USDA relevance order and requires explicit user selection;
-6. fetches details only for the stored selected `fdcId`;
-7. extracts nutrients deterministically by IDs 1008, 1003, 1005, 1004, and 1079;
-8. normalizes values to per 100 g plus one unambiguous gram-based serving when available; and
-9. requires explicit approval before one transactional catalog/profile write.
+3. calls only USDA Foundation Foods and SR Legacy search with a ten-result limit;
+4. bulk-fetches those records once and prefers complete detail data;
+5. accepts search-summary fallback only when calories, protein, carbohydrate, and fat are all present and plausible;
+6. extracts energy by priority 2048, 2047, then 1008, plus nutrients 1003, 1005, 1004, and nullable 1079;
+7. normalizes and stores complete candidates behind application UUIDs before display;
+8. preserves USDA relevance order, presents the first one to five valid records, and requires explicit user selection;
+9. serves selection entirely from the stored candidate without another USDA request; and
+10. requires explicit approval before one transactional catalog/profile write.
 
 Unknown fiber is stored as `null` and contributes zero to deterministic fiber totals. Runtime foods use `kosherReview: "not_checked"` and still receive a closed `neutral | meat | dairy` classification. Meat and dairy in the same meal remains invalid.
 

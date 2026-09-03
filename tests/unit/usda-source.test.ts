@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { foodLookupToolArgumentsSchema } from "@/domain/catalog/runtime";
 import {
   buildUsdaSearchQuery,
   parseUsdaFoodDetail,
   parseUsdaSearchResponse,
+  searchUsdaFoods,
   UsdaUnavailableError,
   validateNutritionPlausibility,
 } from "@/sources/usda";
@@ -22,6 +23,11 @@ const nutrients = [
 ];
 
 describe("bounded USDA FoodData Central parsing", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.USDA_FDC_API_KEY;
+  });
+
   it("uses source vocabulary and adds preparation exactly once", () => {
     expect(
       buildUsdaSearchQuery({
@@ -49,11 +55,11 @@ describe("bounded USDA FoodData Central parsing", () => {
     expect(result.success).toBe(false);
   });
 
-  it("keeps five unique Foundation and SR Legacy results in USDA order", () => {
+  it("keeps ten unique Foundation and SR Legacy search results in USDA order", () => {
     const result = parseUsdaSearchResponse({
       foods: [
         { fdcId: 1, description: "Branded rice", dataType: "Branded" },
-        ...Array.from({ length: 6 }, (_, index) => ({
+        ...Array.from({ length: 12 }, (_, index) => ({
           fdcId: index + 10,
           description: `Rice ${index + 1}, cooked`,
           dataType: index % 2 === 0 ? "Foundation" : "SR Legacy",
@@ -63,10 +69,94 @@ describe("bounded USDA FoodData Central parsing", () => {
       ],
     });
 
-    expect(result.map((food) => food.fdcId)).toEqual([10, 11, 12, 13, 14]);
+    expect(result.map((food) => food.fdcId)).toEqual([
+      10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+    ]);
     expect(result[0]).toMatchObject({
-      title: "Rice 1, cooked",
+      description: "Rice 1, cooked",
       dataType: "Foundation",
+    });
+  });
+
+  it("prefers Foundation Atwater-specific energy, then general, then legacy", () => {
+    const result = parseUsdaFoodDetail({
+      fdcId: 2258588,
+      description: "Peppers, bell, green, raw",
+      dataType: "Foundation",
+      foodNutrients: [
+        { nutrient: { id: 1008, unitName: "kcal" }, amount: 20 },
+        { nutrient: { id: 2047, unitName: "kcal" }, amount: 23 },
+        { nutrient: { id: 2048, unitName: "kcal" }, amount: 19.7 },
+        { nutrient: { id: 1003, unitName: "g" }, amount: 0.72 },
+        { nutrient: { id: 1005, unitName: "g" }, amount: 4.78 },
+        { nutrient: { id: 1004, unitName: "g" }, amount: 0.11 },
+      ],
+    });
+
+    expect(result.energyKcal).toBe(19.7);
+    expect(result.energyNutrientId).toBe(2048);
+  });
+
+  it("bulk-validates ten search results, falls back to complete search nutrition, and returns five", async () => {
+    process.env.USDA_FDC_API_KEY = "test-key";
+    const foods = Array.from({ length: 10 }, (_, index) => ({
+      fdcId: index + 1,
+      description: `Food ${index + 1}`,
+      dataType: index % 2 === 0 ? "Foundation" : "SR Legacy",
+      foodCategory: "Vegetables and Vegetable Products",
+      foodNutrients: [
+        { nutrientId: 1008, unitName: "kcal", value: 40 + index },
+        { nutrientId: 1003, unitName: "g", value: 1 },
+        { nutrientId: 1005, unitName: "g", value: 9 },
+        { nutrientId: 1004, unitName: "g", value: 0.2 },
+      ],
+    }));
+    const detail = {
+      fdcId: 1,
+      description: "Food 1 detail",
+      dataType: "Foundation",
+      foodNutrients: [
+        { nutrient: { id: 2048, unitName: "kcal" }, amount: 41 },
+        { nutrient: { id: 1003, unitName: "g" }, amount: 1 },
+        { nutrient: { id: 1005, unitName: "g" }, amount: 9 },
+        { nutrient: { id: 1004, unitName: "g" }, amount: 0.2 },
+      ],
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ foods }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([detail]), { status: 200 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await searchUsdaFoods({
+      normalizedEnglishQuery: "food",
+      preparation: "raw",
+    });
+
+    expect(result).toHaveLength(5);
+    expect(result[0]).toMatchObject({
+      fdcId: 1,
+      title: "Food 1 detail",
+      verification: "detail",
+      energyNutrientId: 2048,
+    });
+    expect(result[1]).toMatchObject({
+      fdcId: 2,
+      verification: "search_summary",
+      energyNutrientId: 1008,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)),
+    ).toMatchObject({
+      pageSize: 10,
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      fdcIds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
     });
   });
 

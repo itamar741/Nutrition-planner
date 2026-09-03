@@ -95,7 +95,15 @@ export async function POST(request: Request) {
             conversation: input.context,
             toolArguments: arguments_,
           });
-          return searchUsdaFoods(arguments_);
+          return searchUsdaFoods(arguments_, {
+            onStage: (stage, details = {}) => {
+              console.info("food_lookup_stage", {
+                lookupId: lookup.id,
+                stage,
+                ...details,
+              });
+            },
+          });
         },
       });
       if (result.outcome === "clarification") {
@@ -122,10 +130,7 @@ export async function POST(request: Request) {
           sourceIdentifier: `usda:${candidate.fdcId}`,
           status: "summary" as const,
           data: {
-            title: candidate.title,
-            description: candidate.description,
-            fdcId: candidate.fdcId,
-            dataType: candidate.dataType,
+            ...candidate,
             toolArguments: result.arguments_,
           },
         })),
@@ -155,6 +160,7 @@ export async function POST(request: Request) {
       console.error("food_lookup_failed", {
         lookupId: lookup.id,
         failureCode: code,
+        stage: sourceFailed ? error.stage : "model",
         ...safeErrorDetails(error),
       });
       if (toolArguments) {
@@ -174,6 +180,11 @@ export async function POST(request: Request) {
               ? "The AI food lookup is not configured. Confirm OPENAI_API_KEY and OPENAI_MODEL in Render, then deploy again."
               : "The AI could not prepare this lookup. Check the Render service logs for the lookup failure code; your catalog and profile were not changed.",
           lookupId: lookup.id,
+          diagnostics: {
+            stage: sourceFailed ? error.stage : "model",
+            failureCode: code,
+            lookupId: lookup.id,
+          },
           offerAiEstimate: sourceFailed,
         },
         { status: 503 },
