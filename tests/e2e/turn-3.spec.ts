@@ -1,34 +1,10 @@
-import { expect, test, type Route } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { generateAdjustmentDraft } from "@/ai/plan";
 import {
-  createExistingActivePlan,
+  createExistingDemoState,
   existingReadyProfile,
 } from "@/data/demo-fixtures";
-
-async function fulfillAdjustment(route: Route) {
-  const request = route.request().postDataJSON() as {
-    commandId: string;
-    direction: "increase" | "decrease";
-    adjustmentKcal: number;
-    feedback?: string;
-  };
-  const draft = await generateAdjustmentDraft(
-    {
-      commandId: request.commandId,
-      feedback: request.feedback,
-      profile: existingReadyProfile,
-      activePlan: createExistingActivePlan(),
-      direction: request.direction,
-      adjustmentKcal: request.adjustmentKcal,
-    },
-    async () => "not json",
-  );
-  await route.fulfill({
-    status: 200,
-    contentType: "application/json",
-    body: JSON.stringify({ ok: true, commandId: request.commandId, draft }),
-  });
-}
+import { roundTo25HalfUp } from "@/domain/nutrition/calculations";
 
 test.beforeEach(async ({ request }) => {
   const current = (await (
@@ -49,10 +25,112 @@ test("B-01 reviews, declines, revises, and approves an adjustment in chat", asyn
   page,
 }) => {
   const feedbackRequests: Array<string | undefined> = [];
-  await page.route("**/api/coach/adjustment", async (route) => {
-    const request = route.request().postDataJSON() as { feedback?: string };
-    feedbackRequests.push(request.feedback);
-    await fulfillAdjustment(route);
+  let state = createExistingDemoState();
+  let version = 1;
+  await page.route("**/api/coach/message", async (route) => {
+    const request = route.request().postDataJSON() as {
+      commandId: string;
+      expectedVersion: number;
+      input:
+        | { type: "text"; text: string }
+        | { type: "interaction"; action: string; interactionId: string };
+    };
+    version = Math.max(version, request.expectedVersion) + 1;
+    let assistant = "Done.";
+    if (request.input.type === "text") {
+      const feedback = request.input.text.includes("evening")
+        ? request.input.text
+        : undefined;
+      feedbackRequests.push(feedback);
+      const draft = await generateAdjustmentDraft(
+        {
+          commandId: request.commandId,
+          feedback,
+          profile: existingReadyProfile,
+          activePlan: state.activePlan,
+          direction: "decrease",
+          adjustmentKcal: Math.max(
+            100,
+            Math.min(
+              200,
+              roundTo25HalfUp(
+                state.activePlan.plan.validation.totals.energyKcal * 0.05,
+              ),
+            ),
+          ),
+        },
+        async () => "not json",
+      );
+      state = {
+        ...state,
+        agentSession: {
+          ...state.agentSession,
+          pendingInteraction: {
+            id: `adjustment-${request.commandId}`,
+            type: "adjustment_approval",
+            draft,
+          },
+        },
+      };
+      assistant = "I prepared a validated adjustment Draft.";
+    } else if (request.input.action === "reject_adjustment") {
+      state = {
+        ...state,
+        agentSession: {
+          ...state.agentSession,
+          pendingInteraction: {
+            id: `clarification-${request.commandId}`,
+            type: "clarification",
+            workflow: "adjustment",
+            prompt: "What did you not like about the proposal?",
+            quickReplies: [],
+          },
+        },
+      };
+      assistant = "What did you not like about the proposal?";
+    } else if (request.input.action === "approve_adjustment") {
+      const pending = state.agentSession.pendingInteraction;
+      if (pending?.type === "adjustment_approval") {
+        state = {
+          ...state,
+          activePlan: {
+            schemaVersion: 1,
+            version: pending.draft.plan.version,
+            activatedAt: new Date().toISOString(),
+            plan: pending.draft.plan,
+          },
+          agentSession: { ...state.agentSession, pendingInteraction: null },
+        };
+        assistant = `Your Active Plan is now version ${state.activePlan.version}.`;
+      }
+    }
+    state = {
+      ...state,
+      messages: [
+        ...state.messages,
+        {
+          id: `user-${request.commandId}`,
+          role: "user",
+          text:
+            request.input.type === "text"
+              ? request.input.text
+              : request.input.action,
+        },
+        {
+          id: `assistant-${request.commandId}`,
+          role: "assistant",
+          text: assistant,
+        },
+      ],
+    };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        profile: { profileId: "existing", version, state },
+      }),
+    });
   });
   await page.goto("/coach/existing");
 
@@ -60,19 +138,20 @@ test("B-01 reviews, declines, revises, and approves an adjustment in chat", asyn
   const proposal = page
     .getByText("AI adjustment proposal · Draft")
     .locator("..");
-  await expect(proposal).toContainText("Exact proposed changes");
-  await expect(
-    proposal.getByText("View full proposed daily plan"),
-  ).toBeVisible();
+  await expect(proposal).toContainText("kcal");
 
   await proposal.getByRole("button", { name: "Decline" }).click();
   await expect(
-    page.getByText("What did you not like about the proposal?", {
-      exact: false,
-    }),
+    page
+      .getByText("What did you not like about the proposal?", {
+        exact: false,
+      })
+      .first(),
   ).toBeVisible();
 
-  const feedback = page.getByRole("textbox", { name: "Adjustment feedback" });
+  const feedback = page.getByRole("textbox", {
+    name: "Message to nutrition coach",
+  });
   await feedback.fill("I prefer more food in the evening.");
   await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByText("AI adjustment proposal · Draft")).toBeVisible();

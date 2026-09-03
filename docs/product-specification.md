@@ -1,6 +1,6 @@
 # Product Specification v0.3
 
-Status: Active specification. Turns 1–4 are implemented; Turn 5 USDA migration is implemented locally and awaits full verification and Render staging.
+Status: Active specification. Turns 1–7 are implemented locally and await final verification and credentialed Render staging.
 
 This specification is governed by [Project Framing](project-framing.md), [Project Description](project-description.md), and [Interface Design](interface-design.md). If a future interpretation expands the product beyond those documents, the narrower documented scope wins until the specification is deliberately revised.
 
@@ -97,14 +97,18 @@ Each criterion must produce a clear pass or fail result. Nutrition criteria use 
 - **SC-41 — Optimistic conflict:** Every mutation supplies an expected version and idempotency command. A stale request returns `409`, reloads the current profile, and applies no stale overwrite.
 - **SC-42 — Shared access:** Deployed routes require one shared access code represented by a signed, `HttpOnly`, `Secure`, `SameSite=Lax` cookie. This gate does not create accounts or a general authentication system.
 - **SC-43 — Persistent source limits:** Food lookups are limited to 10 workflows per hour for the same HMAC-hashed session or IP and 30 per day globally. Raw IP addresses are never stored, and reset does not clear events.
-- **SC-44 — Bounded source workflow:** The model receives only the strict `search_usda_foods` function tool with normalized English query and preparation. The server searches only Foundation Foods and SR Legacy, validates up to ten results with one bulk detail request, caches the first five safe candidates in relevance order, and requires explicit approval. Candidate selection never triggers another USDA request.
+- **SC-44 — Bounded source workflow:** When food lookup is permitted, the unified agent may call only the strict `search_foods` source tool with a normalized English query and preparation; any other tools exposed in that turn are separately bounded application actions. The server checks the central catalog, searches only Foundation Foods and SR Legacy, validates up to ten results with one bulk detail request, caches the first five safe candidates in relevance order, and requires explicit approval. Candidate selection never triggers another USDA request.
+- **SC-45 — Unified conversation:** Every free-text turn uses one server-owned agent endpoint with authoritative structured profile context, reset-scoped transcript memory, state-dependent tools, and streamed user-visible output.
+- **SC-46 — Protected approvals:** Typed approval cannot insert a food or change an Active Plan. Food, Draft, and adjustment approval succeeds only from its current visible button and validated server state.
+- **SC-47 — Durable interactions:** Clarifications, candidate lists, review cards, Drafts, and adjustment proposals survive reloads. One agent turn is active per profile; command IDs are idempotent and stale or concurrent requests return recoverable conflicts.
+- **SC-48 — Bounded memory:** The complete transcript remains in PostgreSQL until profile Reset. Above 50 messages or 30,000 characters, the model receives a validated rolling digest and the latest 20 messages; structured state always overrides the digest.
 - **SC-45 — Runtime plan continuation:** Approval adds one idempotent central food and selects it only for the requesting profile. If the request arose during planning, the conversation creates a new validated Draft that contains the approved food and never directly changes the Active Plan.
 
 ## Part 3 — Architectural Guidance
 
 Keep the implementation boundary small: a chat-and-state interface communicates with an application layer that owns structured profile, catalog, plan, and weight state. Deterministic modules own all nutrition arithmetic, catalog validation, weight-trend calculations, evidence thresholds, idempotency, and Draft-to-Active transitions; the language model receives narrow structured context and returns only validated response types. The model has no browser, unrestricted tool access, database write path, or direct write path to the Active Plan or weight history.
 
-Use one central Food Catalog as the sole source for preference choices and nutritional values. The Next.js server may query USDA FoodData Central for one explicitly requested basic-food workflow at a time; API results are parsed deterministically and are never shown to the model or browser. Keep exactly two deterministic demo-state fixtures in PostgreSQL, and derive the Existing Demo Profile from structured seeded data rather than simulated long-term chat memory. Preserve clear Draft and Active Plan representations so every proposal is reversible until an explicit approval command succeeds.
+Use one central Food Catalog as the sole source for preference choices and nutritional values. The Next.js server may query USDA FoodData Central for one explicitly requested basic-food workflow at a time; API results are parsed deterministically and only sanitized normalized candidates are shown to the model and browser. Keep exactly two deterministic demo-state fixtures in PostgreSQL. Conversation memory is deliberately reset-scoped rather than general long-term memory infrastructure. Preserve clear Draft and Active Plan representations so every proposal is reversible until an explicit approval command succeeds.
 
 Implementation-specific frameworks, filenames, component trees, database choices, and internal function names are intentionally left to the later implementation plan, provided they preserve these boundaries.
 

@@ -78,6 +78,33 @@ describe("bounded USDA FoodData Central parsing", () => {
     });
   });
 
+  it("rejects restaurant, recipe, and composite-dish search records", () => {
+    const result = parseUsdaSearchResponse({
+      foods: [
+        {
+          fdcId: 1,
+          description: "Rice bowl prepared from recipe",
+          dataType: "SR Legacy",
+          foodCategory: "Meals, Entrees, and Side Dishes",
+        },
+        {
+          fdcId: 2,
+          description: "Restaurant pepper plate",
+          dataType: "Foundation",
+          foodCategory: "Restaurant Foods",
+        },
+        {
+          fdcId: 3,
+          description: "Cheese, cottage, lowfat, 2% milkfat",
+          dataType: "SR Legacy",
+          foodCategory: "Dairy and Egg Products",
+        },
+      ],
+    });
+
+    expect(result.map((food) => food.fdcId)).toEqual([3]);
+  });
+
   it("prefers Foundation Atwater-specific energy, then general, then legacy", () => {
     const result = parseUsdaFoodDetail({
       fdcId: 2258588,

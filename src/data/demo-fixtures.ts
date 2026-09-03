@@ -6,6 +6,7 @@ import type { DemoProfileId, StructuredProfile } from "@/domain/profile/types";
 import type { WeightMeasurement } from "@/domain/weight/trend";
 import type { DemoState } from "@/store/demo-reducer";
 import type { ExistingDemoState } from "@/store/existing-demo-store";
+import { emptyAgentSession } from "@/domain/agent/types";
 
 export const demoProfileNames: Record<DemoProfileId, string> = {
   new: "New Demo Profile",
@@ -180,6 +181,7 @@ export function createExistingDemoState(now = new Date()): ExistingDemoState {
       },
     ],
     approvedCatalogFoodIds: [...existingApprovedFoodIds],
+    agentSession: emptyAgentSession(),
   };
 }
 
@@ -205,5 +207,6 @@ export function createNewDemoState(): DemoState {
     pendingOperation: null,
     processedCommandIds: [],
     error: null,
+    agentSession: emptyAgentSession(),
   };
 }

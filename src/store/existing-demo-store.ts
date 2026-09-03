@@ -2,6 +2,10 @@ import { z } from "zod";
 import { activePlanSchema } from "@/domain/plan/schemas";
 import type { ActivePlan } from "@/domain/plan/types";
 import type { WeightMeasurement } from "@/domain/weight/trend";
+import {
+  agentSessionSchema,
+  type AgentSessionState,
+} from "@/domain/agent/types";
 
 export interface ExistingChatMessage {
   id: string;
@@ -15,6 +19,7 @@ export interface ExistingDemoState {
   measurements: WeightMeasurement[];
   messages: ExistingChatMessage[];
   approvedCatalogFoodIds: string[];
+  agentSession: AgentSessionState;
 }
 
 export const existingStateSchema = z
@@ -41,5 +46,6 @@ export const existingStateSchema = z
         .strict(),
     ),
     approvedCatalogFoodIds: z.array(z.string().min(1).max(100)),
+    agentSession: agentSessionSchema,
   })
   .strict();

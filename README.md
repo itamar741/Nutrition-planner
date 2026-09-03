@@ -5,7 +5,9 @@ A narrow conversational nutrition-coach course project with exactly two shared d
 - **Fresh** — adaptive onboarding, food preferences, Draft generation, modification, and explicit activation.
 - **Existing** — seeded profile, Active Plan, approximately two months of weight history, deterministic trend analysis, and conversational adjustment approval.
 
-Turn 4 added PostgreSQL-backed shared state, one shared access code, and independent demo resets. Turn 5 added a bounded main-chat food workflow using OpenAI function calling and USDA FoodData Central. Turn 6 validates and caches nutrition-complete USDA candidates before they are displayed.
+Turn 4 added PostgreSQL-backed shared state, one shared access code, and independent demo resets. Turn 5 added a bounded USDA FoodData Central workflow. Turn 6 validates and caches nutrition-complete candidates before display. Turn 7 replaces the disconnected chat-like paths with one streaming, state-aware coach whose conversation and interactions survive reloads.
+
+Every free-text coach message reaches the unified server-owned agent with the authoritative profile context and reset-scoped conversation history. The model can request only state-dependent bounded tools; deterministic code validates and executes them. Food insertion and Active Plan changes still require visible approval buttons.
 
 ## Local verification
 

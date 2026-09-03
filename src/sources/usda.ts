@@ -94,6 +94,18 @@ const detailResponseSchema = z
 
 type SearchFood = z.infer<typeof searchFoodSchema>;
 
+const DISALLOWED_CATEGORY_PATTERN =
+  /restaurant|fast foods?|meals?, entrees?|mixed dishes?|soups?, sauces?|prepared meals?/i;
+const DISALLOWED_DESCRIPTION_PATTERN =
+  /\brestaurant\b|\bfast food\b|\bprepared from recipe\b|\bmeal(?:s)?\b|\bentree(?:s)?\b|\bdinner(?:s)?\b/i;
+
+function isAllowedBasicFood(food: SearchFood) {
+  return !(
+    DISALLOWED_CATEGORY_PATTERN.test(food.foodCategory ?? "") ||
+    DISALLOWED_DESCRIPTION_PATTERN.test(food.description)
+  );
+}
+
 async function usdaRequest(
   path: string,
   init: RequestInit | undefined,
@@ -180,7 +192,12 @@ export function parseUsdaSearchResponse(value: unknown): SearchFood[] {
   for (const value of response.data.foods) {
     if (results.length >= 10) break;
     const food = searchFoodSchema.safeParse(value);
-    if (!food.success || seen.has(food.data.fdcId)) continue;
+    if (
+      !food.success ||
+      seen.has(food.data.fdcId) ||
+      !isAllowedBasicFood(food.data)
+    )
+      continue;
     seen.add(food.data.fdcId);
     results.push(food.data);
   }

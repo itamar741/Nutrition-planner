@@ -76,4 +76,13 @@ export async function installNewCloudProfile(
     }
     await route.fallback();
   });
+  return {
+    current: () => structuredClone(state),
+    update: (next: DemoState) => {
+      state = structuredClone(next);
+      version += 1;
+      return { profileId: "new" as const, version, state };
+    },
+    profile: () => ({ profileId: "new" as const, version, state }),
+  };
 }

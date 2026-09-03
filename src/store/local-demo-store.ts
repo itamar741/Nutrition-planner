@@ -5,6 +5,7 @@ import {
 } from "@/domain/profile/schemas";
 import { activePlanSchema, draftProposalSchema } from "@/domain/plan/schemas";
 import { z } from "zod";
+import { agentSessionSchema } from "@/domain/agent/types";
 
 export const persistedStateSchema = z
   .object({
@@ -34,5 +35,6 @@ export const persistedStateSchema = z
       .nullable(),
     processedCommandIds: z.array(z.string()),
     error: z.string().nullable(),
+    agentSession: agentSessionSchema,
   })
   .strict();

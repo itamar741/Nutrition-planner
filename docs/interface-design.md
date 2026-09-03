@@ -24,7 +24,7 @@ This document specifies behavior and ordering rather than colors, typography, or
 8. Calculate targets, generate a Draft Meal Plan, and render it in the plan area while keeping the conversation visible.
 9. Let the user request a supported modification; show processing feedback and then render the changed Draft.
 10. Present an explicit approval choice. Approval promotes the Draft to Active; declining or requesting another change leaves the Draft unactivated.
-11. A missing basic food can be requested inside the main coach conversation in Hebrew or English. If approved during planning, the conversation automatically resumes with a new validated Draft that contains that food.
+11. A missing basic food can be requested inside the main coach conversation in Hebrew or English. After approval, the coach asks whether to include it; only a second confirmation creates a new validated Draft.
 
 The system does not enable Draft generation when required information or food selection is incomplete. It identifies the missing requirement and returns the user to the relevant conversational step.
 
@@ -36,7 +36,7 @@ The system does not enable Draft generation when required information or food se
 4. Calculate the trend and sufficient-evidence result deterministically.
 5. If evidence is insufficient, explain that the Active Plan remains unchanged.
 6. If evidence is sufficient, show the calculated trend summary and an AI adjustment proposal as a Draft change.
-7. Ask for explicit approval using a closed-question quick reply.
+7. Ask for explicit approval using a proposal-local Approve button. Typed approval language has no effect.
 8. Approval updates and renders the Active Plan. Rejection preserves the current plan.
 9. Rejecting an adjustment asks what the user disliked and accepts one bounded follow-up before presenting another Draft proposal.
 
@@ -66,6 +66,7 @@ The coaching product uses these bounded interaction primitives:
 - **Food Grid:** presents selectable predefined catalog foods during the dedicated preference step.
 - **Catalog candidate list:** presents the first one to five nutrition-complete USDA Foundation Foods or SR Legacy records in USDA relevance order. Each card shows the four required macros per 100 g and requires one user selection.
 - **Catalog approval card:** presents normalized source data with Approve and Reject actions.
+- **Persisted interaction card:** clarification choices, candidate lists, food review, Draft review, and adjustment review are transcript-adjacent state and survive reloads.
 
 ### Turn Rules
 
@@ -74,9 +75,11 @@ The coaching product uses these bounded interaction primitives:
 - The Food Grid disables text input and unrelated conversation actions until its current step is submitted or explicitly cancelled where cancellation is supported.
 - Submitting any action immediately locks every control belonging to that turn.
 - One turn accepts at most one user action.
+- One server-owned agent turn can be active per shared profile. A repeated command returns the stored result and a concurrent tab receives a recoverable conflict.
 - All input remains disabled while the system processes the action.
 - A selected quick reply becomes a normal user message in the transcript so the conversation remains legible.
 - The next set of controls is rendered only from a validated, narrow response type; the AI cannot request arbitrary widgets or actions.
+- Text such as “approve it” is conversational only. Food insertion and every Active Plan transition require the visible button attached to the current interaction.
 - A rejected catalog candidate returns to a text correction prompt; it does not end the conversation.
 - If the source is unavailable, **Use an AI estimate** appears only as an explicit opt-in action.
 - A source failure includes a friendly explanation and optional technical details containing only the safe stage, failure code, and lookup identifier.
@@ -106,11 +109,12 @@ Feedback must make the current state, accepted action, and next available action
 
 ### Loading and Slow States
 
-- While a message, plan, or adjustment is processing, show an in-conversation progress indicator describing the current operation in plain language.
+- While a message, plan, or adjustment is processing, stream assistant text and show an in-conversation **Thinking**, **Searching USDA**, or **Validating** status.
 - Disable text input, quick replies, Food Grid controls, and approval controls until the operation resolves.
 - Plan generation and modification use specific messages such as **Building your draft plan…** rather than a generic spinner with no context.
 - USDA search and detail loading use distinct messages so a slow API request is visible.
 - If processing takes longer than expected, keep the user's submitted action visible and replace silent waiting with a delayed-state message. Do not allow duplicate submission.
+- If the browser stream disconnects, the server continues and persists the turn. A turn pending for more than 90 seconds becomes recoverable and the UI offers a safe Retry path.
 
 ### Empty States
 
@@ -137,6 +141,7 @@ Feedback must make the current state, accepted action, and next available action
 - If trend or adjustment processing fails, keep the new valid measurement when it was already stored, but do not show or apply an adjustment proposal.
 - If approval fails, the Active Plan remains unchanged and the proposal remains clearly marked as pending or failed rather than active.
 - If another browser changed the shared profile, show a stale-state message, load the current cloud version, and ask the user to retry.
+- A source or agent failure may reveal only a collapsible safe stage, failure code, turn ID, and lookup ID; credentials, SQL, raw source payloads, and model internals are never rendered.
 - If a source request times out, is blocked, returns no food record, or fails parsing, preserve confirmed state and offer refinement or the explicitly labelled AI-estimate path.
 - If the rate limit is reached, explain that lookup is temporarily unavailable without disabling the rest of the demo.
 - Recovery controls follow the same one-action-per-turn lock and cannot create duplicate messages, measurements, or approvals.

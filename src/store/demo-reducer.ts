@@ -4,6 +4,7 @@ import {
   type CatalogSnapshot,
 } from "@/domain/catalog/snapshot";
 import type { ActivePlan, DraftProposal } from "@/domain/plan/types";
+import type { AgentSessionState } from "@/domain/agent/types";
 import {
   revalidatePlan,
   validateFoodSelections,
@@ -42,6 +43,7 @@ export interface DemoState {
   pendingOperation: "onboarding" | "draft" | "modification" | null;
   processedCommandIds: string[];
   error: string | null;
+  agentSession: AgentSessionState;
 }
 
 export type DemoAction =

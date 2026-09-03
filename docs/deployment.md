@@ -50,6 +50,9 @@ Run this checklist against the deployed URL:
 10. Exercise one controlled source failure. Confirm that the AI estimate appears only after clicking **Use an AI estimate** and remains labelled `AI estimate · USDA not verified`.
 11. Reset both demos separately and confirm the runtime food remains in the central catalog.
 12. Verify a wrong access code is rejected and no protected route or state endpoint is usable without the signed cookie.
+13. Send one English and one Hebrew coach turn and confirm streamed, language-matched replies plus persisted conversation after reload.
+14. Select a USDA candidate using text such as “the fifth one,” then verify typed “approve it” does not approve it and the visible Approve button does.
+15. Open the same profile in two tabs, start concurrent turns, and confirm the second receives a recoverable conflict without duplicate transcript entries.
 
 Record the deployed URL, commit SHA, date, lookup examples, screenshots, and pass/fail results in `docs/verification-results/turn-5.md`. Do not record secret values.
 
@@ -57,10 +60,14 @@ Record the deployed URL, commit SHA, date, lookup examples, screenshots, and pas
 
 - 10 lookup workflows per hour for the same hashed session or IP.
 - 30 lookup workflows per day globally.
+- 30 AI conversation turns per hour for the same hashed session or IP.
+- 100 AI conversation turns per day globally.
+- One pending agent turn per shared profile; a turn older than 90 seconds becomes recoverable.
 - USDA source requests abort after 15 seconds.
 - Search is restricted to Foundation Foods and SR Legacy and returns at most five candidates.
 - The browser selects an application candidate UUID, never an arbitrary USDA identifier or URL.
 - USDA response bodies and API credentials are never sent to the model or browser.
+- Assistant responses stream from the Web Service, but server processing and persistence continue if the browser disconnects.
 
 ## Database expiry
 

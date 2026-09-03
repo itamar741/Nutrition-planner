@@ -13,8 +13,10 @@ CREATE TABLE IF NOT EXISTS catalog_foods (id text PRIMARY KEY, normalized_identi
 CREATE TABLE IF NOT EXISTS food_lookups (id uuid PRIMARY KEY, profile_id text NOT NULL REFERENCES demo_profiles(profile_id), query text NOT NULL, context jsonb NOT NULL, status text NOT NULL CHECK (status IN ('searching', 'ready', 'failed', 'approved', 'rejected')), failure_code text, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS food_candidates (id uuid PRIMARY KEY, lookup_id uuid NOT NULL REFERENCES food_lookups(id) ON DELETE CASCADE, source_url text, source_identifier text NOT NULL, status text NOT NULL CHECK (status IN ('summary', 'detailed', 'approved', 'rejected')), data jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), UNIQUE (lookup_id, source_identifier));
 CREATE TABLE IF NOT EXISTS rate_limit_events (id bigserial PRIMARY KEY, session_hash text NOT NULL, ip_hash text NOT NULL, action text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS agent_turns (profile_id text NOT NULL REFERENCES demo_profiles(profile_id) ON DELETE CASCADE, command_id text NOT NULL, expected_version integer NOT NULL, request jsonb NOT NULL, status text NOT NULL CHECK (status IN ('pending', 'completed', 'failed')), result jsonb, failure_code text, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (profile_id, command_id));
 CREATE INDEX IF NOT EXISTS rate_limit_events_created_at_idx ON rate_limit_events (created_at);
 CREATE INDEX IF NOT EXISTS rate_limit_events_session_idx ON rate_limit_events (session_hash, created_at);
+CREATE INDEX IF NOT EXISTS agent_turns_active_idx ON agent_turns (profile_id, status, updated_at);
 `;
 
 let initialization: Promise<void> | null = null;
@@ -44,6 +46,19 @@ async function initializePostgres() {
       JSON.stringify(createExistingDemoState()),
     ],
   );
+  const profilesNeedAgentSeed = await pool.query<{ profile_id: string }>(
+    "SELECT profile_id FROM demo_profiles WHERE state->'agentSession' IS NULL",
+  );
+  for (const row of profilesNeedAgentSeed.rows) {
+    const state =
+      row.profile_id === "new"
+        ? createNewDemoState()
+        : createExistingDemoState();
+    await pool.query(
+      "UPDATE demo_profiles SET version = version + 1, state = $2::jsonb, updated_at = now() WHERE profile_id = $1",
+      [row.profile_id, JSON.stringify(state)],
+    );
+  }
   for (const food of foodCatalog) {
     await pool.query(
       `INSERT INTO catalog_foods (id, normalized_identity, source_identifier, data)

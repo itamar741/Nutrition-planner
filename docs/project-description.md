@@ -15,6 +15,14 @@ The application contains exactly two predefined profiles:
 
 There are no accounts, additional users, or profile-management flows. Selecting a demo profile loads its predefined state.
 
+## Unified Agentic Conversation
+
+Both journeys use one server-owned streaming conversation. For every free-text turn, the server loads the complete structured profile, targets, approved foods, Draft and Active Plan, weight history and deterministic trend where applicable, pending interaction, and reset-scoped transcript. PostgreSQL—not the browser or OpenAI-hosted storage—is the memory source; OpenAI requests use `store: false`.
+
+The model can request only tools currently permitted by server state. The server validates each call, executes the bounded operation, returns only sanitized structured results, and persists the completed turn. The agent never receives SQL, credentials, arbitrary URLs, browser tools, raw USDA payloads, or direct database access. A topic change may pause one workflow for later resumption.
+
+The full transcript remains in PostgreSQL until Reset. While it is below 50 messages and 30,000 characters it is sent in full; above either limit, the model receives a validated digest of older dialogue plus the latest 20 messages. That digest can guide language but cannot override structured state.
+
 ## Adaptive Conversational Onboarding
 
 The New Demo Profile completes onboarding in the conversation rather than in a conventional fixed questionnaire. The coach gathers only the information needed to create the demonstration plan:
@@ -49,7 +57,7 @@ The plan generator may use only catalog foods approved for the profile. A user c
 4. The Next.js server synchronously searches only USDA FoodData Central Foundation Foods and SR Legacy. It requests ten search results, bulk-fetches their details, validates the required nutrition, and returns the first five safe basic-food or generic-product candidates in source relevance order. Recipes, restaurant items, branded products, and composite dishes are excluded.
 5. The user chooses an explicit result when more than one match is available.
 6. Candidate nutrition is cached before display. Selection never triggers another USDA request. The application shows a source-labelled nutrition proposal and requires **Approve** or **Reject** before any catalog write.
-7. Approval adds the item to the central catalog and to the current profile's approved foods. A later plan change remains a Draft until separately approved.
+7. Approval adds the item to the central catalog and to the current profile's approved foods. The coach then asks whether to include it before creating a new Draft. A later plan change remains a Draft until separately approved.
 
 If USDA is unavailable, blocked, malformed, or has no suitable result, the coach may show a clearly labelled `AI estimate · USDA not verified` proposal only after explicit opt-in. It still requires the same approval. The model never treats an estimate as source-verified data.
 
@@ -74,7 +82,7 @@ There is no plan-history interface and no automatic activation.
 
 The Existing Demo Profile contains deterministic seeded state: a completed profile, one Active Plan, and approximately two months of dated weight measurements. It does not depend on simulated long-term chat history.
 
-The user reports a new weight through the conversation. Once the value is validated and recorded, it appears in the weight-progress visualization. Deterministic code—not the language model—calculates trend facts and decides whether the configured minimum evidence threshold has been met.
+The user can report today's weight or edit an existing dated weight through the conversation, while the chart remains an alternative editing control. Once a value is validated and recorded, it appears in the weight-progress visualization. Deterministic code—not the language model—calculates trend facts and decides whether the configured minimum evidence threshold has been met.
 
 If evidence is sufficient, the AI receives the calculated facts, the structured profile, the current Active Plan, and only the nutrition guidance relevant to the profile's fixed goal. It may propose a bounded plan adjustment. The proposal is shown as a Draft change and has no effect on the Active Plan until the user approves it. Rejecting or ignoring the proposal preserves the current plan.
 
@@ -89,16 +97,17 @@ Deterministic application code owns:
 - Target calculations and plan-total validation.
 - Weight-entry validation, storage, trend calculations, and the sufficient-evidence decision.
 - Draft and Active Plan transitions.
-- Enforcement of one user action per turn and explicit approval before mutation.
+- Enforcement of one workflow-changing tool per turn, idempotent commands, profile-level turn locking, and explicit approval boundaries.
 
 The AI is limited to:
 
 - Extracting supported onboarding facts from natural language.
-- Asking for missing required information using either an open question or predefined quick replies.
+- Asking one combined clarification only when missing information materially changes an action, with quick replies and free text where appropriate.
 - Creating or modifying a Draft within catalog and nutrition constraints.
 - Recognizing a weight-reporting intent and passing the value to deterministic validation.
 - Explaining calculated trend facts and proposing a bounded adjustment when deterministic code says enough evidence exists.
 - Classifying a food-addition request, requesting only missing food context, and requesting one server-controlled lookup action from a closed action set.
+- Conversationally continuing after approval or rejection without gaining authority to perform the protected approval itself.
 
 The interaction follows two governing principles: **open language, closed actions** and **approved catalog data**. The AI cannot browse freely, introduce new action types, write to the database, directly mutate an Active Plan, or operate arbitrary tools.
 
@@ -108,7 +117,7 @@ The deployed product uses Render only:
 
 - A **Render Web Service** hosts the Next.js application and its narrow API routes.
 - The same Web Service performs the low-volume, bounded USDA lookup synchronously. It is not a browser or crawler and fails cleanly on its bounded timeout.
-- **Render PostgreSQL** persists both versioned demo states, conversations, the central catalog, lookup requests, candidate records, source metadata, command results, and rate-limit events.
+- **Render PostgreSQL** persists both versioned demo states, reset-scoped transcripts, interactive message state, agent turns, the central catalog, lookup requests, candidate records, source metadata, command results, and rate-limit events.
 
 The two profiles are deliberately shared and use optimistic versions; a stale browser reloads the latest state and asks the user to retry. The browser holds only temporary rendered state and a signed access cookie. The server never gives the model or browser USDA response bodies, arbitrary source URLs, credentials, or database access.
 

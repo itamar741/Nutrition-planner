@@ -1,5 +1,6 @@
 import { existingProfileFoundation } from "@/data/demo-fixtures";
 import { foodCatalog } from "@/data/food-catalog";
+import { emptyAgentSession } from "@/domain/agent/types";
 import { calculateTargets } from "@/domain/nutrition/calculations";
 import { validateAndBuildPlan } from "@/domain/plan/validation";
 import type { DraftCandidate, DraftProposal } from "@/domain/plan/types";
@@ -128,6 +129,7 @@ export function makeFoodGridState(): DemoState {
     pendingOperation: null,
     processedCommandIds: [],
     error: null,
+    agentSession: emptyAgentSession(),
   };
 }
 
@@ -157,5 +159,6 @@ export function makeReadyState(): DemoState {
     pendingOperation: null,
     processedCommandIds: [],
     error: null,
+    agentSession: emptyAgentSession(),
   };
 }
