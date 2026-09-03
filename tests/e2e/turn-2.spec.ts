@@ -1,7 +1,6 @@
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { foodCatalog } from "@/data/food-catalog";
 import { applyModificationToDraft } from "@/domain/plan/validation";
-import type { DraftProposal } from "@/domain/plan/types";
 import {
   makeFoodGridState,
   makeReadyProfile,
@@ -14,58 +13,113 @@ async function startWithState(
   page: Page,
   state: ReturnType<typeof makeReadyState>,
 ) {
-  await installNewCloudProfile(page, state);
+  const cloud = await installNewCloudProfile(page, state);
   await page.goto("/coach/new");
+  return cloud;
 }
 
-async function fulfillDraft(route: Route, delay = 0) {
-  const body = route.request().postDataJSON() as { commandId: string };
-  if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
-  await route.fulfill({
-    status: 200,
-    contentType: "application/json",
-    body: JSON.stringify({
-      ok: true,
-      commandId: body.commandId,
-      draft: makeValidDraft(body.commandId),
-    }),
+async function installTurn2Agent(
+  page: Page,
+  cloud: Awaited<ReturnType<typeof installNewCloudProfile>>,
+  options: { delay?: number; failFirst?: boolean } = {},
+) {
+  let calls = 0;
+  await page.route("**/api/coach/message", async (route) => {
+    calls += 1;
+    const body = route.request().postDataJSON() as {
+      commandId: string;
+      input:
+        | { type: "text"; text: string }
+        | { type: "interaction"; action: string; interactionId: string };
+    };
+    if (options.delay)
+      await new Promise((resolve) => setTimeout(resolve, options.delay));
+    if (options.failFirst && calls === 1) {
+      await route.fulfill({
+        status: 422,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: false,
+          code: "validation_failure",
+          message:
+            "The proposed Draft did not pass the catalog and nutrition checks. Your confirmed state was preserved.",
+        }),
+      });
+      return;
+    }
+    let state = cloud.current();
+    let assistantText = "Done.";
+    if (body.input.type === "text") {
+      if (state.draft) {
+        const draft = applyModificationToDraft({
+          draft: state.draft,
+          operation: {
+            type: "change_portion",
+            mealId: "lunch",
+            itemId: "lunch-item-2",
+            grams: 355,
+            explanation: "Raised the lunch rice portion slightly.",
+          },
+          profile: makeReadyProfile(),
+          proposalId: `draft-${body.commandId}`,
+        });
+        state = { ...state, draft };
+        assistantText = "Raised the lunch rice portion slightly.";
+      } else {
+        state = { ...state, draft: makeValidDraft(body.commandId) };
+        assistantText = "Your validated Draft is ready to review.";
+      }
+    } else if (body.input.action === "approve_draft" && state.draft) {
+      state = {
+        ...state,
+        activePlan: {
+          schemaVersion: 1,
+          version: (state.activePlan?.version ?? 0) + 1,
+          activatedAt: new Date().toISOString(),
+          plan: state.draft.plan,
+        },
+        draft: null,
+      };
+      assistantText =
+        "Approved. The exact validated Draft is now your Active Plan.";
+    } else if (body.input.action === "reject_draft") {
+      state = { ...state, draft: null };
+      assistantText =
+        "The Draft was declined. No Active Plan was changed. Tell me what you would like different.";
+    }
+    state = {
+      ...state,
+      messages: [
+        ...state.messages,
+        {
+          id: `user-${body.commandId}`,
+          role: "user",
+          text:
+            body.input.type === "text"
+              ? body.input.text
+              : body.input.action.replaceAll("_", " "),
+        },
+        {
+          id: `assistant-${body.commandId}`,
+          role: "assistant",
+          text: assistantText,
+        },
+      ],
+    };
+    const profile = cloud.update(state);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true, profile }),
+    });
   });
 }
 
 test("Demo A completes Food Grid, Draft modification, and explicit activation", async ({
   page,
 }) => {
-  await page.route("**/api/coach/draft", (route) => fulfillDraft(route, 2_000));
-  await page.route("**/api/coach/draft-modification", async (route) => {
-    const body = route.request().postDataJSON() as {
-      commandId: string;
-      draft: DraftProposal;
-    };
-    const draft = applyModificationToDraft({
-      draft: body.draft,
-      operation: {
-        type: "change_portion",
-        mealId: "lunch",
-        itemId: "lunch-item-2",
-        grams: 355,
-        explanation: "Raised the lunch rice portion slightly.",
-      },
-      profile: makeReadyProfile(),
-      proposalId: `draft-${body.commandId}`,
-    });
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        ok: true,
-        commandId: body.commandId,
-        outcome: "modified",
-        draft,
-        message: "Raised the lunch rice portion slightly.",
-      }),
-    });
-  });
-  await startWithState(page, makeFoodGridState());
+  const cloud = await startWithState(page, makeFoodGridState());
+  await installTurn2Agent(page, cloud, { delay: 2_000 });
 
   const grid = page.getByRole("region", { name: "Food preferences" });
   await expect(grid).toBeVisible();
@@ -99,9 +153,7 @@ test("Demo A completes Food Grid, Draft modification, and explicit activation", 
   ).toBeVisible();
   await page.waitForTimeout(300);
   await page.getByRole("button", { name: "Generate Draft" }).click();
-  await expect(page.getByRole("status")).toContainText(
-    "Building and validating your Draft",
-  );
+  await expect(page.getByRole("status")).toContainText("Thinking");
   await expect(
     page.locator('[data-role="user"]', { hasText: "Generate my Draft" }),
   ).toHaveCount(1);
@@ -109,7 +161,7 @@ test("Demo A completes Food Grid, Draft modification, and explicit activation", 
   await expect(
     page.getByText("Draft Meal Plan", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByText("Validated")).toBeVisible();
+  await expect(page.getByText("Validated", { exact: true })).toBeVisible();
   await expect(page.getByText("Active Plan", { exact: true })).toHaveCount(0);
   await page.screenshot({
     path: "docs/verification-results/turn-2-draft.png",
@@ -133,11 +185,11 @@ test("Demo A completes Food Grid, Draft modification, and explicit activation", 
     0,
   );
   await expect(
-    page.locator('[data-role="user"]', { hasText: "Approve and activate" }),
+    page.locator('[data-role="user"]', { hasText: "approve draft" }),
   ).toHaveCount(1);
   await expect(
     page.getByRole("textbox", { name: "Message to nutrition coach" }),
-  ).toBeDisabled();
+  ).toBeEnabled();
   await page.screenshot({
     path: "docs/verification-results/turn-2-active.png",
     fullPage: true,
@@ -164,27 +216,8 @@ test("Food Grid remains usable at the mobile review viewport", async ({
 test("Draft failure and retry preserve state and avoid duplicate actions", async ({
   page,
 }) => {
-  let calls = 0;
-  await page.route("**/api/coach/draft", async (route) => {
-    calls += 1;
-    if (calls === 1) {
-      const body = route.request().postDataJSON() as { commandId: string };
-      await route.fulfill({
-        status: 422,
-        contentType: "application/json",
-        body: JSON.stringify({
-          ok: false,
-          commandId: body.commandId,
-          code: "validation_failure",
-          message:
-            "The proposed Draft did not pass the catalog and nutrition checks. Your confirmed state was preserved.",
-        }),
-      });
-      return;
-    }
-    await fulfillDraft(route);
-  });
-  await startWithState(page, makeReadyState());
+  const cloud = await startWithState(page, makeReadyState());
+  await installTurn2Agent(page, cloud, { failFirst: true });
 
   await page.getByRole("button", { name: "Generate Draft" }).click();
   await expect(
@@ -204,8 +237,8 @@ test("Draft failure and retry preserve state and avoid duplicate actions", async
 test("declining a Draft opens feedback for a revised proposal", async ({
   page,
 }) => {
-  await page.route("**/api/coach/draft", (route) => fulfillDraft(route));
-  await startWithState(page, makeReadyState());
+  const cloud = await startWithState(page, makeReadyState());
+  await installTurn2Agent(page, cloud);
 
   await page.getByRole("button", { name: "Generate Draft" }).click();
   await expect(

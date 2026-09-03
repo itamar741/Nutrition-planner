@@ -2,11 +2,15 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { CatalogFood } from "@/domain/catalog/types";
 import {
   StaleProfileError,
+  ActiveAgentTurnError,
   approveCatalogFood,
   getProfile,
   listCatalogFoods,
   mutateProfile,
   recordAndCheckRateLimit,
+  recordAndCheckAgentRateLimit,
+  reserveAgentTurn,
+  finishAgentTurn,
   resetMemoryPersistenceForTests,
   resetProfile,
 } from "@/persistence/repository";
@@ -200,5 +204,72 @@ describe("persistent lookup limits", () => {
       commandId: "reset-does-not-clear-rate-limit",
     });
     await expect(recordAndCheckRateLimit(identity)).resolves.toBe(false);
+  });
+});
+
+describe("persisted agent turns", () => {
+  it("deduplicates completed commands and blocks a concurrent turn", async () => {
+    const first = await reserveAgentTurn({
+      profileId: "new",
+      expectedVersion: 1,
+      commandId: "agent-command-one",
+      request: { input: "hello" },
+    });
+    expect(first.outcome).toBe("reserved");
+    await expect(
+      reserveAgentTurn({
+        profileId: "new",
+        expectedVersion: 1,
+        commandId: "agent-command-two",
+        request: { input: "concurrent" },
+      }),
+    ).rejects.toBeInstanceOf(ActiveAgentTurnError);
+    await finishAgentTurn({
+      profileId: "new",
+      commandId: "agent-command-one",
+      status: "completed",
+      result: { answer: "done" },
+    });
+    const duplicate = await reserveAgentTurn({
+      profileId: "new",
+      expectedVersion: 1,
+      commandId: "agent-command-one",
+      request: { input: "ignored" },
+    });
+    expect(duplicate.outcome).toBe("duplicate");
+    expect(duplicate.turn.result).toEqual({ answer: "done" });
+  });
+
+  it("clears profile-scoped turns on reset while preserving agent rate limits", async () => {
+    const identity = { sessionHash: "agent-session", ipHash: "agent-ip" };
+    await reserveAgentTurn({
+      profileId: "new",
+      expectedVersion: 1,
+      commandId: "agent-before-reset",
+      request: { input: "hello" },
+    });
+    await finishAgentTurn({
+      profileId: "new",
+      commandId: "agent-before-reset",
+      status: "completed",
+      result: { answer: "done" },
+    });
+    for (let index = 0; index < 30; index += 1) {
+      await expect(recordAndCheckAgentRateLimit(identity)).resolves.toBe(true);
+    }
+    await resetProfile({
+      profileId: "new",
+      expectedVersion: 1,
+      commandId: "reset-agent-state",
+    });
+    await expect(recordAndCheckAgentRateLimit(identity)).resolves.toBe(false);
+    await expect(
+      reserveAgentTurn({
+        profileId: "new",
+        expectedVersion: 2,
+        commandId: "agent-before-reset",
+        request: { input: "new turn after reset" },
+      }),
+    ).resolves.toMatchObject({ outcome: "reserved" });
   });
 });

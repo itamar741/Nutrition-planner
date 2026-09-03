@@ -1,6 +1,6 @@
 # Implementation Plan v0.4
 
-Status: Turns 1–4 are implemented. Turn 5 USDA migration is implemented locally; complete verification and credentialed Render staging remain required.
+Status: Turns 1–7 are implemented locally; complete verification and credentialed Render staging remain required.
 
 This plan is governed by the project framing, description, interface design, product specification, nutrition guidance, and verification plan. The narrower documented boundary wins if two documents conflict.
 
@@ -99,7 +99,7 @@ QUERY
                      -> OPTIONAL_VALIDATED_DRAFT_CONTINUATION
 ```
 
-The model receives exactly one function tool: `search_usda_foods`. Its strict arguments contain only `normalizedEnglishQuery` and `cooked | raw | packaged`. The model receives no URL, USDA response, SQL, database handle, source credential, browser instruction, or arbitrary tool.
+When food lookup is permitted, the unified coach receives the strict `search_foods` tool alongside only the other state-dependent tools currently allowed. The food tool's arguments contain only `normalizedEnglishQuery` and `cooked | raw | packaged`. It cannot accept a URL, USDA identifier, SQL, database handle, source credential, browser instruction, or arbitrary tool. The server checks the central catalog first and owns every USDA request.
 
 Foods that normally require cooking default to cooked. The model asks a clarification only when preparation is materially ambiguous. Hebrew and English requests are normalized to concise English; a query such as rice does not require a cooked/raw clarification.
 
@@ -122,7 +122,17 @@ Approval is idempotent by normalized identity and source identifier. The new foo
 
 If USDA fails or returns no valid basic food, the interface may offer `Use an AI estimate` only after explicit confirmation. Any approved fallback remains permanently labelled `AI estimate · USDA not verified`.
 
-## 7. Bounded Endpoints
+## 7. Unified Coach Orchestration
+
+`POST /api/coach/message` is the only free-text conversation entry point. It reserves a persisted agent turn, loads authoritative profile and catalog context, supplies the reset-scoped transcript, and exposes only the tools valid for that profile state. The loop is model request → strict tool validation → bounded server execution → sanitized tool result → streamed model continuation → validated profile persistence.
+
+The browser sends `profileId`, `expectedVersion`, `commandId`, and text or one typed visible-control action; it never sends replacement profile state. Only one workflow-changing tool is accepted. Agent turns are idempotent, one turn may be pending per shared profile, and pending turns older than 90 seconds become recoverable. Server processing is not cancelled when a browser stream disconnects.
+
+Interactive state is stored inside the versioned profile aggregate. A topic change may preserve one paused workflow. Full messages are supplied below 50 messages and 30,000 characters; after the cap, a validated digest and latest 20 messages are supplied while all messages remain persisted. Reset clears only the selected profile's transcript, workflows, agent turns, and unapproved lookups.
+
+Conversation limits are 30 agent turns per hour per hashed session/IP and 100 per day globally. Food-source limits remain independently enforced at 10 per hour and 30 per day. Raw IP addresses are never stored.
+
+## 8. Bounded Endpoints
 
 - `POST /api/demo/access`
 - `GET|PATCH|POST /api/demo/state/[profileId]`
@@ -137,7 +147,7 @@ If USDA fails or returns no valid basic food, the interface may offer `Use an AI
 
 All state and catalog endpoints enforce shared access in production. All untrusted bodies are strict-schema validated.
 
-## 8. Failure Rules
+## 9. Failure Rules
 
 - A stale mutation returns `409` and never overwrites the current state.
 - A malformed model response, injected URL/SQL/tool field, unsafe source URL, parser failure, implausible nutrition record, timeout, access block, or database failure does not change a profile, catalog, Draft, or Active Plan.
@@ -145,7 +155,7 @@ All state and catalog endpoints enforce shared access in production. All untrust
 - A required runtime food omitted by the plan model fails validation and triggers one repair attempt; it cannot be silently ignored.
 - An approval failure keeps the candidate review visible and the confirmed state unchanged.
 
-## 9. Verification and Deployment Sequence
+## 10. Verification and Deployment Sequence
 
 1. Run formatting, lint, type checking, unit tests, production build, and serial Playwright tests.
 2. Run `security:check`, dependency audit, and a separate security review; confirm the repository contains no secrets or generated test failures.
@@ -156,7 +166,7 @@ All state and catalog endpoints enforce shared access in production. All untrust
 7. Verify profile isolation, both resets, catalog persistence, persistent limits, source labels, and Draft-only continuation.
 8. Record staging evidence before merge/deployment acceptance.
 
-## 10. Intentional Tradeoffs
+## 11. Intentional Tradeoffs
 
 - Two shared profile rows are appropriate for a sequential lecturer demo, not unrelated concurrent public users.
 - Optimistic conflicts avoid WebSockets but may require a retry.

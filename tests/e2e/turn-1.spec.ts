@@ -1,8 +1,11 @@
 import { expect, test, type Route } from "@playwright/test";
 import { createNewDemoState } from "@/data/demo-fixtures";
+import { calculateTargets } from "@/domain/nutrition/calculations";
+import { getNextTurn } from "@/domain/profile/onboarding";
+import type { StructuredProfile } from "@/domain/profile/types";
 import { installNewCloudProfile } from "./helpers/cloud-profile";
 
-const profileAfterBasics = {
+const profileAfterBasics: StructuredProfile = {
   schemaVersion: 1,
   age: 30,
   equationSex: "male",
@@ -20,40 +23,38 @@ const profileAfterBasics = {
   approvedCatalogFoodIds: [],
 };
 
-async function fulfillBasics(route: Route) {
+async function fulfillBasics(
+  route: Route,
+  cloud: Awaited<ReturnType<typeof installNewCloudProfile>>,
+) {
   const requestBody = route.request().postDataJSON() as { commandId: string };
+  const current = cloud.current();
+  const state = {
+    ...current,
+    profile: profileAfterBasics,
+    activeTurn: getNextTurn(profileAfterBasics),
+    targets: calculateTargets(profileAfterBasics),
+    messages: [
+      ...current.messages,
+      {
+        id: `user-${requestBody.commandId}`,
+        role: "user" as const,
+        text: "I am a 30 year old man, 180 cm and 80 kg.",
+      },
+      {
+        id: `assistant-${requestBody.commandId}`,
+        role: "assistant" as const,
+        text: "I captured those four details.",
+      },
+    ],
+  };
+  const profile = cloud.update(state);
   await route.fulfill({
     status: 200,
     contentType: "application/json",
     body: JSON.stringify({
       ok: true,
-      commandId: requestBody.commandId,
-      profile: profileAfterBasics,
-      activeTurn: {
-        type: "closed_question",
-        id: "choose-goal",
-        field: "goal",
-        prompt: "Which nutrition goal should this fixed plan support?",
-        options: [
-          {
-            id: "goal-fat-loss",
-            label: "Fat Loss",
-            patch: { goal: "fat_loss" },
-          },
-          {
-            id: "goal-maintenance",
-            label: "Maintenance",
-            patch: { goal: "maintenance" },
-          },
-          {
-            id: "goal-muscle-gain",
-            label: "Muscle Gain",
-            patch: { goal: "muscle_gain" },
-          },
-        ],
-      },
-      targets: null,
-      acknowledgement: "I captured those four details.",
+      profile,
     }),
   });
 }
@@ -79,8 +80,10 @@ test("SC-01 entry exposes exactly the two demo profiles", async ({ page }) => {
 test("UI-01/UI-02/AI-01 moves from one open answer to locked quick replies", async ({
   page,
 }) => {
-  await installNewCloudProfile(page, createNewDemoState());
-  await page.route("**/api/coach/onboarding", fulfillBasics);
+  const cloud = await installNewCloudProfile(page, createNewDemoState());
+  await page.route("**/api/coach/message", (route) =>
+    fulfillBasics(route, cloud),
+  );
   await page.goto("/coach/new");
 
   const input = page.getByRole("textbox", {
@@ -112,10 +115,10 @@ test("UI-01/UI-02/AI-01 moves from one open answer to locked quick replies", asy
 test("UI-05/UI-06 preserves the answer, locks controls, and shows slow feedback", async ({
   page,
 }) => {
-  await installNewCloudProfile(page, createNewDemoState());
-  await page.route("**/api/coach/onboarding", async (route) => {
+  const cloud = await installNewCloudProfile(page, createNewDemoState());
+  await page.route("**/api/coach/message", async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 2_000));
-    await fulfillBasics(route);
+    await fulfillBasics(route, cloud);
   });
   await page.goto("/coach/new");
 
@@ -129,18 +132,16 @@ test("UI-05/UI-06 preserves the answer, locks controls, and shows slow feedback"
   await expect(page.locator('[data-role="user"]')).toContainText(
     "I am a 30 year old man",
   );
-  await expect(page.getByRole("status")).toContainText(
-    "Still reviewing your details",
-  );
+  await expect(page.getByRole("status")).toContainText("Thinking");
   await expect(page.getByLabel("Quick replies")).toBeVisible();
 });
 
 test("UI-09 retry preserves state and does not duplicate the submitted action", async ({
   page,
 }) => {
-  await installNewCloudProfile(page, createNewDemoState());
+  const cloud = await installNewCloudProfile(page, createNewDemoState());
   let calls = 0;
-  await page.route("**/api/coach/onboarding", async (route) => {
+  await page.route("**/api/coach/message", async (route) => {
     calls += 1;
     if (calls === 1) {
       const requestBody = route.request().postDataJSON() as {
@@ -159,7 +160,7 @@ test("UI-09 retry preserves state and does not duplicate the submitted action", 
       });
       return;
     }
-    await fulfillBasics(route);
+    await fulfillBasics(route, cloud);
   });
   await page.goto("/coach/new");
 

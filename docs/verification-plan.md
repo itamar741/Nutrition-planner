@@ -1,6 +1,6 @@
 # Verification Plan v0.2
 
-Status: Active verification plan. Turn 5 adds USDA source, main-chat, security-review, and merge-readiness controls; credentialed Render staging remains pending.
+Status: Active verification plan. Turns 6–7 add cached USDA candidates and unified-agent memory, concurrency, streaming, approval, security-review, and merge-readiness controls; credentialed Render staging remains pending.
 
 ## Purpose
 
@@ -114,6 +114,11 @@ Run these controls with mocked or recorded model responses. Do not rely on varia
 - **AI-11:** The food tool accepts only a normalized English query and closed preparation enum. Hebrew and English user text, injected URLs, SQL, tool names, or database instructions cannot add arguments or actions.
 - **AI-12:** USDA response bodies are never supplied to the model. The model may return only the closed category and meal classification for the selected title; it cannot create or change nutrition values.
 - **AI-13:** USDA search candidates are bulk-validated and cached before display. Selection reads the cached nutrition and performs no second USDA request.
+- **AI-14:** `cottage` produces one combined clarification for cottage cheese and fat percentage; the next reply is interpreted with the persisted pending interaction and transcript.
+- **AI-15:** Text may select a currently displayed ordinal candidate but text cannot approve a food, Draft, or adjustment. Only the current visible button can cross an approval boundary.
+- **AI-16:** Every model turn receives authoritative profile context and either the complete transcript or the validated digest plus latest 20 messages. Summary text cannot override structured state.
+- **AI-17:** User text and USDA fields attempting prompt injection cannot add a URL, SQL, browser, database, or unknown tool action.
+- **AI-18:** Disconnect, repeated command, stale version, concurrent tab, and a pending turn older than 90 seconds resolve without duplicate messages or mutations.
 
 Evidence: input fixture, expected contract result, actual validator result, and unchanged-state assertion for every rejected response.
 
@@ -134,6 +139,8 @@ Use browser-level tests where feasible and manual acceptance scripts for visual 
 - **UI-11:** A missing-food request shows one clear sequence: clarification when required, explicit candidate choices when multiple results exist, source-labelled review, and Approve/Reject controls.
 - **UI-12:** An existing central-catalog match shows **Add to my foods** and never starts a USDA lookup.
 - **UI-13:** Queued, slow, blocked, zero-result, malformed-source, and fallback states preserve the confirmed profile and plan while explaining the next available action.
+- **UI-14:** Assistant text streams beside explicit Thinking, Searching USDA, and Validating status events. Persisted clarification, candidate, approval, Draft, and adjustment controls survive reload.
+- **UI-15:** English input receives English output and Hebrew input receives Hebrew output, except internal normalized USDA queries that are never displayed as user messages.
 
 Evidence: automated trace where available, plus a screenshot or short manual pass/fail note for each visual control.
 
@@ -170,6 +177,7 @@ Evidence: one checklist per demo, linked screenshots, fixture version, and a hum
 4. Approve once; verify one central catalog record and current-profile approval. Retry once and verify no duplicate record.
 5. Request a plan change using the newly approved food and verify that it creates only a Draft.
 6. Exercise a blocked, zero-result, or malformed-source fixture; verify the catalog and Active Plan remain unchanged and the optional AI estimate is visibly unverified.
+7. Approve a food during plan work and verify the coach asks before creating a new Draft; confirm that no path changes the Active Plan directly.
 
 ## Gate 6 — Scope and Security Audit
 
