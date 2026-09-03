@@ -1,6 +1,6 @@
 # Verification Plan v0.2
 
-Status: Active verification plan. Turn 4 automated controls pass locally; credentialed Render staging controls remain pending.
+Status: Active verification plan. Turn 5 adds USDA source, main-chat, security-review, and merge-readiness controls; credentialed Render staging remains pending.
 
 ## Purpose
 
@@ -110,7 +110,9 @@ Run these controls with mocked or recorded model responses. Do not rely on varia
 - **AI-07:** The model cannot bypass deterministic insufficient-evidence status, change an allowed adjustment direction or magnitude, write weight history, or mark a proposal Active.
 - **AI-08:** A model timeout or transport failure preserves confirmed state and returns a retryable failure without duplicate effects.
 - **AI-09:** Food-addition routing accepts only its closed action union. User text and parsed source fields that attempt to override instructions, invoke tools, provide URLs, or request database writes are treated as data and cannot create an action outside that union.
-- **AI-10:** An AI-estimate candidate is visibly and structurally labelled `AI estimate · Fuder not verified`; it has no verified-source URL and cannot be stored without explicit approval.
+- **AI-10:** An AI-estimate candidate is visibly and structurally labelled `AI estimate · USDA not verified`; it has no verified-source URL and cannot be stored without explicit approval.
+- **AI-11:** The food tool accepts only a normalized English query and closed preparation enum. Hebrew and English user text, injected URLs, SQL, tool names, or database instructions cannot add arguments or actions.
+- **AI-12:** USDA response bodies are never supplied to the model. The model may return only the closed category and meal classification for the selected title; it cannot create or change nutrition values.
 
 Evidence: input fixture, expected contract result, actual validator result, and unchanged-state assertion for every rejected response.
 
@@ -129,7 +131,7 @@ Use browser-level tests where feasible and manual acceptance scripts for visual 
 - **UI-09:** A failed Draft, trend, proposal, or approval operation leaves confirmed state visible and never labels a failed proposal as Active.
 - **UI-10:** Draft, proposal, and Active labels are visible and unambiguous before and after every approval or rejection.
 - **UI-11:** A missing-food request shows one clear sequence: clarification when required, explicit candidate choices when multiple results exist, source-labelled review, and Approve/Reject controls.
-- **UI-12:** An existing central-catalog match shows **Add to my foods** and never starts a Fuder lookup.
+- **UI-12:** An existing central-catalog match shows **Add to my foods** and never starts a USDA lookup.
 - **UI-13:** Queued, slow, blocked, zero-result, malformed-source, and fallback states preserve the confirmed profile and plan while explaining the next available action.
 
 Evidence: automated trace where available, plus a screenshot or short manual pass/fail note for each visual control.
@@ -162,7 +164,7 @@ Evidence: one checklist per demo, linked screenshots, fixture version, and a hum
 ### Runtime Catalog Demonstration
 
 1. Request a food already in the central catalog and verify the **Add to my foods** path without a source request.
-2. Request one missing packaged product or food; answer any preparation/unit clarification and choose one explicit Fuder result.
+2. Request one missing basic food in the main coach conversation; answer any material preparation clarification and choose one explicit USDA result.
 3. Verify the source, retrieved time, per-100 g values, optional serving information, and the approval requirement before persistence.
 4. Approve once; verify one central catalog record and current-profile approval. Retry once and verify no duplicate record.
 5. Request a plan change using the newly approved food and verify that it creates only a Draft.
@@ -174,15 +176,15 @@ Before accepting an implementation turn, inspect the visible product, dependenci
 
 The audit fails if it finds authentication, additional profiles, unrestricted runtime internet search, a general crawler, browser-enabled AI, arbitrary tools or actions, unvalidated AI output, direct AI writes to PostgreSQL, Active Plan, or weight history, allergy/medical features, target weight, goal switching, plan history, weekly plan variation, workout/adherence tracking, hydration, micronutrient optimization, or a kashrut subsystem.
 
-Also inspect for secrets in tracked files; confirm the Fuder adapter is server-owned, host-restricted, low-volume, and cannot log in, bypass CAPTCHA/rate limits, crawl in bulk, or pass raw HTML to the model.
+Run `security:check`, inspect dependency and lockfile changes, and run `npm audit --audit-level=high`. Confirm the USDA adapter is server-owned, dataset-restricted, low-volume, parameterized, and cannot pass API responses or credentials to the model or browser. Review SQL parameterization, React-safe rendering, access-cookie enforcement, lookup limits, and safe audit logs.
 
 ## Gate 7 — Render Deployment and Source Controls
 
 - **DP-01:** The Web Service can start with only its documented Render environment variables; no credential is present in tracked files or browser bundles.
 - **DP-02:** PostgreSQL migrations run safely on an empty staging database and are idempotent when reapplied through the chosen migration tool.
-- **DP-03:** The Web Service performs one bounded synchronous source workflow, constructs the Fuder URL itself, and cannot accept a public arbitrary URL.
-- **DP-04:** A bounded timeout, `403`, `429`, CAPTCHA/interstitial, unexpected markup, or database error returns a controlled failure without mutating the catalog or profile.
-- **DP-05:** The Web Service reports searching, candidate-selection, review, and failure states without exposing raw source content, ScrapingBee credentials, or database details.
+- **DP-03:** The Web Service performs one bounded synchronous USDA workflow, searches only Foundation Foods and SR Legacy, and cannot accept a public arbitrary URL or browser-supplied `fdcId`.
+- **DP-04:** A bounded timeout, `403`, `429`, malformed API response, missing required nutrient, or database error returns a controlled failure without mutating the catalog or profile.
+- **DP-05:** The Web Service reports searching, candidate-selection, review, and failure states without exposing USDA response bodies, source credentials, or database details.
 - **DP-06:** A Render staging deployment completes one approved candidate flow and one controlled failure flow.
 
 ## Gate 8 — Human Merge-Readiness Review
@@ -205,8 +207,9 @@ The implementation plan selects npm, ESLint, Prettier, TypeScript, Vitest, React
 - `npm run lint` — exit 0 with no ESLint errors or warnings.
 - `npm run typecheck` — exit 0 with no TypeScript errors.
 - `npm run test:unit` — run deterministic domain, reducer, and structured-contract tests once and exit 0 only when all pass.
+- `npm run security:check` — scan tracked files for common committed secret forms and fail before build or merge.
 - `npm run test:e2e` — run Playwright controls against a production-like local server and exit 0 only when all pass.
 - `npm run build` — produce a successful production build.
-- `npm run verify` — run `format:check`, `lint`, `typecheck`, `test:unit`, `build`, and `test:e2e`; fail immediately or return nonzero if any mandatory check fails.
+- `npm run verify` — run `format:check`, `lint`, `typecheck`, `test:unit`, `security:check`, `build`, and `test:e2e`; fail immediately or return nonzero if any mandatory check fails.
 
 An opt-in `npm run test:ai-live` may be added for one credentialed structured-response smoke test. It must not be included in offline deterministic acceptance and cannot replace mocked AI contract controls.

@@ -25,9 +25,9 @@ Display every editable or read-only weight value with at most two digits after t
 
 Status: pending external deployment credentials.
 
-The Turn 4 application, Blueprint, migrations, access gate, cloud repository, bounded source adapter, runtime-food interface, and deterministic tests are complete locally. Before Turn 4 is accepted as deployed:
+The cloud application, Blueprint, migrations, access gate, repository, and bounded USDA workflow require final credentialed staging before deployment acceptance:
 
 - create the Render Blueprint resources;
-- supply the server-only OpenAI, ScrapingBee, and demo-access secrets;
-- complete the cooked-food, packaged-product, controlled-failure, reset, persistence, and cross-profile checks in `docs/deployment.md`; and
+- supply the server-only OpenAI, USDA FoodData Central, and demo-access secrets;
+- complete the cooked-food, tomato, pasta, controlled-failure, reset, persistence, and cross-profile checks in `docs/deployment.md`; and
 - record the deployed URL, commit SHA, and evidence without recording secrets.

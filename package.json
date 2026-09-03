@@ -16,10 +16,10 @@
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
     "test:ai-live": "vitest run tests/live",
-    "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test:unit && npm run build && npm run test:e2e"
+    "security:check": "node scripts/security-check.mjs",
+    "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test:unit && npm run security:check && npm run build && npm run test:e2e"
   },
   "dependencies": {
-    "cheerio": "^1.2.0",
     "next": "16.3.3",
     "openai": "7.8.0",
     "pg": "^8.23.0",

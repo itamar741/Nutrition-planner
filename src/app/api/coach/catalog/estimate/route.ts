@@ -7,7 +7,7 @@ import { foodLookupToolArgumentsSchema } from "@/domain/catalog/runtime";
 import type { CatalogFood } from "@/domain/catalog/types";
 import { getLookup, saveCandidates } from "@/persistence/repository";
 import { requestHasAccess } from "@/security/demo-access";
-import { dynamicFoodId, validateNutritionPlausibility } from "@/sources/fuder";
+import { dynamicFoodId, validateNutritionPlausibility } from "@/sources/usda";
 
 export const runtime = "nodejs";
 
@@ -21,6 +21,9 @@ export async function POST(request: Request) {
   try {
     const input = estimateRequestSchema.parse(await request.json());
     const lookup = await getLookup(input.lookupId);
+    if (lookup.profileId !== input.profileId) {
+      throw new Error("This lookup belongs to the other demo profile.");
+    }
     const sourceFailureCodes = new Set([
       "not_configured",
       "timeout",
@@ -55,7 +58,6 @@ export async function POST(request: Request) {
       id: dynamicFoodId(sourceIdentifier),
       displayName: estimate.displayName,
       preparation: estimate.preparation,
-      brand: parsedContext.toolArguments?.brand ?? undefined,
       category: estimate.category,
       mealClassification: estimate.mealClassification,
       kosherCatalogApproved: false,
@@ -91,7 +93,7 @@ export async function POST(request: Request) {
       id: candidateId,
       lookupId: lookup.id,
       food,
-      sourceLabel: "AI estimate · Fuder not verified" as const,
+      sourceLabel: "AI estimate · USDA not verified" as const,
     };
     await saveCandidates([
       {

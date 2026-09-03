@@ -41,17 +41,17 @@ The product starts with one curated Food Catalog for both preference selection a
 
 The preference stage presents foods in selectable grids grouped into five categories: carbohydrates, proteins, fats, vegetables, and fruits. Each category may contain roughly a grid-sized set of common choices; the exact item count is not a product requirement. Selecting an item marks that catalog food as approved.
 
-The plan generator may use only catalog foods approved for the profile. A user can request a missing food or packaged product through the coach conversation on any workspace screen. This is a bounded addition workflow:
+The plan generator may use only catalog foods approved for the profile. A user can request a missing basic food in Hebrew or English through the main coach conversation on either workspace. This is a bounded addition workflow:
 
 1. The application checks the central catalog first.
 2. If the item already exists, the coach offers one explicit **Add to my foods** action; it does not perform an external lookup.
 3. If preparation state or display unit is material and missing, the coach asks one short clarification question.
-4. The Next.js server uses the bounded ScrapingBee adapter synchronously to search the public Fuder interface for foods and packaged products only. Recipes, restaurant items, and composite dishes are excluded.
+4. The Next.js server synchronously searches only USDA FoodData Central Foundation Foods and SR Legacy, returning at most five basic-food candidates in source relevance order. Recipes, restaurant items, branded products, and composite dishes are excluded.
 5. The user chooses an explicit result when more than one match is available.
 6. The application shows a source-labelled nutrition proposal and requires **Approve** or **Reject** before any catalog write.
 7. Approval adds the item to the central catalog and to the current profile's approved foods. A later plan change remains a Draft until separately approved.
 
-If Fuder is unavailable, blocked, malformed, or has no suitable result, the coach may show a clearly labelled `AI estimate · Fuder not verified` proposal. It still requires the same explicit approval. The model never treats an estimate as source-verified data.
+If USDA is unavailable, blocked, malformed, or has no suitable result, the coach may show a clearly labelled `AI estimate · USDA not verified` proposal only after explicit opt-in. It still requires the same approval. The model never treats an estimate as source-verified data.
 
 For project-level kosher simplification, non-kosher foods are absent from the catalog and a single meal does not combine meat and dairy. This is a catalog and meal-composition constraint, not a general kashrut system.
 
@@ -107,9 +107,9 @@ The interaction follows two governing principles: **open language, closed action
 The deployed product uses Render only:
 
 - A **Render Web Service** hosts the Next.js application and its narrow API routes.
-- The same Web Service performs the low-volume, bounded Fuder lookup synchronously through ScrapingBee. It is not a general crawler and fails cleanly on its bounded timeout.
+- The same Web Service performs the low-volume, bounded USDA lookup synchronously. It is not a browser or crawler and fails cleanly on its bounded timeout.
 - **Render PostgreSQL** persists both versioned demo states, conversations, the central catalog, lookup requests, candidate records, source metadata, command results, and rate-limit events.
 
-The two profiles are deliberately shared and use optimistic versions; a stale browser reloads the latest state and asks the user to retry. The browser holds only temporary rendered state and a signed access cookie. The server never logs in to Fuder, bypasses access controls, crawls in bulk, or sends raw source HTML to the browser or model.
+The two profiles are deliberately shared and use optimistic versions; a stale browser reloads the latest state and asks the user to retry. The browser holds only temporary rendered state and a signed access cookie. The server never gives the model or browser USDA response bodies, arbitrary source URLs, credentials, or database access.
 
 Each profile has an independent **Reset demo** control. Fresh reset restores only the empty onboarding seed. Existing reset restores only its prepared plan, conversation, and generated weight history. Runtime catalog foods and persistent rate-limit events survive both resets.

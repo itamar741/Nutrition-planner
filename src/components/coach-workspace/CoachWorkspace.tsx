@@ -168,6 +168,7 @@ function ExistingFoundation() {
   );
   const [proposalError, setProposalError] = useState("");
   const [isGeneratingProposal, setIsGeneratingProposal] = useState(false);
+  const [catalogMode, setCatalogMode] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -276,6 +277,7 @@ function ExistingFoundation() {
     });
     setAdjustmentDraft(null);
     setProposalState("pending");
+    setCatalogMode(false);
     setProposalError("");
   }
   function submitWeightChat(event: FormEvent<HTMLFormElement>) {
@@ -689,37 +691,80 @@ function ExistingFoundation() {
                 {proposalError}
               </p>
             ) : null}
+            {!catalogMode ? (
+              <div className={styles.weightAssistantMessage}>
+                <p>Want a basic food that is not in your approved foods?</p>
+                <button
+                  className={styles.secondaryAction}
+                  disabled={isGeneratingProposal || Boolean(adjustmentDraft)}
+                  onClick={() => setCatalogMode(true)}
+                  type="button"
+                >
+                  Add a missing food
+                </button>
+              </div>
+            ) : null}
           </div>
-          <form className={styles.composer} onSubmit={submitWeightChat}>
-            <textarea
-              aria-label={
-                proposalState === "awaiting_feedback"
-                  ? "Adjustment feedback"
-                  : "Today’s weight message"
-              }
-              disabled={isGeneratingProposal || Boolean(adjustmentDraft)}
-              maxLength={proposalState === "awaiting_feedback" ? 1_000 : 100}
-              onChange={(event) => setChatInput(event.target.value)}
-              placeholder={
-                proposalState === "awaiting_feedback"
-                  ? "Tell the coach what you want changed in the next Draft"
-                  : "Example: 80.4 kg"
-              }
-              rows={2}
-              value={chatInput}
+          {catalogMode ? (
+            <RuntimeFoodAssistant
+              context="general"
+              embedded
+              getExpectedVersion={() => cloudVersion.current}
+              onClose={() => setCatalogMode(false)}
+              onFoodApproved={(food) => {
+                setCatalog((current) => [
+                  ...current.filter((candidate) => candidate.id !== food.id),
+                  food,
+                ]);
+                dispatchExisting({
+                  type: "add_messages",
+                  commandId: createCommandId(),
+                  messages: [
+                    appendChat(
+                      "assistant",
+                      `${food.displayName} is now in your approved foods. Your Active Plan was not changed.`,
+                    ),
+                  ],
+                });
+              }}
+              onProfileUpdated={(cloudProfile) => {
+                cloudVersion.current = cloudProfile.version;
+                setExisting(cloudProfile.state as ExistingDemoState);
+              }}
+              profileId="existing"
             />
-            <button
-              className={styles.sendButton}
-              disabled={
-                !chatInput.trim() ||
-                isGeneratingProposal ||
-                Boolean(adjustmentDraft)
-              }
-              type="submit"
-            >
-              Send
-            </button>
-          </form>
+          ) : (
+            <form className={styles.composer} onSubmit={submitWeightChat}>
+              <textarea
+                aria-label={
+                  proposalState === "awaiting_feedback"
+                    ? "Adjustment feedback"
+                    : "Today’s weight message"
+                }
+                disabled={isGeneratingProposal || Boolean(adjustmentDraft)}
+                maxLength={proposalState === "awaiting_feedback" ? 1_000 : 100}
+                onChange={(event) => setChatInput(event.target.value)}
+                placeholder={
+                  proposalState === "awaiting_feedback"
+                    ? "Tell the coach what you want changed in the next Draft"
+                    : "Example: 80.4 kg"
+                }
+                rows={2}
+                value={chatInput}
+              />
+              <button
+                className={styles.sendButton}
+                disabled={
+                  !chatInput.trim() ||
+                  isGeneratingProposal ||
+                  Boolean(adjustmentDraft)
+                }
+                type="submit"
+              >
+                Send
+              </button>
+            </form>
+          )}
         </article>
       </section>
       {editingMeasurement ? (
@@ -779,21 +824,6 @@ function ExistingFoundation() {
           </details>
         </article>
       </div>
-      <RuntimeFoodAssistant
-        context="general"
-        getExpectedVersion={() => cloudVersion.current}
-        onFoodApproved={(food) =>
-          setCatalog((current) => [
-            ...current.filter((candidate) => candidate.id !== food.id),
-            food,
-          ])
-        }
-        onProfileUpdated={(cloudProfile) => {
-          cloudVersion.current = cloudProfile.version;
-          setExisting(cloudProfile.state as ExistingDemoState);
-        }}
-        profileId="existing"
-      />
       <CatalogSection
         approvedIds={existing.approvedCatalogFoodIds}
         catalog={catalog}
@@ -828,6 +858,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
   const [draftMessage, setDraftMessage] = useState("");
   const [selectedFoodIds, setSelectedFoodIds] = useState<string[]>([]);
   const [isSlow, setIsSlow] = useState(false);
+  const [catalogMode, setCatalogMode] = useState(false);
   const turnLock = useRef(false);
   const messagesEnd = useRef<HTMLDivElement>(null);
 
@@ -1163,6 +1194,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
     }
     setDraftMessage("");
     setSelectedFoodIds([]);
+    setCatalogMode(false);
   }
 
   function handleApprove() {
@@ -1249,6 +1281,14 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                       ? "This exact validated plan is now your approved baseline."
                       : "I’ll keep what you confirm and ask only for what is still missing."}
                 </p>
+                <button
+                  className={styles.secondaryAction}
+                  disabled={state.status !== "idle"}
+                  onClick={() => setCatalogMode(true)}
+                  type="button"
+                >
+                  Add a missing food
+                </button>
               </header>
 
               {cloudError ? (
@@ -1281,7 +1321,48 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
               </div>
 
               <div className={styles.controls}>
-                {state.status === "failed" && state.pendingCommand ? (
+                {catalogMode ? (
+                  <RuntimeFoodAssistant
+                    context={
+                      state.draft
+                        ? "draft_modification"
+                        : state.targets
+                          ? "draft_creation"
+                          : "onboarding"
+                    }
+                    embedded
+                    getExpectedVersion={() => cloudVersion.current}
+                    onClose={() => setCatalogMode(false)}
+                    onFoodApproved={(food) => {
+                      setCatalog((current) => [
+                        ...current.filter(
+                          (candidate) => candidate.id !== food.id,
+                        ),
+                        food,
+                      ]);
+                      const current = stateRef.current;
+                      if (current.draft || current.targets) {
+                        const message = `Use ${food.displayName} in my next validated Draft.`;
+                        setDraftMessage(message);
+                        void sendPlanCommand(
+                          { id: createCommandId(), message },
+                          current.draft ? "modification" : "draft",
+                          false,
+                          food.id,
+                        );
+                      }
+                    }}
+                    onProfileUpdated={(cloudProfile) => {
+                      cloudVersion.current = cloudProfile.version;
+                      stateRef.current =
+                        cloudProfile.state as import("@/store/demo-reducer").DemoState;
+                      setState(
+                        cloudProfile.state as import("@/store/demo-reducer").DemoState,
+                      );
+                    }}
+                    profileId="new"
+                  />
+                ) : state.status === "failed" && state.pendingCommand ? (
                   <div className={styles.errorBox} role="alert">
                     <p>{state.error}</p>
                     <button
@@ -1483,46 +1564,6 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                 onApprove={handleApprove}
                 onReject={handleReject}
                 targets={state.targets}
-              />
-              <RuntimeFoodAssistant
-                context={
-                  state.draft
-                    ? "draft_modification"
-                    : state.targets
-                      ? "draft_creation"
-                      : "onboarding"
-                }
-                disabled={
-                  state.status !== "idle" ||
-                  state.activeTurn.type === "closed_question"
-                }
-                getExpectedVersion={() => cloudVersion.current}
-                onFoodApproved={(food) => {
-                  setCatalog((current) => [
-                    ...current.filter((candidate) => candidate.id !== food.id),
-                    food,
-                  ]);
-                  const current = stateRef.current;
-                  if (current.draft || current.targets) {
-                    const message = `Use ${food.displayName} in my next validated Draft.`;
-                    setDraftMessage(message);
-                    void sendPlanCommand(
-                      { id: createCommandId(), message },
-                      current.draft ? "modification" : "draft",
-                      false,
-                      food.id,
-                    );
-                  }
-                }}
-                onProfileUpdated={(cloudProfile) => {
-                  cloudVersion.current = cloudProfile.version;
-                  stateRef.current =
-                    cloudProfile.state as import("@/store/demo-reducer").DemoState;
-                  setState(
-                    cloudProfile.state as import("@/store/demo-reducer").DemoState,
-                  );
-                }}
-                profileId="new"
               />
             </aside>
           </>

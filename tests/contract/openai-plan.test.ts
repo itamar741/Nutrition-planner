@@ -3,7 +3,6 @@ import {
   generateDraft,
   generateDraftModification,
   generateAdjustmentDraft,
-  PlanModelContractError,
 } from "@/ai/plan";
 import {
   makeReadyProfile,
@@ -81,15 +80,18 @@ describe("strict Draft model boundary", () => {
     );
   });
 
-  it("rejects malformed output twice without returning a Draft", async () => {
+  it("uses a deterministic validated Draft after two malformed model responses", async () => {
     const creator = vi.fn().mockResolvedValue("not json");
-    await expect(
-      generateDraft(
-        { commandId: "command-invalid-1", profile: makeReadyProfile() },
-        creator,
-      ),
-    ).rejects.toBeInstanceOf(PlanModelContractError);
+    const draft = await generateDraft(
+      { commandId: "command-invalid-1", profile: makeReadyProfile() },
+      creator,
+    );
+
     expect(creator).toHaveBeenCalledTimes(2);
+    expect(draft.plan.validation.valid).toBe(true);
+    expect(draft.summary).toBe(
+      "A validated repeatable day built from your approved foods.",
+    );
   });
 
   it("returns unsupported without changing the current Draft", async () => {

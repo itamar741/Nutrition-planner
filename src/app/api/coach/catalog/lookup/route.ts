@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requestFoodLookupTool } from "@/ai/food-catalog";
+import {
+  FoodCatalogConfigurationError,
+  FoodCatalogModelError,
+  requestFoodLookupTool,
+} from "@/ai/food-catalog";
 import { foodLookupRequestSchema } from "@/domain/catalog/api-contracts";
 import type { FoodLookupToolArguments } from "@/domain/catalog/runtime";
 import {
@@ -14,9 +18,28 @@ import {
 } from "@/persistence/repository";
 import { requestHasAccess } from "@/security/demo-access";
 import { rateIdentity } from "@/security/rate-identity";
-import { FuderUnavailableError, searchFuder } from "@/sources/fuder";
+import {
+  searchUsdaFoods,
+  UsdaUnavailableError,
+  usdaFoodUrl,
+} from "@/sources/usda";
 
 export const runtime = "nodejs";
+
+function safeErrorDetails(error: unknown) {
+  if (!(error instanceof Error)) return { name: "UnknownError" };
+  const external = error as Error & {
+    status?: unknown;
+    code?: unknown;
+    type?: unknown;
+  };
+  return {
+    name: error.name,
+    status: typeof external.status === "number" ? external.status : undefined,
+    code: typeof external.code === "string" ? external.code : undefined,
+    type: typeof external.type === "string" ? external.type : undefined,
+  };
+}
 
 export async function POST(request: Request) {
   if (!requestHasAccess(request)) {
@@ -60,6 +83,7 @@ export async function POST(request: Request) {
       status: "searching",
       failureCode: null,
     });
+    console.info("food_lookup_started", { lookupId: lookup.id });
     let toolArguments: FoodLookupToolArguments | null = null;
     try {
       const result = await requestFoodLookupTool({
@@ -71,7 +95,7 @@ export async function POST(request: Request) {
             conversation: input.context,
             toolArguments: arguments_,
           });
-          return searchFuder(arguments_);
+          return searchUsdaFoods(arguments_);
         },
       });
       if (result.outcome === "clarification") {
@@ -94,13 +118,14 @@ export async function POST(request: Request) {
         result.candidates.map((candidate) => ({
           id: candidate.id,
           lookupId: lookup.id,
-          sourceUrl: candidate.sourceUrl,
-          sourceIdentifier: candidate.sourceUrl,
+          sourceUrl: usdaFoodUrl(candidate.fdcId),
+          sourceIdentifier: `usda:${candidate.fdcId}`,
           status: "summary" as const,
           data: {
             title: candidate.title,
             description: candidate.description,
-            sourceUrl: candidate.sourceUrl,
+            fdcId: candidate.fdcId,
+            dataType: candidate.dataType,
             toolArguments: result.arguments_,
           },
         })),
@@ -114,12 +139,24 @@ export async function POST(request: Request) {
         candidates: result.candidates,
       });
     } catch (error) {
-      const sourceFailed = error instanceof FuderUnavailableError;
+      const sourceFailed = error instanceof UsdaUnavailableError;
+      const configurationFailed =
+        error instanceof FoodCatalogConfigurationError;
+      const modelFailed = error instanceof FoodCatalogModelError;
       const code = sourceFailed
         ? error.code
-        : error instanceof z.ZodError
-          ? "invalid_tool_arguments"
-          : "model_or_source_failure";
+        : configurationFailed
+          ? "ai_configuration_missing"
+          : error instanceof z.ZodError
+            ? "invalid_tool_arguments"
+            : modelFailed
+              ? "invalid_model_response"
+              : "ai_request_failed";
+      console.error("food_lookup_failed", {
+        lookupId: lookup.id,
+        failureCode: code,
+        ...safeErrorDetails(error),
+      });
       if (toolArguments) {
         await updateLookupContext(lookup.id, {
           conversation: input.context,
@@ -132,8 +169,10 @@ export async function POST(request: Request) {
           ok: false,
           code: "source_unavailable",
           message: sourceFailed
-            ? "Fuder could not return a safe candidate. Your catalog and profile were not changed."
-            : "The bounded lookup could not be prepared. Your catalog and profile were not changed.",
+            ? "USDA FoodData Central could not return a safe candidate. Your catalog and profile were not changed."
+            : configurationFailed
+              ? "The AI food lookup is not configured. Confirm OPENAI_API_KEY and OPENAI_MODEL in Render, then deploy again."
+              : "The AI could not prepare this lookup. Check the Render service logs for the lookup failure code; your catalog and profile were not changed.",
           lookupId: lookup.id,
           offerAiEstimate: sourceFailed,
         },
@@ -141,6 +180,7 @@ export async function POST(request: Request) {
       );
     }
   } catch (error) {
+    console.error("food_lookup_request_rejected", safeErrorDetails(error));
     return NextResponse.json(
       {
         ok: false,

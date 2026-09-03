@@ -30,6 +30,8 @@ export function RuntimeFoodAssistant({
   onProfileUpdated,
   onFoodApproved,
   disabled = false,
+  embedded = false,
+  onClose,
 }: {
   profileId: DemoProfileId;
   context: FoodLookupContext;
@@ -37,6 +39,8 @@ export function RuntimeFoodAssistant({
   onProfileUpdated: (profile: CloudProfile) => void;
   onFoodApproved: (food: CatalogFood) => void;
   disabled?: boolean;
+  embedded?: boolean;
+  onClose?: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<
@@ -56,6 +60,7 @@ export function RuntimeFoodAssistant({
   const [lookupId, setLookupId] = useState<string | null>(null);
   const [existingFood, setExistingFood] = useState<CatalogFood | null>(null);
   const [existingApproved, setExistingApproved] = useState(false);
+  const [submittedQuery, setSubmittedQuery] = useState("");
 
   async function lookup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -63,7 +68,8 @@ export function RuntimeFoodAssistant({
     if (!value || disabled || status === "searching" || status === "loading")
       return;
     setStatus("searching");
-    setMessage("I’m checking the central catalog and the bounded food source…");
+    setSubmittedQuery(value);
+    setMessage("I’m checking the central catalog and USDA FoodData Central…");
     setCandidates([]);
     setReview(null);
     setExistingFood(null);
@@ -129,7 +135,7 @@ export function RuntimeFoodAssistant({
       const response = await fetch("/api/coach/catalog/candidate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ candidateId }),
+        body: JSON.stringify({ profileId, candidateId }),
       });
       const body = (await response.json()) as {
         ok?: boolean;
@@ -168,7 +174,7 @@ export function RuntimeFoodAssistant({
       const response = await fetch("/api/coach/catalog/estimate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lookupId }),
+        body: JSON.stringify({ profileId, lookupId }),
       });
       const body = (await response.json()) as {
         message?: string;
@@ -179,7 +185,7 @@ export function RuntimeFoodAssistant({
       }
       setReview(body.candidate);
       setStatus("review");
-      setMessage("This is an AI estimate and was not verified by Fuder.");
+      setMessage("This is an AI estimate and was not verified by USDA.");
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "The estimate failed.",
@@ -264,7 +270,7 @@ export function RuntimeFoodAssistant({
       const response = await fetch("/api/coach/catalog/reject", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ candidateId: review.id }),
+        body: JSON.stringify({ profileId, candidateId: review.id }),
       });
       const body = (await response.json()) as { message?: string };
       if (!response.ok) {
@@ -284,13 +290,30 @@ export function RuntimeFoodAssistant({
   }
 
   return (
-    <section className={styles.card} aria-label="Add a catalog food">
-      <span>AI catalog assistant</span>
-      <h2>Add one missing food</h2>
-      <p aria-live="polite">{message}</p>
+    <section
+      className={`${styles.card} ${embedded ? styles.embedded : ""}`}
+      aria-label="Catalog food conversation"
+    >
+      <div className={styles.heading}>
+        <div>
+          <span>Coach tool · USDA catalog</span>
+          <h2>Add one missing basic food</h2>
+        </div>
+        {onClose ? (
+          <button className={styles.close} onClick={onClose} type="button">
+            Return to coach
+          </button>
+        ) : null}
+      </div>
+      {submittedQuery ? (
+        <p className={styles.userBubble}>{submittedQuery}</p>
+      ) : null}
+      <p className={styles.assistantBubble} aria-live="polite">
+        {message}
+      </p>
 
       {candidates.length > 0 ? (
-        <div className={styles.candidates} aria-label="Fuder food candidates">
+        <div className={styles.candidates} aria-label="USDA food candidates">
           {candidates.map((candidate) => (
             <button
               key={candidate.id}
@@ -367,9 +390,13 @@ export function RuntimeFoodAssistant({
             {review.food.category} · {review.food.mealClassification} · kosher
             review not checked
           </p>
-          {review.food.source.provider === "Fuder" ? (
-            <a href={review.food.source.url} rel="noreferrer" target="_blank">
-              View Fuder source
+          {review.food.source.provider === "USDA FoodData Central" ? (
+            <a
+              href={`https://fdc.nal.usda.gov/food-details/${review.food.source.fdcId}/nutrients`}
+              rel="noreferrer"
+              target="_blank"
+            >
+              View USDA source
             </a>
           ) : null}
           <div className={styles.actions}>
@@ -401,7 +428,7 @@ export function RuntimeFoodAssistant({
             }
             maxLength={120}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Example: cooked jasmine rice"
+            placeholder="Example: cooked jasmine rice or אורז יסמין מבושל"
             rows={2}
             value={query}
           />
@@ -415,7 +442,7 @@ export function RuntimeFoodAssistant({
             }
             type="submit"
           >
-            {status === "searching" ? "Searching…" : "Check and search"}
+            {status === "searching" ? "Searching…" : "Send to coach"}
           </button>
         </form>
       ) : null}

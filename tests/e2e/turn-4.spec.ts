@@ -15,10 +15,12 @@ const runtimeFood: CatalogFood = {
   kosherCatalogApproved: false,
   kosherReview: "not_checked",
   source: {
-    provider: "Fuder",
-    url: "https://www.fuder.co.il/foods/basmati-rice/",
+    provider: "USDA FoodData Central",
+    fdcId: 168878,
+    dataset: "SR Legacy",
+    release: "2019-04-01",
     retrievedAt: "2026-09-02T08:00:00.000Z",
-    verification: "fuder_verified",
+    energyNutrient: "Energy",
   },
   nutrientsPer100g: {
     energyKcal: 130,
@@ -31,7 +33,7 @@ const runtimeFood: CatalogFood = {
   practicalGrams: { min: 80, max: 800, step: 5 },
 };
 
-test("Turn 4 selects, rejects, corrects, and approves a bounded source food", async ({
+test("Turn 5 selects, rejects, corrects, and approves a bounded USDA food", async ({
   page,
 }) => {
   const initial = createNewDemoState();
@@ -48,12 +50,10 @@ test("Turn 4 selects, rejects, corrects, and approves a bounded source food", as
         candidates: [
           {
             id: candidateId,
+            fdcId: 168878,
             title: "Cooked basmati rice",
-            description: "Fuder food record · per 100 g",
-            sourceUrl:
-              runtimeFood.source.provider === "Fuder"
-                ? runtimeFood.source.url
-                : "",
+            description: "SR Legacy · Cereal Grains and Pasta",
+            dataType: "SR Legacy",
           },
         ],
       }),
@@ -69,7 +69,7 @@ test("Turn 4 selects, rejects, corrects, and approves a bounded source food", as
           id: candidateId,
           lookupId,
           food: runtimeFood,
-          sourceLabel: "Fuder verified",
+          sourceLabel: "USDA FoodData Central verified",
         },
       }),
     });
@@ -97,23 +97,28 @@ test("Turn 4 selects, rejects, corrects, and approves a bounded source food", as
   });
 
   await page.goto("/coach/new");
-  const assistant = page.getByRole("region", { name: "Add a catalog food" });
+  await page.getByRole("button", { name: "Add a missing food" }).click();
+  const assistant = page.getByRole("region", {
+    name: "Catalog food conversation",
+  });
   const input = assistant.getByRole("textbox", { name: "Food to add" });
   await input.fill("cooked basmati rice");
-  await assistant.getByRole("button", { name: "Check and search" }).click();
+  await assistant.getByRole("button", { name: "Send to coach" }).click();
   await assistant.getByRole("button", { name: /Cooked basmati rice/ }).click();
 
-  await expect(assistant.getByText("Fuder verified")).toBeVisible();
+  await expect(
+    assistant.getByText("USDA FoodData Central verified"),
+  ).toBeVisible();
   await expect(
     assistant.getByRole("heading", { name: "Basmati rice" }),
   ).toBeVisible();
   await expect(assistant.getByText("130 kcal")).toBeVisible();
   await expect(assistant.getByText("Unknown g")).toBeVisible();
   await expect(
-    assistant.getByRole("link", { name: "View Fuder source" }),
+    assistant.getByRole("link", { name: "View USDA source" }),
   ).toHaveAttribute(
     "href",
-    runtimeFood.source.provider === "Fuder" ? runtimeFood.source.url : "",
+    "https://fdc.nal.usda.gov/food-details/168878/nutrients",
   );
 
   await assistant.getByRole("button", { name: "Reject" }).click();
@@ -122,7 +127,7 @@ test("Turn 4 selects, rejects, corrects, and approves a bounded source food", as
   ).toBeVisible();
 
   await input.fill("cooked basmati rice, plain");
-  await assistant.getByRole("button", { name: "Check and search" }).click();
+  await assistant.getByRole("button", { name: "Send to coach" }).click();
   await assistant.getByRole("button", { name: /Cooked basmati rice/ }).click();
   await assistant.getByRole("button", { name: "Approve" }).click();
 
@@ -132,7 +137,7 @@ test("Turn 4 selects, rejects, corrects, and approves a bounded source food", as
   await expect(page.getByText("1 approved foods")).toBeVisible();
 });
 
-test("Turn 4 offers AI estimation only after an explicit source failure", async ({
+test("Turn 5 offers AI estimation only after an explicit USDA failure", async ({
   page,
 }) => {
   await installNewCloudProfile(page, createNewDemoState());
@@ -143,7 +148,7 @@ test("Turn 4 offers AI estimation only after an explicit source failure", async 
       body: JSON.stringify({
         ok: false,
         code: "source_unavailable",
-        message: "Fuder could not return a safe candidate.",
+        message: "USDA FoodData Central could not return a safe candidate.",
         lookupId,
         offerAiEstimate: true,
       }),
@@ -151,16 +156,21 @@ test("Turn 4 offers AI estimation only after an explicit source failure", async 
   });
 
   await page.goto("/coach/new");
-  const assistant = page.getByRole("region", { name: "Add a catalog food" });
+  await page.getByRole("button", { name: "Add a missing food" }).click();
+  const assistant = page.getByRole("region", {
+    name: "Catalog food conversation",
+  });
   await assistant
     .getByRole("textbox", { name: "Food to add" })
     .fill("new food");
-  await assistant.getByRole("button", { name: "Check and search" }).click();
+  await assistant.getByRole("button", { name: "Send to coach" }).click();
 
   await expect(
     assistant.getByRole("button", { name: "Use an AI estimate" }),
   ).toBeVisible();
   await expect(
-    assistant.getByText("Fuder could not return", { exact: false }),
+    assistant.getByText("USDA FoodData Central could not return", {
+      exact: false,
+    }),
   ).toBeVisible();
 });

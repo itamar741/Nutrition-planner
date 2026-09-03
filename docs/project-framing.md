@@ -37,7 +37,7 @@ The project is done when all of the following statements are true:
 15. When sufficient evidence exists, the AI can use the calculated facts and the relevant nutrition guidance to propose an adjustment.
 16. An adjustment never modifies the Active Plan until the user explicitly approves it; after approval, the updated Active Plan is visibly rendered.
 17. PostgreSQL is the source of truth for both shared demo journeys, their conversations, the central catalog, and persistent lookup limits. Each journey has an independent Reset control.
-18. A missing food can enter the central catalog only through the bounded Fuder/ScrapingBee candidate flow or an explicitly authorized, permanently labelled AI estimate. The user selects and approves the exact record before storage.
+18. A missing basic food can enter the central catalog only through the bounded USDA FoodData Central candidate flow or an explicitly authorized, permanently labelled AI estimate. The user selects and approves the exact record before storage.
 19. The deployed demo is protected by one shared access code without adding accounts or a general authentication system.
 
 Nutrition formulas, target rates, acceptance ranges, and adjustment thresholds are intentionally not repeated in this framing document. They are established and cited in the goal-specific nutrition guidance and incorporated into the product specification.
@@ -49,7 +49,7 @@ The project deliberately does not include:
 - Authentication, registration, authorization, account management, or a general multi-user system.
 - Real users or profiles beyond the two predefined demonstration profiles.
 - Allergies, intolerances, medical conditions, clinical nutrition, or related safety screening.
-- Unrestricted runtime food search, general crawling, foods that bypass the catalog-approval workflow, or tools that allow the AI to browse or access unrestricted external systems. The sole exception is the documented, low-volume, server-owned Fuder lookup through ScrapingBee that requires explicit candidate selection and approval.
+- Unrestricted runtime food search, general crawling, foods that bypass the catalog-approval workflow, or tools that allow the AI to browse or access unrestricted external systems. The sole exception is the documented, low-volume, server-owned USDA Foundation Foods and SR Legacy lookup that requires explicit candidate selection and approval.
 - Workout programming or workout tracking.
 - Food-intake or adherence tracking.
 - Micronutrient calculation or optimization.

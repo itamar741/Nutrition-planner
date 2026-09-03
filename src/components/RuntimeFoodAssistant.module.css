@@ -6,6 +6,55 @@
   background: var(--paper);
 }
 
+.embedded {
+  margin: 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+}
+
+.heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.heading > div > span {
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.close {
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--ink);
+}
+
+.userBubble,
+.assistantBubble {
+  width: fit-content;
+  max-width: 86%;
+  padding: 10px 13px;
+  border-radius: 14px;
+}
+
+.userBubble {
+  margin: 14px 0 8px auto;
+  background: var(--primary);
+  color: white !important;
+}
+
+.assistantBubble {
+  margin: 8px auto 12px 0;
+  background: white;
+  border: 1px solid var(--border);
+}
+
 .card > span,
 .review > span {
   color: var(--accent);

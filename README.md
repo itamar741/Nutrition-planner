@@ -5,7 +5,7 @@ A narrow conversational nutrition-coach course project with exactly two shared d
 - **Fresh** — adaptive onboarding, food preferences, Draft generation, modification, and explicit activation.
 - **Existing** — seeded profile, Active Plan, approximately two months of weight history, deterministic trend analysis, and conversational adjustment approval.
 
-Turn 4 adds PostgreSQL-backed shared state, one shared access code, independent demo resets, and a bounded runtime-food workflow using OpenAI function calling, ScrapingBee, and Fuder.
+Turn 4 added PostgreSQL-backed shared state, one shared access code, and independent demo resets. Turn 5 adds a bounded main-chat food workflow using OpenAI function calling and the USDA FoodData Central API for basic foods.
 
 ## Local verification
 

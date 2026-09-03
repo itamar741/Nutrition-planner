@@ -10,7 +10,10 @@ export const foodLookupRequestSchema = z
   .strict();
 
 export const candidateDetailRequestSchema = z
-  .object({ candidateId: z.string().uuid() })
+  .object({
+    profileId: z.enum(["new", "existing"]),
+    candidateId: z.string().uuid(),
+  })
   .strict();
 
 export const candidateDecisionRequestSchema = z
@@ -23,9 +26,15 @@ export const candidateDecisionRequestSchema = z
   .strict();
 
 export const candidateRejectRequestSchema = z
-  .object({ candidateId: z.string().uuid() })
+  .object({
+    profileId: z.enum(["new", "existing"]),
+    candidateId: z.string().uuid(),
+  })
   .strict();
 
 export const estimateRequestSchema = z
-  .object({ lookupId: z.string().uuid() })
+  .object({
+    profileId: z.enum(["new", "existing"]),
+    lookupId: z.string().uuid(),
+  })
   .strict();
