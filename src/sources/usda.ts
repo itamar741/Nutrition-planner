@@ -216,6 +216,7 @@ export function buildUsdaSearchQuery(input: FoodLookupToolArguments) {
     /\bjasmine rice\b/gi,
     "white long-grain rice",
   );
+  if (!input.preparation) return sourceVocabulary;
   const preparationAlreadyPresent = new RegExp(
     `\\b${input.preparation}\\b`,
     "i",

@@ -129,7 +129,7 @@ export async function prepareFoodCandidate(input: {
   });
   const estimate = validateNutritionPlausibility({
     displayName: cached.title,
-    preparation: cached.toolArguments.preparation,
+    preparation: cached.toolArguments.preparation ?? "as listed by USDA",
     category: classification.category,
     mealClassification: classification.mealClassification,
     displayPortionLabel: cached.displayPortion.label,

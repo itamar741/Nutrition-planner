@@ -41,6 +41,9 @@ describe("bounded USDA FoodData Central parsing", () => {
         preparation: "cooked",
       }),
     ).toBe("pasta cooked");
+    expect(buildUsdaSearchQuery({ normalizedEnglishQuery: "cow's milk" })).toBe(
+      "cow's milk",
+    );
   });
 
   it("rejects injected URLs, SQL, and arbitrary tool arguments", () => {
@@ -53,6 +56,11 @@ describe("bounded USDA FoodData Central parsing", () => {
     });
 
     expect(result.success).toBe(false);
+    expect(
+      foodLookupToolArgumentsSchema.safeParse({
+        normalizedEnglishQuery: "cow's milk",
+      }).success,
+    ).toBe(true);
   });
 
   it("keeps ten unique Foundation and SR Legacy search results in USDA order", () => {
