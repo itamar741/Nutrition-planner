@@ -562,12 +562,14 @@ function ExistingFoundation() {
             {pendingAgentText ? (
               <div className={styles.weightUserMessage}>{pendingAgentText}</div>
             ) : null}
-            {activities.slice(-12).map((activity) => (
-              <div className={styles.processing} key={activity.id}>
-                <span className={styles.pulse} aria-hidden="true" />
-                {activity.label}
-              </div>
-            ))}
+            {activities
+              .filter((activity) => activity.status === "pending")
+              .map((activity) => (
+                <div className={styles.processing} key={activity.id}>
+                  <span className={styles.pulse} aria-hidden="true" />
+                  {activity.label}
+                </div>
+              ))}
             {proposalError ? (
               <p className={styles.errorBox} role="alert">
                 {proposalError}
@@ -1308,12 +1310,14 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                     }
                   />
                 ) : null}
-                {activities.slice(-12).map((activity) => (
-                  <div className={styles.processing} key={activity.id}>
-                    <span className={styles.pulse} aria-hidden="true" />
-                    {activity.label}
-                  </div>
-                ))}
+                {activities
+                  .filter((activity) => activity.status === "pending")
+                  .map((activity) => (
+                    <div className={styles.processing} key={activity.id}>
+                      <span className={styles.pulse} aria-hidden="true" />
+                      {activity.label}
+                    </div>
+                  ))}
                 {streamingText ? (
                   <div
                     className={`${styles.message} ${styles.assistantMessage}`}
