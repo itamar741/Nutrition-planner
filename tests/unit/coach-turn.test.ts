@@ -175,6 +175,28 @@ describe("unified coach orchestration", () => {
     ).toBe(1);
   });
 
+  it("asks a focused milk question instead of showing foods that merely contain milk", async () => {
+    const initial = await getProfile("existing");
+    agent.tool = {
+      name: "search_foods",
+      arguments: { normalizedEnglishQuery: "milk", preparation: null },
+    };
+
+    const result = await executeCoachTurn(
+      turnInput("existing", initial.version, "agent-generic-milk", "milk"),
+    );
+
+    expect(result.profile.state.agentSession.pendingInteraction).toMatchObject({
+      type: "clarification",
+      workflow: "food",
+      prompt: expect.stringContaining("what fat percentage"),
+    });
+    expect(agent.toolResults).toContainEqual({
+      outcome: "needs_clarification",
+      interaction: expect.objectContaining({ type: "clarification" }),
+    });
+  });
+
   it("pauses one unrelated workflow in server-owned context", async () => {
     const initial = await getProfile("existing");
     const foodQuestion: AgentInteraction = {

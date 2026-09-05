@@ -472,6 +472,16 @@ async function searchFoods(input: {
 }) {
   const existing = await findCatalogFood(input.query);
   if (existing) return { outcome: "existing" as const, food: existing };
+  if (
+    input.preparation === null &&
+    input.query.trim().toLocaleLowerCase("en-US") === "milk"
+  ) {
+    return {
+      outcome: "needs_clarification" as const,
+      prompt:
+        "Which milk should I look up: cow's milk (and what fat percentage), or a different kind of milk?",
+    };
+  }
   if (!(await recordAndCheckRateLimit(input.rateIdentity))) {
     throw new Error("The food-search limit has been reached. Try again later.");
   }
@@ -1048,6 +1058,16 @@ export async function executeCoachTurn(input: {
         onStatus: input.onStatus,
       });
       input.onStatus("validating");
+      if (result.outcome === "needs_clarification") {
+        const next = interaction(randomUUID(), {
+          type: "clarification",
+          workflow: "food",
+          prompt: result.prompt,
+          quickReplies: [],
+        });
+        state = setInteraction(state, next);
+        return { outcome: "needs_clarification", interaction: next };
+      }
       if (result.outcome === "existing") {
         const next = interaction(randomUUID(), {
           type: "existing_food",

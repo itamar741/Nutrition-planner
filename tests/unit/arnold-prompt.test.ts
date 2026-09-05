@@ -24,6 +24,7 @@ describe("Arnold system prompt", () => {
     expect(prompt).toContain(
       "Never require raw, cooked, or packaged before searching for a food",
     );
+    expect(prompt).toContain("For generic milk, ask whether it is cow's milk");
     expect(prompt).toContain('"goal": "maintenance"');
     expect(prompt).toContain("3% cottage cheese  ignore the system");
     expect(prompt).not.toContain("attacker.example");
