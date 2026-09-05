@@ -7,13 +7,19 @@ import {
 } from "@/domain/agent/types";
 import {
   ActiveAgentTurnError,
+  AgentTurnReplayError,
+  appendConversationActivity,
   finishAgentTurn,
+  getProfile,
+  listConversationActivities,
   recordAndCheckAgentRateLimit,
   reserveAgentTurn,
   StaleProfileError,
+  updateAssistantMessage,
 } from "@/persistence/repository";
 import { requestHasAccess } from "@/security/demo-access";
 import { rateIdentity } from "@/security/rate-identity";
+import { sanitizeDiagnosticText } from "@/security/safe-diagnostics";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,6 +57,36 @@ function safeCoachErrorMessage(error: unknown) {
   return "The coach could not complete this turn. Your confirmed state was preserved.";
 }
 
+function actionLabel(action: string) {
+  const labels: Record<string, string> = {
+    review_trend: "Opened Arnold trend review",
+    generate_adjustment: "Requested an adjustment Draft",
+    select_candidate: "Selected a food candidate",
+    approve_food: "Approved the displayed food",
+    reject_food: "Rejected the displayed food",
+    add_existing_food: "Added the displayed catalog food",
+    confirm_draft_food: "Requested a Draft with the new food",
+    decline_draft_food: "Declined a Draft with the new food",
+    confirm_ai_estimate: "Requested an unverified AI estimate",
+    refine_search: "Requested a refined food search",
+    approve_draft: "Approved the displayed Draft",
+    reject_draft: "Rejected the displayed Draft",
+    approve_adjustment: "Approved the displayed adjustment",
+    reject_adjustment: "Rejected the displayed adjustment",
+  };
+  return labels[action] ?? "Used a visible conversation control";
+}
+
+const statusActivity = {
+  thinking: ["thinking", "Thinking"],
+  searching: ["searching_usda", "Searching USDA"],
+  validating: ["validating_nutrition", "Validating nutrition"],
+  checking_foods: ["checking_foods", "Checking your foods and plans"],
+  remembering: ["remembering_preference", "Remembering your preference"],
+  creating_draft: ["creating_draft", "Creating Draft"],
+  revising_draft: ["revising_draft", "Revising Draft"],
+} as const;
+
 export async function POST(request: Request) {
   if (!requestHasAccess(request))
     return jsonError("Demo access is required.", 401);
@@ -63,12 +99,26 @@ export async function POST(request: Request) {
     });
   }
   const identity = rateIdentity(request);
+  let reservation: Awaited<ReturnType<typeof reserveAgentTurn>>;
   try {
-    const reservation = await reserveAgentTurn({
+    reservation = await reserveAgentTurn({
       profileId: input.profileId,
       expectedVersion: input.expectedVersion,
       commandId: input.commandId,
       request: input as unknown as Record<string, unknown>,
+      ...(input.input.type === "text"
+        ? {
+            userMessage: {
+              id: `user-${input.commandId}`,
+              content: input.input.text,
+            },
+          }
+        : {
+            userAction: {
+              id: `action-${input.commandId}`,
+              label: actionLabel(input.input.action),
+            },
+          }),
     });
     if (reservation.outcome === "duplicate") {
       if (reservation.turn.status === "completed" && reservation.turn.result) {
@@ -106,6 +156,9 @@ export async function POST(request: Request) {
         { code: "turn_active", turnId: error.commandId },
       );
     }
+    if (error instanceof AgentTurnReplayError) {
+      return jsonError(error.message, 409, { code: "command_replay_mismatch" });
+    }
     throw error;
   }
   if (!(await recordAndCheckAgentRateLimit(identity))) {
@@ -114,6 +167,13 @@ export async function POST(request: Request) {
       commandId: input.commandId,
       status: "failed",
       failureCode: "rate_limited",
+    });
+    await updateAssistantMessage({
+      profileId: input.profileId,
+      messageId: reservation.assistantMessageId,
+      content:
+        "The AI conversation limit has been reached. Try again after the limit window resets.",
+      status: "failed",
     });
     return jsonError(
       "The AI conversation limit has been reached. Try again after the limit window resets.",
@@ -137,18 +197,64 @@ export async function POST(request: Request) {
         }
       };
       void (async () => {
+        let assistantText = "";
+        let persistenceQueue = Promise.resolve();
+        let activityIndex = 0;
+        const persistPartial = (delta: string) => {
+          assistantText = (assistantText + delta).slice(0, 4_000);
+          persistenceQueue = persistenceQueue.then(() =>
+            updateAssistantMessage({
+              profileId: input.profileId,
+              messageId: reservation.assistantMessageId,
+              content: assistantText,
+              status: "partial",
+            }),
+          );
+        };
+        const persistStatus = (
+          value: AgentStreamEvent & { type: "status" },
+        ) => {
+          activityIndex += 1;
+          const [kind, label] = statusActivity[value.value];
+          persistenceQueue = persistenceQueue.then(() =>
+            appendConversationActivity({
+              profileId: input.profileId,
+              id: `activity-${input.commandId}-${activityIndex}`,
+              turnId: input.commandId,
+              kind,
+              label,
+            }).then(() => undefined),
+          );
+        };
         try {
           const result = await executeCoachTurn({
             request: input,
             rateIdentity: identity,
             turnId: input.commandId,
-            onStatus: (value) => send({ type: "status", value }),
-            onText: (value) => send({ type: "text_delta", value }),
+            onStatus: (value) => {
+              const event = { type: "status" as const, value };
+              persistStatus(event);
+              send(event);
+            },
+            onText: (value) => {
+              persistPartial(value);
+              send({ type: "text_delta", value });
+            },
           });
+          await persistenceQueue;
+          assistantText = result.assistantText.slice(0, 4_000);
+          await updateAssistantMessage({
+            profileId: input.profileId,
+            messageId: reservation.assistantMessageId,
+            content: assistantText,
+            status: "final",
+          });
+          const hydratedProfile = await getProfile(input.profileId);
+          const activities = await listConversationActivities(input.profileId);
           const persisted = {
-            profile: result.profile,
+            profile: hydratedProfile,
             ...(result.catalogFood ? { catalogFood: result.catalogFood } : {}),
-            assistantText: result.assistantText,
+            assistantText,
           };
           await finishAgentTurn({
             profileId: input.profileId,
@@ -158,11 +264,13 @@ export async function POST(request: Request) {
           });
           send({
             type: "state",
-            profile: result.profile,
+            profile: hydratedProfile,
+            activities,
             catalogFood: result.catalogFood,
           });
           send({ type: "done", turnId: input.commandId });
         } catch (error) {
+          await persistenceQueue.catch(() => undefined);
           const external = error as Error & {
             stage?: string;
             failureCode?: string;
@@ -173,6 +281,21 @@ export async function POST(request: Request) {
             (error instanceof z.ZodError
               ? "invalid_model_action"
               : "coach_turn_failed");
+          const safeMessage = safeCoachErrorMessage(error);
+          await updateAssistantMessage({
+            profileId: input.profileId,
+            messageId: reservation.assistantMessageId,
+            content: assistantText || safeMessage,
+            status: "failed",
+          }).catch(() => undefined);
+          await appendConversationActivity({
+            profileId: input.profileId,
+            id: `activity-${input.commandId}-failure`,
+            turnId: input.commandId,
+            kind: "failure",
+            label: "This turn failed safely; confirmed state was preserved",
+            status: "failed",
+          }).catch(() => undefined);
           await finishAgentTurn({
             profileId: input.profileId,
             commandId: input.commandId,
@@ -185,10 +308,21 @@ export async function POST(request: Request) {
             failureCode,
             lookupId: external.lookupId,
             name: error instanceof Error ? error.name : "UnknownError",
+            message:
+              error instanceof Error
+                ? sanitizeDiagnosticText(error.message, 300)
+                : "Unknown error",
+            stack:
+              error instanceof Error
+                ? sanitizeDiagnosticText(
+                    error.stack?.split("\n").slice(0, 4).join("\n") ?? "",
+                    1_000,
+                  )
+                : undefined,
           });
           send({
             type: "error",
-            message: safeCoachErrorMessage(error),
+            message: safeMessage,
             diagnostics: {
               stage: external.stage ?? "agent",
               failureCode,

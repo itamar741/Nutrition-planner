@@ -23,38 +23,18 @@ const profileAfterBasics: StructuredProfile = {
   approvedCatalogFoodIds: [],
 };
 
-async function fulfillBasics(
-  route: Route,
-  cloud: Awaited<ReturnType<typeof installNewCloudProfile>>,
-) {
+async function fulfillBasics(route: Route) {
   const requestBody = route.request().postDataJSON() as { commandId: string };
-  const current = cloud.current();
-  const state = {
-    ...current,
-    profile: profileAfterBasics,
-    activeTurn: getNextTurn(profileAfterBasics),
-    targets: calculateTargets(profileAfterBasics),
-    messages: [
-      ...current.messages,
-      {
-        id: `user-${requestBody.commandId}`,
-        role: "user" as const,
-        text: "I am a 30 year old man, 180 cm and 80 kg.",
-      },
-      {
-        id: `assistant-${requestBody.commandId}`,
-        role: "assistant" as const,
-        text: "I captured those four details.",
-      },
-    ],
-  };
-  const profile = cloud.update(state);
   await route.fulfill({
     status: 200,
     contentType: "application/json",
     body: JSON.stringify({
       ok: true,
-      profile,
+      commandId: requestBody.commandId,
+      profile: profileAfterBasics,
+      activeTurn: getNextTurn(profileAfterBasics),
+      targets: calculateTargets(profileAfterBasics),
+      acknowledgement: "I captured those four details.",
     }),
   });
 }
@@ -80,10 +60,8 @@ test("SC-01 entry exposes exactly the two demo profiles", async ({ page }) => {
 test("UI-01/UI-02/AI-01 moves from one open answer to locked quick replies", async ({
   page,
 }) => {
-  const cloud = await installNewCloudProfile(page, createNewDemoState());
-  await page.route("**/api/coach/message", (route) =>
-    fulfillBasics(route, cloud),
-  );
+  await installNewCloudProfile(page, createNewDemoState());
+  await page.route("**/api/coach/onboarding", (route) => fulfillBasics(route));
   await page.goto("/coach/new");
 
   const input = page.getByRole("textbox", {
@@ -115,10 +93,10 @@ test("UI-01/UI-02/AI-01 moves from one open answer to locked quick replies", asy
 test("UI-05/UI-06 preserves the answer, locks controls, and shows slow feedback", async ({
   page,
 }) => {
-  const cloud = await installNewCloudProfile(page, createNewDemoState());
-  await page.route("**/api/coach/message", async (route) => {
+  await installNewCloudProfile(page, createNewDemoState());
+  await page.route("**/api/coach/onboarding", async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 2_000));
-    await fulfillBasics(route, cloud);
+    await fulfillBasics(route);
   });
   await page.goto("/coach/new");
 
@@ -132,16 +110,16 @@ test("UI-05/UI-06 preserves the answer, locks controls, and shows slow feedback"
   await expect(page.locator('[data-role="user"]')).toContainText(
     "I am a 30 year old man",
   );
-  await expect(page.getByRole("status")).toContainText("Thinking");
+  await expect(page.getByRole("status")).toContainText("Reviewing");
   await expect(page.getByLabel("Quick replies")).toBeVisible();
 });
 
 test("UI-09 retry preserves state and does not duplicate the submitted action", async ({
   page,
 }) => {
-  const cloud = await installNewCloudProfile(page, createNewDemoState());
+  await installNewCloudProfile(page, createNewDemoState());
   let calls = 0;
-  await page.route("**/api/coach/message", async (route) => {
+  await page.route("**/api/coach/onboarding", async (route) => {
     calls += 1;
     if (calls === 1) {
       const requestBody = route.request().postDataJSON() as {
@@ -160,7 +138,7 @@ test("UI-09 retry preserves state and does not duplicate the submitted action", 
       });
       return;
     }
-    await fulfillBasics(route, cloud);
+    await fulfillBasics(route);
   });
   await page.goto("/coach/new");
 

@@ -232,7 +232,7 @@ export function demoReducer(
           {
             id: messageId("assistant", action.commandId),
             role: "assistant",
-            text: "Your food preferences are complete. Your targets are ready; generate a Draft when you are ready.",
+            text: "Your food preferences and deterministic targets are ready. I’m Arnold, your planning coach. When you’re ready, ask me to create a Draft from your approved foods.",
           },
         ],
       };

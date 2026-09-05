@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
-import { createNewDemoState } from "@/data/demo-fixtures";
 import type { CatalogFood } from "@/domain/catalog/types";
 import type { FoodSearchCandidate } from "@/domain/catalog/runtime";
 import { installNewCloudProfile } from "./helpers/cloud-profile";
+import { makeReadyState } from "../fixtures/turn-2";
 
 const candidateId = "f00d0000-0000-4000-8000-000000000001";
 const lookupId = "100d0000-0000-4000-8000-000000000001";
@@ -200,7 +200,7 @@ async function installCatalogAgent(
 test("Turn 7 selects, rejects, corrects, and approves a bounded USDA food in chat", async ({
   page,
 }) => {
-  const cloud = await installNewCloudProfile(page, createNewDemoState());
+  const cloud = await installNewCloudProfile(page, makeReadyState());
   await installCatalogAgent(page, cloud);
   await page.goto("/coach/new");
 
@@ -228,7 +228,9 @@ test("Turn 7 selects, rejects, corrects, and approves a bounded USDA food in cha
   await page.getByRole("button", { name: "Select this food" }).first().click();
   await page.getByRole("button", { name: "Approve food" }).click();
 
-  await expect(page.getByText("1 approved foods")).toBeVisible();
+  await expect(
+    page.getByText("1 approved foods", { exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Create Draft" }),
   ).toBeVisible();
@@ -237,7 +239,7 @@ test("Turn 7 selects, rejects, corrects, and approves a bounded USDA food in cha
 test("Turn 7 offers AI estimation only after an explicit USDA failure", async ({
   page,
 }) => {
-  const cloud = await installNewCloudProfile(page, createNewDemoState());
+  const cloud = await installNewCloudProfile(page, makeReadyState());
   await installCatalogAgent(page, cloud, true);
   await page.goto("/coach/new");
 
@@ -259,7 +261,7 @@ test("Turn 7 offers AI estimation only after an explicit USDA failure", async ({
 test("Turn 7 persists one combined cottage clarification and understands the next reply", async ({
   page,
 }) => {
-  const cloud = await installNewCloudProfile(page, createNewDemoState());
+  const cloud = await installNewCloudProfile(page, makeReadyState());
   await installCatalogAgent(page, cloud);
   await page.goto("/coach/new");
 
@@ -283,7 +285,7 @@ test("Turn 7 persists one combined cottage clarification and understands the nex
 test("Turn 7 can select the fifth displayed candidate by text but cannot approve it", async ({
   page,
 }) => {
-  const cloud = await installNewCloudProfile(page, createNewDemoState());
+  const cloud = await installNewCloudProfile(page, makeReadyState());
   await installCatalogAgent(page, cloud);
   await page.goto("/coach/new");
 

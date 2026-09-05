@@ -37,10 +37,33 @@ test("B-01 reviews, declines, revises, and approves an adjustment in chat", asyn
     };
     version = Math.max(version, request.expectedVersion) + 1;
     let assistant = "Done.";
-    if (request.input.type === "text") {
-      const feedback = request.input.text.includes("evening")
-        ? request.input.text
-        : undefined;
+    if (
+      request.input.type === "interaction" &&
+      request.input.action === "review_trend"
+    ) {
+      state = {
+        ...state,
+        agentSession: {
+          ...state.agentSession,
+          pendingInteraction: {
+            id: `adjustment-offer-v${state.activePlan.version}`,
+            type: "adjustment_offer",
+            basePlanVersion: state.activePlan.version,
+            direction: "decrease",
+            adjustmentKcal: 150,
+          },
+        },
+      };
+      assistant =
+        "I reviewed your deterministic trend. A bounded Draft adjustment is available.";
+    } else if (
+      request.input.type === "text" ||
+      request.input.action === "generate_adjustment"
+    ) {
+      const feedback =
+        request.input.type === "text" && request.input.text.includes("evening")
+          ? request.input.text
+          : undefined;
       feedbackRequests.push(feedback);
       const draft = await generateAdjustmentDraft(
         {
@@ -168,6 +191,9 @@ test("B-01 reviews, declines, revises, and approves an adjustment in chat", asyn
 test("B-02 caps editable and rendered weights at two decimal places", async ({
   page,
 }) => {
+  await page.addInitScript(() => {
+    window.sessionStorage.setItem("arnold-trend-review:existing", "started");
+  });
   await page.goto("/coach/existing");
   const chartPoints = page.locator('circle[role="button"]');
   await chartPoints.last().click();

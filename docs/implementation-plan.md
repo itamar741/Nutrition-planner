@@ -1,6 +1,6 @@
 # Implementation Plan v0.4
 
-Status: Turns 1–7 are implemented locally. Turn 8 is planned; complete verification and credentialed Render staging remain required.
+Status: Turns 1–8 are implemented locally. Credentialed Render staging remains required.
 
 This plan is governed by the project framing, description, interface design, product specification, nutrition guidance, and verification plan. The narrower documented boundary wins if two documents conflict.
 

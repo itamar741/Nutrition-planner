@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import type { ConversationActivity } from "@/domain/agent/types";
 import { foodCatalog } from "@/data/food-catalog";
 import { createCatalogSnapshot } from "@/domain/catalog/snapshot";
 import {
@@ -12,6 +13,7 @@ export async function installNewCloudProfile(
   initialState: DemoState,
 ) {
   let state = structuredClone(initialState);
+  let activityEvents: ConversationActivity[] = [];
   let version = 1;
   const commandResults = new Map<
     string,
@@ -25,7 +27,7 @@ export async function installNewCloudProfile(
         contentType: "application/json",
         body: JSON.stringify({
           ok: true,
-          profile: { profileId: "new", version, state },
+          profile: { profileId: "new", version, state, activityEvents },
           catalog: foodCatalog,
         }),
       });
@@ -84,5 +86,8 @@ export async function installNewCloudProfile(
       return { profileId: "new" as const, version, state };
     },
     profile: () => ({ profileId: "new" as const, version, state }),
+    setActivities: (next: ConversationActivity[]) => {
+      activityEvents = structuredClone(next);
+    },
   };
 }

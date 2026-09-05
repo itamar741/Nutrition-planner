@@ -21,7 +21,16 @@ export class AgentClientError extends Error {
 
 export async function sendCoachMessage(input: {
   request: CoachMessageRequest;
-  onStatus?: (value: "thinking" | "searching" | "validating") => void;
+  onStatus?: (
+    value:
+      | "thinking"
+      | "searching"
+      | "validating"
+      | "checking_foods"
+      | "remembering"
+      | "creating_draft"
+      | "revising_draft",
+  ) => void;
   onText?: (value: string) => void;
 }): Promise<{ profile: VersionedProfile; catalogFood?: CatalogFood }> {
   const response = await fetch("/api/coach/message", {

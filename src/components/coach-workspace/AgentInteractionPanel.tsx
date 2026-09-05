@@ -291,6 +291,36 @@ export function AgentInteractionPanel({
       </div>
     );
   }
+  if (interaction.type === "adjustment_offer") {
+    return (
+      <div
+        className={styles.adjustmentChatProposal}
+        aria-label="Adjustment offer"
+      >
+        <span>Deterministic trend review</span>
+        <h3>A bounded adjustment is available</h3>
+        <p>
+          Arnold may prepare a Draft that {interaction.direction}s the daily
+          target by {interaction.adjustmentKcal} kcal. Your Active Plan will not
+          change until you approve the resulting proposal.
+        </p>
+        <button
+          className={styles.primaryAction}
+          disabled={disabled}
+          onClick={() =>
+            onAction({
+              type: "interaction",
+              interactionId: interaction.id,
+              action: "generate_adjustment",
+            })
+          }
+          type="button"
+        >
+          Generate AI proposal
+        </button>
+      </div>
+    );
+  }
   return (
     <div
       className={styles.adjustmentChatProposal}

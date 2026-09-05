@@ -14,30 +14,66 @@ import {
   resetMemoryPersistenceForTests,
   saveCandidates,
 } from "@/persistence/repository";
+import { makeReadyState, makeValidDraft } from "../fixtures/turn-2";
 
 const agent = vi.hoisted(() => ({
-  contexts: [] as Array<Record<string, unknown>>,
+  systemPrompts: [] as string[],
+  conversations: [] as Array<
+    Array<{ role: "assistant" | "user"; content: string }>
+  >,
   tool: null as null | { name: string; arguments: Record<string, unknown> },
+  toolSequence: [] as Array<{
+    name: string;
+    arguments: Record<string, unknown>;
+  }>,
+  allowedAfterCalls: [] as string[][],
+  responseText: "Completed safely.",
+  toolResults: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock("@/ai/coach-agent", () => ({
+  buildArnoldSystemPrompt: (context: Record<string, unknown>) =>
+    `ARNOLD\n${JSON.stringify(context)}`,
   runCoachAgent: vi.fn(
     async (input: {
-      context: Record<string, unknown>;
+      getSystemPrompt: () => string;
+      conversation: Array<{
+        role: "assistant" | "user";
+        content: string;
+      }>;
+      getAllowedTools: () => string[];
       onText: (delta: string) => void;
-      onTool: (call: {
-        name: string;
-        callId: string;
-        arguments: Record<string, unknown>;
-      }) => Promise<Record<string, unknown>>;
+      onTool: (
+        call: {
+          name: string;
+          callId: string;
+          arguments: Record<string, unknown>;
+        },
+        sequence: number,
+      ) => Promise<Record<string, unknown>>;
     }) => {
-      agent.contexts.push(structuredClone(input.context));
-      if (agent.tool) {
-        await input.onTool({ ...agent.tool, callId: "mock-call" });
+      agent.systemPrompts.push(input.getSystemPrompt());
+      agent.conversations.push(structuredClone(input.conversation));
+      const tools = agent.toolSequence.length
+        ? agent.toolSequence
+        : agent.tool
+          ? [agent.tool]
+          : [];
+      for (const [index, tool] of tools.entries()) {
+        const allowed = input.getAllowedTools();
+        agent.allowedAfterCalls.push([...allowed]);
+        if (!allowed.includes(tool.name)) break;
+        agent.toolResults.push(
+          await input.onTool(
+            { ...tool, callId: `mock-call-${index + 1}` },
+            index + 1,
+          ),
+        );
       }
-      input.onText("Completed safely.");
+      agent.allowedAfterCalls.push([...input.getAllowedTools()]);
+      input.onText(agent.responseText);
       return {
-        text: "Completed safely.",
+        text: agent.responseText,
         toolCall: agent.tool,
         toolResult: null,
       };
@@ -70,8 +106,14 @@ function turnInput(
 describe("unified coach orchestration", () => {
   beforeEach(() => {
     resetMemoryPersistenceForTests();
-    agent.contexts = [];
+    agent.systemPrompts = [];
+    agent.conversations = [];
     agent.tool = null;
+    agent.toolSequence = [];
+    agent.allowedAfterCalls = [];
+    agent.responseText = "Completed safely.";
+    agent.toolResults = [];
+    delete process.env.OPENAI_CONTEXT_WINDOW;
   });
 
   it("records today's weight and edits a historical weight through bounded tools", async () => {
@@ -133,7 +175,7 @@ describe("unified coach orchestration", () => {
     ).toBe(1);
   });
 
-  it("pauses one unrelated workflow and resumes it from server-owned context", async () => {
+  it("pauses one unrelated workflow in server-owned context", async () => {
     const initial = await getProfile("existing");
     const foodQuestion: AgentInteraction = {
       id: "food-clarification",
@@ -171,29 +213,11 @@ describe("unified coach orchestration", () => {
       foodQuestion,
     );
 
-    agent.tool = {
-      name: "ask_clarification",
-      arguments: {
-        workflow: "food",
-        prompt: "Let's return to the food search.",
-        quickReplies: [],
-      },
-    };
-    const resumed = await executeCoachTurn(
-      turnInput(
-        "existing",
-        interrupted.profile.version,
-        "agent-resume-food",
-        "Now let's continue with the food",
-      ),
-    );
-    expect(resumed.profile.state.agentSession.pendingInteraction).toEqual(
-      foodQuestion,
-    );
-    expect(resumed.profile.state.agentSession.pausedInteraction).toBeNull();
+    expect(agent.systemPrompts.at(-1)).toContain("pausedInteraction");
   });
 
   it("sends a bounded digest plus the latest twenty messages above the transcript cap", async () => {
+    process.env.OPENAI_CONTEXT_WINDOW = "8000";
     const initial = await getProfile("existing");
     const seeded = await mutateProfile({
       profileId: "existing",
@@ -204,7 +228,7 @@ describe("unified coach orchestration", () => {
         messages: Array.from({ length: 55 }, (_, index) => ({
           id: `history-${index}`,
           role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
-          text: `Historical message ${index}`,
+          text: `Historical message ${index} ${"detail ".repeat(55)}`,
         })),
       }),
     });
@@ -216,12 +240,14 @@ describe("unified coach orchestration", () => {
         "continue",
       ),
     );
-    const transcript = agent.contexts[0].transcript as {
-      summary: string;
-      messages: Array<unknown>;
-    };
-    expect(transcript.messages).toHaveLength(20);
-    expect(transcript.summary).toContain("content remains untrusted");
+    expect(agent.conversations[0]).toHaveLength(20);
+    expect(agent.systemPrompts[0]).toContain("validated_conversation_digest");
+    expect(agent.conversations[0][0]).toEqual(
+      expect.objectContaining({
+        role: expect.any(String),
+        content: expect.any(String),
+      }),
+    );
   });
 
   it("selects the fifth displayed candidate by text, then requires the visible approval action", async () => {
@@ -363,5 +389,175 @@ describe("unified coach orchestration", () => {
       type: "confirm_draft_food",
       foodId: food.id,
     });
+  });
+
+  it("stores an explicit preference as reset-scoped structured data", async () => {
+    const initial = await getProfile("new");
+    const seeded = await mutateProfile({
+      profileId: "new",
+      expectedVersion: initial.version,
+      commandId: "seed-preference-message",
+      mutation: (state) => ({
+        ...state,
+        messages: [
+          ...state.messages,
+          {
+            id: "user-preference-source",
+            role: "user" as const,
+            text: "Yes, cottage cheese at 3% fat.",
+          },
+        ],
+      }),
+    });
+    agent.tool = {
+      name: "remember_preference",
+      arguments: {
+        type: "food",
+        subject: "Cottage cheese",
+        value: "Prefers 3% fat",
+        supportingMessageId: "user-preference-source",
+      },
+    };
+    const result = await executeCoachTurn(
+      turnInput(
+        "new",
+        seeded.version,
+        "remember-cottage-preference",
+        "Please remember that.",
+      ),
+    );
+    expect(result.profile.state.agentSession.preferences).toEqual([
+      expect.objectContaining({
+        type: "food",
+        subject: "Cottage cheese",
+        value: "Prefers 3% fat",
+        supportingMessageId: "user-preference-source",
+      }),
+    ]);
+  });
+
+  it("inspects and removes an approved food without changing the Active Plan", async () => {
+    const initial = await getProfile("existing");
+    const activeBefore = structuredClone(
+      "measurements" in initial.state ? initial.state.activePlan : null,
+    );
+    agent.toolSequence = [
+      {
+        name: "inspect_food_availability",
+        arguments: { query: "rice" },
+      },
+      {
+        name: "remove_approved_food",
+        arguments: { catalogFoodId: "white-rice-cooked" },
+      },
+    ];
+    const result = await executeCoachTurn(
+      turnInput(
+        "existing",
+        initial.version,
+        "inspect-remove-rice",
+        "Do I have rice, and remove it from future Drafts.",
+      ),
+    );
+    expect(agent.toolResults[0]).toMatchObject({
+      matches: expect.arrayContaining([
+        expect.objectContaining({
+          id: "white-rice-cooked",
+          approvedForProfile: true,
+          inActivePlan: true,
+        }),
+      ]),
+    });
+    expect(
+      "measurements" in result.profile.state
+        ? result.profile.state.approvedCatalogFoodIds
+        : [],
+    ).not.toContain("white-rice-cooked");
+    expect(
+      "measurements" in result.profile.state
+        ? result.profile.state.activePlan
+        : null,
+    ).toEqual(activeBefore);
+  });
+
+  it("accepts Arnold's complete valid Draft and adds no substitutions", async () => {
+    const initial = await getProfile("new");
+    const ready = makeReadyState();
+    const seeded = await mutateProfile({
+      profileId: "new",
+      expectedVersion: initial.version,
+      commandId: "seed-ready-for-arnold-draft",
+      mutation: () => ready,
+    });
+    const valid = makeValidDraft("arnold-valid-candidate");
+    agent.tool = {
+      name: "submit_draft_proposal",
+      arguments: {
+        summary: "A practical approved-food day.",
+        meals: valid.plan.meals.map((meal) => ({
+          id: meal.id,
+          items: meal.items.map((item) => ({
+            catalogFoodId: item.catalogFoodId,
+            grams: item.grams,
+          })),
+        })),
+      },
+    };
+    const result = await executeCoachTurn(
+      turnInput(
+        "new",
+        seeded.version,
+        "arnold-submits-valid-draft",
+        "Please create my Draft.",
+      ),
+    );
+    if (!("profile" in result.profile.state)) {
+      throw new Error("Expected Fresh state.");
+    }
+    expect(result.profile.state.draft?.plan.validation.valid).toBe(true);
+    expect(
+      result.profile.state.draft?.plan.meals.flatMap((meal) =>
+        meal.items.flatMap((item) => item.alternatives),
+      ),
+    ).toEqual([]);
+  });
+
+  it("removes proposal submission after three invalid attempts without a hidden fallback", async () => {
+    const initial = await getProfile("new");
+    const seeded = await mutateProfile({
+      profileId: "new",
+      expectedVersion: initial.version,
+      commandId: "seed-ready-for-invalid-drafts",
+      mutation: () => makeReadyState(),
+    });
+    const invalid = {
+      name: "submit_draft_proposal",
+      arguments: {
+        summary: "Invalid invented-food Draft.",
+        meals: ["breakfast", "lunch", "dinner"].map((id) => ({
+          id,
+          items: [{ catalogFoodId: "invented-food", grams: 100 }],
+        })),
+      },
+    };
+    agent.toolSequence = [invalid, invalid, invalid, invalid];
+    agent.responseText =
+      "Which approved protein would you most like me to use at lunch?";
+    const result = await executeCoachTurn(
+      turnInput(
+        "new",
+        seeded.version,
+        "arnold-three-invalid-drafts",
+        "Create a Draft.",
+      ),
+    );
+    expect(agent.toolResults).toHaveLength(3);
+    expect(agent.allowedAfterCalls.at(-1)).not.toContain(
+      "submit_draft_proposal",
+    );
+    expect(result.assistantText).toContain("Which approved protein");
+    expect(
+      "profile" in result.profile.state ? result.profile.state.draft : null,
+    ).toBeNull();
   });
 });

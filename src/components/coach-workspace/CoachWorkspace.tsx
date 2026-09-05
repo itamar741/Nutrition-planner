@@ -22,10 +22,8 @@ import {
   foodCategoryLabels,
   foodCategoryOrder,
 } from "@/data/food-catalog";
-import { roundTo25HalfUp } from "@/domain/nutrition/calculations";
-import { getChecklist } from "@/domain/profile/onboarding";
+import { getChecklist, isProfileReady } from "@/domain/profile/onboarding";
 import {
-  adjustmentDirection,
   calculateWeightTrend,
   formatWeightKg,
   normalizeWeightKg,
@@ -55,6 +53,7 @@ import { PlanContents, PlanPanel } from "./PlanPanel";
 import { WeightTrendChart } from "./WeightTrendChart";
 import { sendCoachMessage, AgentClientError } from "@/store/agent-client";
 import type { CoachMessageRequest } from "@/domain/agent/types";
+import type { ConversationActivity } from "@/domain/agent/types";
 import { AgentInteractionPanel } from "./AgentInteractionPanel";
 import styles from "./CoachWorkspace.module.css";
 
@@ -63,6 +62,26 @@ function createCommandId() {
     globalThis.crypto?.randomUUID?.() ??
     `command-${Date.now()}-${Math.random()}`
   );
+}
+
+function agentStatusLabel(
+  status:
+    | "thinking"
+    | "searching"
+    | "validating"
+    | "checking_foods"
+    | "remembering"
+    | "creating_draft"
+    | "revising_draft"
+    | null,
+) {
+  if (status === "searching") return "Searching USDA…";
+  if (status === "validating") return "Validating nutrition…";
+  if (status === "checking_foods") return "Checking your foods and plans…";
+  if (status === "remembering") return "Remembering your preference…";
+  if (status === "creating_draft") return "Creating Draft…";
+  if (status === "revising_draft") return "Revising Draft…";
+  return "Thinking…";
 }
 
 function CatalogSection({
@@ -105,6 +124,7 @@ function ExistingFoundation() {
     createExistingDemoState,
   );
   const [catalog, setCatalog] = useState<CatalogFood[]>([...foodCatalog]);
+  const [activities, setActivities] = useState<ConversationActivity[]>([]);
   const [cloudError, setCloudError] = useState("");
   const cloudVersion = useRef(1);
   const cloudQueue = useRef<Promise<void>>(Promise.resolve());
@@ -116,7 +136,14 @@ function ExistingFoundation() {
   const [proposalError, setProposalError] = useState("");
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentStatus, setAgentStatus] = useState<
-    "thinking" | "searching" | "validating" | null
+    | "thinking"
+    | "searching"
+    | "validating"
+    | "checking_foods"
+    | "remembering"
+    | "creating_draft"
+    | "revising_draft"
+    | null
   >(null);
   const [streamingText, setStreamingText] = useState("");
   const [pendingAgentText, setPendingAgentText] = useState("");
@@ -124,9 +151,10 @@ function ExistingFoundation() {
     string,
     string
   > | null>(null);
-  const [lastAgentInput, setLastAgentInput] = useState<
-    CoachMessageRequest["input"] | null
-  >(null);
+  const [lastAgentRequest, setLastAgentRequest] = useState<{
+    input: CoachMessageRequest["input"];
+    commandId: string;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -135,7 +163,20 @@ function ExistingFoundation() {
         if (cancelled) return;
         cloudVersion.current = result.profile.version;
         setExisting(result.profile.state);
+        setActivities(result.profile.activityEvents ?? []);
         if (result.catalog.length > 0) setCatalog(result.catalog);
+        const reviewKey = "arnold-trend-review:existing";
+        if (!window.sessionStorage.getItem(reviewKey)) {
+          window.sessionStorage.setItem(reviewKey, "started");
+          void sendExistingAgent(
+            {
+              type: "interaction",
+              interactionId: `existing-session-review-v${result.profile.state.activePlan.version}`,
+              action: "review_trend",
+            },
+            createCommandId(),
+          );
+        }
       })
       .catch((error) => {
         if (!cancelled) {
@@ -149,6 +190,8 @@ function ExistingFoundation() {
     return () => {
       cancelled = true;
     };
+    // The opening review is intentionally bound to the first hydration only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function dispatchExisting(action: ExistingDemoAction) {
@@ -185,20 +228,15 @@ function ExistingFoundation() {
       }),
     [existing.activePlan.activatedAt, existing.measurements],
   );
-  const direction =
-    trend.evidence === "sufficient"
-      ? adjustmentDirection(profile.goal ?? "maintenance", trend.weeklyPercent)
-      : null;
-  const adjustmentKcal = roundTo25HalfUp(
-    existing.activePlan.plan.validation.totals.energyKcal * 0.05,
-  );
-
   function appendChat(role: "assistant" | "user", text: string) {
     return { id: `${role}-${createCommandId()}`, role, text };
   }
-  async function sendExistingAgent(agentInput: CoachMessageRequest["input"]) {
+  async function sendExistingAgent(
+    agentInput: CoachMessageRequest["input"],
+    commandId = createCommandId(),
+  ) {
     if (agentBusy) return;
-    setLastAgentInput(agentInput);
+    setLastAgentRequest({ input: agentInput, commandId });
     setAgentBusy(true);
     setStreamingText("");
     setPendingAgentText(
@@ -208,7 +246,6 @@ function ExistingFoundation() {
     );
     setCloudError("");
     setAgentDiagnostics(null);
-    const commandId = createCommandId();
     try {
       const result = await sendCoachMessage({
         request: {
@@ -222,6 +259,7 @@ function ExistingFoundation() {
       });
       cloudVersion.current = result.profile.version;
       setExisting(result.profile.state as ExistingDemoState);
+      setActivities(result.profile.activityEvents ?? []);
       if (result.catalogFood) {
         setCatalog((current) => [
           ...current.filter((food) => food.id !== result.catalogFood!.id),
@@ -238,6 +276,16 @@ function ExistingFoundation() {
       }
       if (error instanceof AgentClientError)
         setAgentDiagnostics(error.diagnostics ?? null);
+      try {
+        const latest = await loadCloudProfile<ExistingDemoState>("existing");
+        cloudVersion.current = latest.profile.version;
+        setExisting(latest.profile.state);
+        setActivities(latest.profile.activityEvents ?? []);
+      } catch {
+        // Keep the last confirmed render when reload is also unavailable.
+      }
+      setPendingAgentText("");
+      setStreamingText("");
       setCloudError(
         error instanceof Error
           ? error.message
@@ -295,6 +343,7 @@ function ExistingFoundation() {
   }
   function submitWeightForm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (agentBusy) return;
     try {
       saveTodayWeight(normalizeWeightKg(Number(weightInput)), "form");
       setWeightInput("");
@@ -313,12 +362,13 @@ function ExistingFoundation() {
     }
   }
   function startEditing(measurement: WeightMeasurement) {
+    if (agentBusy) return;
     setEditingMeasurement(measurement);
     setEditingWeight(formatWeightKg(measurement.weightKg));
   }
   function saveEditedWeight(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!editingMeasurement) return;
+    if (!editingMeasurement || agentBusy) return;
     try {
       const weightKg = normalizeWeightKg(Number(editingWeight));
       const commandId = createCommandId();
@@ -343,6 +393,7 @@ function ExistingFoundation() {
     }
   }
   async function resetExistingDemo() {
+    if (agentBusy) return;
     if (!window.confirm("Reset only the Existing demo to its seeded state?")) {
       return;
     }
@@ -387,11 +438,16 @@ function ExistingFoundation() {
               </p>
             </details>
           ) : null}
-          {lastAgentInput ? (
+          {lastAgentRequest ? (
             <button
               className={styles.retryButton}
               disabled={agentBusy}
-              onClick={() => void sendExistingAgent(lastAgentInput)}
+              onClick={() =>
+                void sendExistingAgent(
+                  lastAgentRequest.input,
+                  lastAgentRequest.commandId,
+                )
+              }
               type="button"
             >
               Retry
@@ -429,6 +485,7 @@ function ExistingFoundation() {
             </div>
             <button
               className={styles.resetButton}
+              disabled={agentBusy}
               onClick={resetExistingDemo}
               type="button"
             >
@@ -468,6 +525,7 @@ function ExistingFoundation() {
           <form onSubmit={submitWeightForm}>
             <input
               aria-label="Weight in kilograms"
+              disabled={agentBusy}
               inputMode="decimal"
               min="1"
               onChange={(event) => setWeightInput(event.target.value)}
@@ -476,7 +534,11 @@ function ExistingFoundation() {
               type="number"
               value={weightInput}
             />
-            <button className={styles.primaryAction} type="submit">
+            <button
+              className={styles.primaryAction}
+              disabled={agentBusy}
+              type="submit"
+            >
               Save today
             </button>
           </form>
@@ -500,29 +562,12 @@ function ExistingFoundation() {
             {pendingAgentText ? (
               <div className={styles.weightUserMessage}>{pendingAgentText}</div>
             ) : null}
-            {direction && !existing.agentSession.pendingInteraction ? (
-              <div className={styles.weightAssistantMessage}>
-                <p>
-                  Your deterministic trend supports a bounded {direction} of{" "}
-                  {adjustmentKcal} kcal/day.
-                </p>
-                <button
-                  className={styles.primaryAction}
-                  disabled={agentBusy}
-                  onClick={() =>
-                    void sendExistingAgent({
-                      type: "text",
-                      text: "Review my deterministic weight trend and propose a safe adjustment if it is supported.",
-                    })
-                  }
-                  type="button"
-                >
-                  {agentBusy
-                    ? "Creating validated proposal…"
-                    : "Generate AI proposal"}
-                </button>
+            {activities.slice(-12).map((activity) => (
+              <div className={styles.processing} key={activity.id}>
+                <span className={styles.pulse} aria-hidden="true" />
+                {activity.label}
               </div>
-            ) : null}
+            ))}
             {proposalError ? (
               <p className={styles.errorBox} role="alert">
                 {proposalError}
@@ -547,11 +592,7 @@ function ExistingFoundation() {
             {agentBusy ? (
               <div className={styles.processing} role="status">
                 <span className={styles.pulse} />
-                {agentStatus === "searching"
-                  ? "Searching USDA…"
-                  : agentStatus === "validating"
-                    ? "Validating…"
-                    : "Thinking…"}
+                {agentStatusLabel(agentStatus)}
               </div>
             ) : null}
           </div>
@@ -585,6 +626,7 @@ function ExistingFoundation() {
           <form onSubmit={saveEditedWeight}>
             <input
               aria-label="Replacement weight in kilograms"
+              disabled={agentBusy}
               inputMode="decimal"
               min="1"
               onChange={(event) => setEditingWeight(event.target.value)}
@@ -592,11 +634,16 @@ function ExistingFoundation() {
               type="number"
               value={editingWeight}
             />
-            <button className={styles.primaryAction} type="submit">
+            <button
+              className={styles.primaryAction}
+              disabled={agentBusy}
+              type="submit"
+            >
               Save replacement
             </button>
             <button
               className={styles.secondaryAction}
+              disabled={agentBusy}
               onClick={() => setEditingMeasurement(null)}
               type="button"
             >
@@ -660,6 +707,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
   const [state, setState] = useState(createNewDemoState);
   const stateRef = useRef(state);
   const [catalog, setCatalog] = useState<CatalogFood[]>([...foodCatalog]);
+  const [activities, setActivities] = useState<ConversationActivity[]>([]);
   const [cloudError, setCloudError] = useState("");
   const cloudVersion = useRef(1);
   const cloudQueue = useRef<Promise<void>>(Promise.resolve());
@@ -668,7 +716,14 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
   const [isSlow, setIsSlow] = useState(false);
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentStatus, setAgentStatus] = useState<
-    "thinking" | "searching" | "validating" | null
+    | "thinking"
+    | "searching"
+    | "validating"
+    | "checking_foods"
+    | "remembering"
+    | "creating_draft"
+    | "revising_draft"
+    | null
   >(null);
   const [streamingText, setStreamingText] = useState("");
   const [pendingAgentText, setPendingAgentText] = useState("");
@@ -676,9 +731,10 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
     string,
     string
   > | null>(null);
-  const [lastAgentInput, setLastAgentInput] = useState<
-    CoachMessageRequest["input"] | null
-  >(null);
+  const [lastAgentRequest, setLastAgentRequest] = useState<{
+    input: CoachMessageRequest["input"];
+    commandId: string;
+  } | null>(null);
   const turnLock = useRef(false);
   const messagesEnd = useRef<HTMLDivElement>(null);
 
@@ -691,6 +747,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
         cloudVersion.current = result.profile.version;
         stateRef.current = result.profile.state;
         setState(result.profile.state);
+        setActivities(result.profile.activityEvents ?? []);
         if (result.catalog.length > 0) setCatalog(result.catalog);
       })
       .catch((error) => {
@@ -753,9 +810,12 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
     });
   }
 
-  async function sendFreshAgent(agentInput: CoachMessageRequest["input"]) {
+  async function sendFreshAgent(
+    agentInput: CoachMessageRequest["input"],
+    commandId = createCommandId(),
+  ) {
     if (agentBusy) return;
-    setLastAgentInput(agentInput);
+    setLastAgentRequest({ input: agentInput, commandId });
     setAgentBusy(true);
     setStreamingText("");
     setPendingAgentText(
@@ -770,7 +830,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
         request: {
           profileId: "new",
           expectedVersion: cloudVersion.current,
-          commandId: createCommandId(),
+          commandId,
           input: agentInput,
         },
         onStatus: setAgentStatus,
@@ -782,6 +842,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
       setState(
         result.profile.state as import("@/store/demo-reducer").DemoState,
       );
+      setActivities(result.profile.activityEvents ?? []);
       if (result.catalogFood) {
         setCatalog((current) => [
           ...current.filter((food) => food.id !== result.catalogFood!.id),
@@ -802,6 +863,20 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
       }
       if (error instanceof AgentClientError)
         setAgentDiagnostics(error.diagnostics ?? null);
+      try {
+        const latest =
+          await loadCloudProfile<import("@/store/demo-reducer").DemoState>(
+            "new",
+          );
+        cloudVersion.current = latest.profile.version;
+        stateRef.current = latest.profile.state;
+        setState(latest.profile.state);
+        setActivities(latest.profile.activityEvents ?? []);
+      } catch {
+        // Keep the last confirmed render when reload is also unavailable.
+      }
+      setPendingAgentText("");
+      setStreamingText("");
       setCloudError(
         error instanceof Error
           ? error.message
@@ -982,6 +1057,10 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
     event.preventDefault();
     const message = draftMessage.trim();
     if (!message) return;
+    if (!isProfileReady(stateRef.current.profile)) {
+      void sendOpenCommand({ id: createCommandId(), message });
+      return;
+    }
     void sendFreshAgent({ type: "text", text: message });
   }
 
@@ -1037,6 +1116,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
   }
 
   async function handleReset() {
+    if (agentBusy) return;
     if (
       !window.confirm("Reset only the Fresh demo to its empty starting state?")
     ) {
@@ -1171,11 +1251,16 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                       </p>
                     </details>
                   ) : null}
-                  {lastAgentInput ? (
+                  {lastAgentRequest ? (
                     <button
                       className={styles.retryButton}
                       disabled={agentBusy}
-                      onClick={() => void sendFreshAgent(lastAgentInput)}
+                      onClick={() =>
+                        void sendFreshAgent(
+                          lastAgentRequest.input,
+                          lastAgentRequest.commandId,
+                        )
+                      }
                       type="button"
                     >
                       Retry
@@ -1223,6 +1308,12 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                     }
                   />
                 ) : null}
+                {activities.slice(-12).map((activity) => (
+                  <div className={styles.processing} key={activity.id}>
+                    <span className={styles.pulse} aria-hidden="true" />
+                    {activity.label}
+                  </div>
+                ))}
                 {streamingText ? (
                   <div
                     className={`${styles.message} ${styles.assistantMessage}`}
@@ -1233,11 +1324,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                 {agentBusy ? (
                   <div className={styles.processing} role="status">
                     <span className={styles.pulse} aria-hidden="true" />
-                    {agentStatus === "searching"
-                      ? "Searching USDA…"
-                      : agentStatus === "validating"
-                        ? "Validating…"
-                        : "Thinking…"}
+                    {agentStatusLabel(agentStatus)}
                   </div>
                 ) : null}
                 <div ref={messagesEnd} />
@@ -1367,7 +1454,9 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                     >
                       {draftWasDeclined
                         ? "Generate revised Draft"
-                        : "Generate Draft"}
+                        : draftMessage.trim()
+                          ? "Send"
+                          : "Generate Draft"}
                     </button>
                   </form>
                 ) : (
@@ -1405,6 +1494,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                 </div>
                 <button
                   className={styles.resetButton}
+                  disabled={agentBusy}
                   onClick={handleReset}
                   type="button"
                 >
@@ -1458,7 +1548,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
               <PlanPanel
                 activePlan={state.activePlan}
                 catalog={catalog}
-                disabled={state.status !== "idle"}
+                disabled={state.status !== "idle" || agentBusy}
                 draft={state.draft}
                 onApprove={handleApprove}
                 onReject={handleReject}

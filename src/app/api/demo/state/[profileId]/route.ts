@@ -12,6 +12,8 @@ import {
   newDemoCloudActionSchema,
 } from "@/store/cloud-action-schemas";
 import {
+  ActiveAgentTurnError,
+  assertNoActiveAgentTurn,
   getProfile,
   listCatalogFoods,
   mutateProfile,
@@ -55,6 +57,17 @@ function staleResponse(error: StaleProfileError) {
   );
 }
 
+function activeTurnResponse() {
+  return NextResponse.json(
+    {
+      ok: false,
+      code: "coach_turn_active",
+      message: "Wait for Arnold to finish before changing this demo.",
+    },
+    { status: 409 },
+  );
+}
+
 export async function GET(
   request: Request,
   context: { params: Promise<{ profileId: string }> },
@@ -78,6 +91,7 @@ export async function PATCH(
   if (!profileId) return NextResponse.json({ ok: false }, { status: 404 });
   try {
     const envelope = mutationEnvelopeSchema.parse(await request.json());
+    await assertNoActiveAgentTurn(profileId);
     if (profileId === "new") {
       const action = newDemoCloudActionSchema.parse(envelope.action);
       const catalog = createCatalogSnapshot(await listCatalogFoods());
@@ -103,6 +117,7 @@ export async function PATCH(
     return NextResponse.json({ ok: true, profile });
   } catch (error) {
     if (error instanceof StaleProfileError) return staleResponse(error);
+    if (error instanceof ActiveAgentTurnError) return activeTurnResponse();
     return NextResponse.json(
       { ok: false, message: "The requested demo action is invalid." },
       { status: 400 },
@@ -126,6 +141,7 @@ export async function POST(
       })
       .strict()
       .parse(await request.json());
+    await assertNoActiveAgentTurn(profileId);
     const profile = await resetProfile({
       profileId,
       expectedVersion: envelope.expectedVersion,
@@ -134,6 +150,7 @@ export async function POST(
     return NextResponse.json({ ok: true, profile });
   } catch (error) {
     if (error instanceof StaleProfileError) return staleResponse(error);
+    if (error instanceof ActiveAgentTurnError) return activeTurnResponse();
     return NextResponse.json(
       { ok: false, message: "The demo could not be reset." },
       { status: 400 },

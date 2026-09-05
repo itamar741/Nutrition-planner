@@ -6,6 +6,7 @@ import {
   createNewDemoState,
 } from "@/data/demo-fixtures";
 import type { CatalogFood } from "@/domain/catalog/types";
+import type { ConversationActivity } from "@/domain/agent/types";
 import type { DemoProfileId } from "@/domain/profile/types";
 import type { DemoState } from "@/store/demo-reducer";
 import {
@@ -24,6 +25,7 @@ export interface VersionedProfile<
   profileId: DemoProfileId;
   version: number;
   state: T;
+  activityEvents: ConversationActivity[];
 }
 
 interface MemoryStore {
@@ -40,6 +42,35 @@ interface MemoryStore {
     createdAt: number;
   }>;
   agentTurns: Map<string, StoredAgentTurn>;
+  conversationMessages: Map<DemoProfileId, StoredConversationMessage[]>;
+  conversationActivities: Map<DemoProfileId, ConversationActivity[]>;
+  conversationSummaries: Map<DemoProfileId, StoredConversationSummary>;
+  agentSkillCalls: Map<string, StoredAgentSkillCall>;
+}
+
+export interface StoredConversationMessage {
+  id: string;
+  turnId: string | null;
+  role: "assistant" | "user";
+  content: string;
+  status: "pending" | "partial" | "final" | "failed";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StoredConversationSummary {
+  throughMessageId: string;
+  digest: Record<string, unknown>;
+}
+
+export interface StoredAgentSkillCall {
+  profileId: DemoProfileId;
+  commandId: string;
+  sequence: number;
+  name: string;
+  arguments: Record<string, unknown>;
+  result: Record<string, unknown> | null;
+  status: "pending" | "completed" | "rejected" | "failed";
 }
 
 export interface StoredLookup {
@@ -70,6 +101,7 @@ export interface StoredAgentTurn {
   failureCode: string | null;
   createdAt: string;
   updatedAt: string;
+  attempt: number;
 }
 
 declare global {
@@ -77,6 +109,8 @@ declare global {
 }
 
 function initialMemoryStore(): MemoryStore {
+  const newState = createNewDemoState();
+  const existingState = createExistingDemoState();
   const catalog = new Map(
     foodCatalog.map((food) => [
       food.id,
@@ -85,13 +119,17 @@ function initialMemoryStore(): MemoryStore {
   );
   return {
     profiles: new Map([
-      ["new", { profileId: "new", version: 1, state: createNewDemoState() }],
+      [
+        "new",
+        { profileId: "new", version: 1, state: newState, activityEvents: [] },
+      ],
       [
         "existing",
         {
           profileId: "existing",
           version: 1,
-          state: createExistingDemoState(),
+          state: existingState,
+          activityEvents: [],
         },
       ],
     ]),
@@ -109,7 +147,35 @@ function initialMemoryStore(): MemoryStore {
     candidates: new Map(),
     rateEvents: [],
     agentTurns: new Map(),
+    conversationMessages: new Map([
+      ["new", seedConversationMessages(newState.messages)],
+      ["existing", seedConversationMessages(existingState.messages)],
+    ]),
+    conversationActivities: new Map([
+      ["new", []],
+      ["existing", []],
+    ]),
+    conversationSummaries: new Map(),
+    agentSkillCalls: new Map(),
   };
+}
+
+function seedConversationMessages(
+  messages: Array<{ id: string; role: "assistant" | "user"; text: string }>,
+): StoredConversationMessage[] {
+  const started = Date.now();
+  return messages.map((message, index) => {
+    const createdAt = new Date(started + index).toISOString();
+    return {
+      id: message.id,
+      turnId: null,
+      role: message.role,
+      content: message.text,
+      status: "final",
+      createdAt,
+      updatedAt: createdAt,
+    };
+  });
 }
 
 function memoryStore() {
@@ -136,15 +202,108 @@ export class StaleProfileError extends Error {
   }
 }
 
+function isSameAgentRequest(
+  stored: Record<string, unknown>,
+  incoming: Record<string, unknown>,
+) {
+  const withoutVersion = (request: Record<string, unknown>) =>
+    Object.fromEntries(
+      Object.entries(request).filter(([key]) => key !== "expectedVersion"),
+    );
+  return (
+    JSON.stringify(withoutVersion(stored)) ===
+    JSON.stringify(withoutVersion(incoming))
+  );
+}
+
+function withConversationProjection<T extends PersistedDemoState>(
+  state: T,
+  messages: StoredConversationMessage[],
+): T {
+  const visible = messages
+    .filter((message) => message.content.length > 0)
+    .map((message) => ({
+      id: message.id,
+      role: message.role,
+      text: message.content,
+    }));
+  return { ...state, messages: visible };
+}
+
+async function postgresConversationMessages(profileId: DemoProfileId) {
+  const result = await getPool().query<{
+    id: string;
+    turn_id: string | null;
+    role: StoredConversationMessage["role"];
+    content: string;
+    status: StoredConversationMessage["status"];
+    created_at: Date;
+    updated_at: Date;
+  }>(
+    `SELECT id, turn_id, role, content, status, created_at, updated_at
+     FROM conversation_messages WHERE profile_id = $1 ORDER BY sequence`,
+    [profileId],
+  );
+  return result.rows.map((row) => ({
+    id: row.id,
+    turnId: row.turn_id,
+    role: row.role,
+    content: row.content,
+    status: row.status,
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
+  }));
+}
+
+export async function listConversationMessages(profileId: DemoProfileId) {
+  if (!hasPostgresConfiguration()) {
+    return clone(memoryStore().conversationMessages.get(profileId) ?? []);
+  }
+  await ensurePersistenceInitialized();
+  return postgresConversationMessages(profileId);
+}
+
+export async function listConversationActivities(profileId: DemoProfileId) {
+  if (!hasPostgresConfiguration()) {
+    return clone(memoryStore().conversationActivities.get(profileId) ?? []);
+  }
+  await ensurePersistenceInitialized();
+  const result = await getPool().query<{
+    id: string;
+    turn_id: string | null;
+    kind: ConversationActivity["kind"];
+    label: string;
+    status: ConversationActivity["status"];
+    created_at: Date;
+  }>(
+    `SELECT id, turn_id, kind, label, status, created_at
+     FROM conversation_activity_events WHERE profile_id = $1 ORDER BY sequence`,
+    [profileId],
+  );
+  return result.rows.map((row) => ({
+    id: row.id,
+    turnId: row.turn_id,
+    kind: row.kind,
+    label: row.label,
+    status: row.status,
+    createdAt: row.created_at.toISOString(),
+  }));
+}
+
 export async function getProfile<T extends PersistedDemoState>(
   profileId: DemoProfileId,
 ): Promise<VersionedProfile<T>> {
   if (!hasPostgresConfiguration()) {
     const profile = memoryStore().profiles.get(profileId);
     if (!profile) throw new Error("Unknown demo profile.");
+    const messages = await listConversationMessages(profileId);
     return {
       ...clone(profile),
-      state: validateProfileState(profileId, profile.state),
+      state: withConversationProjection(
+        validateProfileState(profileId, profile.state) as T,
+        messages,
+      ),
+      activityEvents: await listConversationActivities(profileId),
     } as VersionedProfile<T>;
   }
   await ensurePersistenceInitialized();
@@ -161,7 +320,11 @@ export async function getProfile<T extends PersistedDemoState>(
   return {
     profileId: row.profile_id,
     version: row.version,
-    state: validateProfileState(row.profile_id, row.state),
+    state: withConversationProjection(
+      validateProfileState(row.profile_id, row.state) as T,
+      await postgresConversationMessages(profileId),
+    ),
+    activityEvents: await listConversationActivities(profileId),
   } as VersionedProfile<T>;
 }
 
@@ -176,7 +339,17 @@ async function mutatePostgresProfile<T extends PersistedDemoState>(
     "SELECT response FROM demo_commands WHERE profile_id = $1 AND command_id = $2",
     [profileId, commandId],
   );
-  if (duplicate.rows[0]) return duplicate.rows[0].response;
+  if (duplicate.rows[0]) {
+    const response = duplicate.rows[0].response;
+    return {
+      ...response,
+      state: withConversationProjection(
+        validateProfileState(profileId, response.state) as T,
+        await postgresConversationMessages(profileId),
+      ),
+      activityEvents: await postgresActivitiesWithClient(client, profileId),
+    };
+  }
   const locked = await client.query<{ version: number; state: T }>(
     "SELECT version, state FROM demo_profiles WHERE profile_id = $1 FOR UPDATE",
     [profileId],
@@ -188,12 +361,14 @@ async function mutatePostgresProfile<T extends PersistedDemoState>(
       profileId,
       version: row.version,
       state: row.state,
+      activityEvents: await postgresActivitiesWithClient(client, profileId),
     });
   }
   const response: VersionedProfile<T> = {
     profileId,
     version: row.version + 1,
     state: validateProfileState(profileId, mutation(clone(row.state))) as T,
+    activityEvents: [],
   };
   await client.query(
     "UPDATE demo_profiles SET version = $2, state = $3::jsonb, updated_at = now() WHERE profile_id = $1",
@@ -203,7 +378,86 @@ async function mutatePostgresProfile<T extends PersistedDemoState>(
     "INSERT INTO demo_commands (profile_id, command_id, response) VALUES ($1, $2, $3::jsonb)",
     [profileId, commandId, JSON.stringify(response)],
   );
+  await syncPostgresConversationMessages(client, profileId, response.state);
+  response.activityEvents = await postgresActivitiesWithClient(
+    client,
+    profileId,
+  );
   return response;
+}
+
+function stateMessages(state: PersistedDemoState) {
+  return state.messages as Array<{
+    id: string;
+    role: "assistant" | "user";
+    text: string;
+  }>;
+}
+
+async function syncPostgresConversationMessages(
+  client: PoolClient,
+  profileId: DemoProfileId,
+  state: PersistedDemoState,
+) {
+  for (const message of stateMessages(state)) {
+    await client.query(
+      `INSERT INTO conversation_messages
+         (profile_id, id, turn_id, role, content, status)
+       VALUES ($1, $2, NULL, $3, $4, 'final')
+       ON CONFLICT (profile_id, id) DO UPDATE
+       SET content = EXCLUDED.content, status = 'final', updated_at = now()`,
+      [profileId, message.id, message.role, message.text],
+    );
+  }
+}
+
+async function postgresActivitiesWithClient(
+  client: PoolClient,
+  profileId: DemoProfileId,
+) {
+  const result = await client.query<{
+    id: string;
+    turn_id: string | null;
+    kind: ConversationActivity["kind"];
+    label: string;
+    status: ConversationActivity["status"];
+    created_at: Date;
+  }>(
+    `SELECT id, turn_id, kind, label, status, created_at
+     FROM conversation_activity_events WHERE profile_id = $1 ORDER BY sequence`,
+    [profileId],
+  );
+  return result.rows.map((row) => ({
+    id: row.id,
+    turnId: row.turn_id,
+    kind: row.kind,
+    label: row.label,
+    status: row.status,
+    createdAt: row.created_at.toISOString(),
+  }));
+}
+
+function syncMemoryConversationMessages(
+  profileId: DemoProfileId,
+  state: PersistedDemoState,
+) {
+  const store = memoryStore();
+  const current = store.conversationMessages.get(profileId) ?? [];
+  const byId = new Map(current.map((message) => [message.id, message]));
+  for (const message of stateMessages(state)) {
+    const previous = byId.get(message.id);
+    const now = new Date().toISOString();
+    byId.set(message.id, {
+      id: message.id,
+      turnId: previous?.turnId ?? null,
+      role: message.role,
+      content: message.text,
+      status: "final",
+      createdAt: previous?.createdAt ?? now,
+      updatedAt: now,
+    });
+  }
+  store.conversationMessages.set(profileId, [...byId.values()]);
 }
 
 export async function mutateProfile<T extends PersistedDemoState>(input: {
@@ -216,7 +470,18 @@ export async function mutateProfile<T extends PersistedDemoState>(input: {
     const store = memoryStore();
     const key = `${input.profileId}:${input.commandId}`;
     const duplicate = store.commands.get(key);
-    if (duplicate) return clone(duplicate) as VersionedProfile<T>;
+    if (duplicate) {
+      return {
+        ...clone(duplicate),
+        state: withConversationProjection(
+          validateProfileState(input.profileId, duplicate.state) as T,
+          clone(store.conversationMessages.get(input.profileId) ?? []),
+        ),
+        activityEvents: clone(
+          store.conversationActivities.get(input.profileId) ?? [],
+        ),
+      } as VersionedProfile<T>;
+    }
     const current = store.profiles.get(input.profileId);
     if (!current) throw new Error("Unknown demo profile.");
     if (current.version !== input.expectedVersion) {
@@ -229,7 +494,11 @@ export async function mutateProfile<T extends PersistedDemoState>(input: {
         input.profileId,
         input.mutation(clone(current.state) as T),
       ) as T,
+      activityEvents: clone(
+        store.conversationActivities.get(input.profileId) ?? [],
+      ),
     };
+    syncMemoryConversationMessages(input.profileId, response.state);
     store.profiles.set(input.profileId, clone(response));
     store.commands.set(key, clone(response));
     return response;
@@ -260,8 +529,21 @@ export async function resetProfile(input: {
   });
   if (!hasPostgresConfiguration()) {
     const store = memoryStore();
+    store.conversationMessages.set(
+      input.profileId,
+      seedConversationMessages(profile.state.messages),
+    );
+    store.conversationActivities.set(input.profileId, []);
+    store.conversationSummaries.delete(input.profileId);
     for (const [key, turn] of store.agentTurns) {
-      if (turn.profileId === input.profileId) store.agentTurns.delete(key);
+      if (turn.profileId === input.profileId) {
+        store.agentTurns.delete(key);
+        for (const skillKey of store.agentSkillCalls.keys()) {
+          if (skillKey.startsWith(`${input.profileId}:${turn.commandId}:`)) {
+            store.agentSkillCalls.delete(skillKey);
+          }
+        }
+      }
     }
     const lookupIds = [...store.lookups.values()]
       .filter(
@@ -279,6 +561,18 @@ export async function resetProfile(input: {
     }
   } else {
     await withTransaction(async (client) => {
+      await client.query(
+        "DELETE FROM conversation_messages WHERE profile_id = $1",
+        [input.profileId],
+      );
+      await client.query(
+        "DELETE FROM conversation_activity_events WHERE profile_id = $1",
+        [input.profileId],
+      );
+      await client.query(
+        "DELETE FROM conversation_summaries WHERE profile_id = $1",
+        [input.profileId],
+      );
       await client.query("DELETE FROM agent_turns WHERE profile_id = $1", [
         input.profileId,
       ]);
@@ -286,9 +580,14 @@ export async function resetProfile(input: {
         "DELETE FROM food_lookups WHERE profile_id = $1 AND status <> 'approved'",
         [input.profileId],
       );
+      await syncPostgresConversationMessages(
+        client,
+        input.profileId,
+        profile.state,
+      );
     });
   }
-  return profile;
+  return getProfile(input.profileId);
 }
 
 export async function listCatalogFoods(): Promise<CatalogFood[]> {
@@ -482,8 +781,167 @@ export class ActiveAgentTurnError extends Error {
   }
 }
 
+export class AgentTurnReplayError extends Error {
+  constructor() {
+    super("A repeated command must use the original request.");
+    this.name = "AgentTurnReplayError";
+  }
+}
+
+export async function assertNoActiveAgentTurn(profileId: DemoProfileId) {
+  const staleBefore = Date.now() - 90_000;
+  if (!hasPostgresConfiguration()) {
+    const active = [...memoryStore().agentTurns.values()].find(
+      (turn) =>
+        turn.profileId === profileId &&
+        turn.status === "pending" &&
+        new Date(turn.updatedAt).getTime() > staleBefore,
+    );
+    if (active) throw new ActiveAgentTurnError(active.commandId);
+    return;
+  }
+  await ensurePersistenceInitialized();
+  const active = await getPool().query<{ command_id: string }>(
+    `SELECT command_id FROM agent_turns
+     WHERE profile_id = $1 AND status = 'pending'
+       AND updated_at > now() - interval '90 seconds'
+     LIMIT 1`,
+    [profileId],
+  );
+  if (active.rows[0]) {
+    throw new ActiveAgentTurnError(active.rows[0].command_id);
+  }
+}
+
 function agentTurnKey(profileId: DemoProfileId, commandId: string) {
   return `${profileId}:${commandId}`;
+}
+
+function insertMemoryAssistant(
+  profileId: DemoProfileId,
+  commandId: string,
+  id: string,
+) {
+  const store = memoryStore();
+  const messages = store.conversationMessages.get(profileId) ?? [];
+  const now = new Date().toISOString();
+  messages.push({
+    id,
+    turnId: commandId,
+    role: "assistant",
+    content: "",
+    status: "pending",
+    createdAt: now,
+    updatedAt: now,
+  });
+  store.conversationMessages.set(profileId, messages);
+}
+
+function markMemoryAssistantFailed(
+  profileId: DemoProfileId,
+  id: string,
+  fallback: string,
+) {
+  const store = memoryStore();
+  const messages = store.conversationMessages.get(profileId) ?? [];
+  const message = messages.find((candidate) => candidate.id === id);
+  if (!message) return;
+  message.status = "failed";
+  if (!message.content) message.content = fallback;
+  message.updatedAt = new Date().toISOString();
+}
+
+function insertMemoryConversationStart(
+  input: {
+    profileId: DemoProfileId;
+    commandId: string;
+    userMessage?: { id: string; content: string };
+    userAction?: { id: string; label: string };
+  },
+  createdAt: string,
+) {
+  const store = memoryStore();
+  const messages = store.conversationMessages.get(input.profileId) ?? [];
+  if (input.userMessage) {
+    messages.push({
+      id: input.userMessage.id,
+      turnId: input.commandId,
+      role: "user",
+      content: input.userMessage.content,
+      status: "final",
+      createdAt,
+      updatedAt: createdAt,
+    });
+  }
+  store.conversationMessages.set(input.profileId, messages);
+  if (input.userAction) {
+    const activities = store.conversationActivities.get(input.profileId) ?? [];
+    activities.push({
+      id: input.userAction.id,
+      turnId: input.commandId,
+      kind: "user_action",
+      label: input.userAction.label,
+      status: "completed",
+      createdAt,
+    });
+    store.conversationActivities.set(input.profileId, activities);
+  }
+  insertMemoryAssistant(
+    input.profileId,
+    input.commandId,
+    `assistant-${input.commandId}-1`,
+  );
+}
+
+async function insertPostgresConversationStart(
+  client: PoolClient,
+  input: {
+    profileId: DemoProfileId;
+    commandId: string;
+    userMessage?: { id: string; content: string };
+    userAction?: { id: string; label: string };
+  },
+  attempt: number,
+) {
+  if (input.userMessage) {
+    await client.query(
+      `INSERT INTO conversation_messages
+         (profile_id, id, turn_id, role, content, status)
+       VALUES ($1, $2, $3, 'user', $4, 'final')
+       ON CONFLICT (profile_id, id) DO NOTHING`,
+      [
+        input.profileId,
+        input.userMessage.id,
+        input.commandId,
+        input.userMessage.content,
+      ],
+    );
+  }
+  if (input.userAction) {
+    await client.query(
+      `INSERT INTO conversation_activity_events
+         (profile_id, id, turn_id, kind, label, status)
+       VALUES ($1, $2, $3, 'user_action', $4, 'completed')
+       ON CONFLICT (profile_id, id) DO NOTHING`,
+      [
+        input.profileId,
+        input.userAction.id,
+        input.commandId,
+        input.userAction.label,
+      ],
+    );
+  }
+  await client.query(
+    `INSERT INTO conversation_messages
+       (profile_id, id, turn_id, role, content, status)
+     VALUES ($1, $2, $3, 'assistant', '', 'pending')
+     ON CONFLICT (profile_id, id) DO NOTHING`,
+    [
+      input.profileId,
+      `assistant-${input.commandId}-${attempt}`,
+      input.commandId,
+    ],
+  );
 }
 
 export async function reserveAgentTurn(input: {
@@ -491,14 +949,72 @@ export async function reserveAgentTurn(input: {
   expectedVersion: number;
   commandId: string;
   request: Record<string, unknown>;
-}): Promise<{ outcome: "reserved" | "duplicate"; turn: StoredAgentTurn }> {
+  userMessage?: { id: string; content: string };
+  userAction?: { id: string; label: string };
+}): Promise<{
+  outcome: "reserved" | "resumed" | "duplicate";
+  turn: StoredAgentTurn;
+  assistantMessageId: string;
+}> {
   const now = new Date();
   const staleBefore = now.getTime() - 90_000;
   if (!hasPostgresConfiguration()) {
     const store = memoryStore();
     const key = agentTurnKey(input.profileId, input.commandId);
     const duplicate = store.agentTurns.get(key);
-    if (duplicate) return { outcome: "duplicate", turn: clone(duplicate) };
+    if (duplicate) {
+      if (!isSameAgentRequest(duplicate.request, input.request)) {
+        throw new AgentTurnReplayError();
+      }
+      if (duplicate.status === "completed") {
+        return {
+          outcome: "duplicate",
+          turn: clone(duplicate),
+          assistantMessageId: `assistant-${input.commandId}-${duplicate.attempt}`,
+        };
+      }
+      const stalePending =
+        duplicate.status === "pending" &&
+        new Date(duplicate.updatedAt).getTime() <= staleBefore;
+      if (duplicate.status === "pending" && !stalePending) {
+        return {
+          outcome: "duplicate",
+          turn: clone(duplicate),
+          assistantMessageId: `assistant-${input.commandId}-${duplicate.attempt}`,
+        };
+      }
+      const current = store.profiles.get(input.profileId);
+      if (!current) throw new Error("Unknown demo profile.");
+      if (current.version !== input.expectedVersion) {
+        throw new StaleProfileError(clone(current));
+      }
+      markMemoryAssistantFailed(
+        input.profileId,
+        `assistant-${input.commandId}-${duplicate.attempt}`,
+        duplicate.failureCode ?? "Previous attempt failed safely.",
+      );
+      const resumed = {
+        ...duplicate,
+        expectedVersion: input.expectedVersion,
+        status: "pending" as const,
+        result: null,
+        failureCode: null,
+        attempt: duplicate.attempt + 1,
+        updatedAt: now.toISOString(),
+      };
+      store.agentTurns.set(key, clone(resumed));
+      const assistantMessageId = `assistant-${input.commandId}-${resumed.attempt}`;
+      insertMemoryAssistant(
+        input.profileId,
+        input.commandId,
+        assistantMessageId,
+      );
+      return {
+        outcome: "resumed",
+        turn: clone(resumed),
+        assistantMessageId,
+      };
+    }
     const current = store.profiles.get(input.profileId);
     if (!current) throw new Error("Unknown demo profile.");
     if (current.version !== input.expectedVersion) {
@@ -525,9 +1041,15 @@ export async function reserveAgentTurn(input: {
       failureCode: null,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
+      attempt: 1,
     };
     store.agentTurns.set(key, clone(turn));
-    return { outcome: "reserved", turn };
+    insertMemoryConversationStart(input, now.toISOString());
+    return {
+      outcome: "reserved",
+      turn,
+      assistantMessageId: `assistant-${input.commandId}-1`,
+    };
   }
   await ensurePersistenceInitialized();
   return withTransaction(async (client) => {
@@ -541,25 +1063,90 @@ export async function reserveAgentTurn(input: {
       failure_code: string | null;
       created_at: Date;
       updated_at: Date;
-    }>("SELECT * FROM agent_turns WHERE profile_id = $1 AND command_id = $2", [
-      input.profileId,
-      input.commandId,
-    ]);
+      attempt: number;
+    }>(
+      "SELECT * FROM agent_turns WHERE profile_id = $1 AND command_id = $2 FOR UPDATE",
+      [input.profileId, input.commandId],
+    );
     if (duplicate.rows[0]) {
       const row = duplicate.rows[0];
+      if (!isSameAgentRequest(row.request, input.request)) {
+        throw new AgentTurnReplayError();
+      }
+      const storedTurn: StoredAgentTurn = {
+        profileId: row.profile_id,
+        commandId: row.command_id,
+        expectedVersion: row.expected_version,
+        request: row.request,
+        status: row.status,
+        result: row.result,
+        failureCode: row.failure_code,
+        createdAt: row.created_at.toISOString(),
+        updatedAt: row.updated_at.toISOString(),
+        attempt: row.attempt,
+      };
+      const stalePending =
+        row.status === "pending" && row.updated_at.getTime() <= staleBefore;
+      if (
+        row.status === "completed" ||
+        (row.status === "pending" && !stalePending)
+      ) {
+        return {
+          outcome: "duplicate" as const,
+          turn: storedTurn,
+          assistantMessageId: `assistant-${input.commandId}-${row.attempt}`,
+        };
+      }
+      const current = await client.query<{ version: number; state: unknown }>(
+        "SELECT version, state FROM demo_profiles WHERE profile_id = $1 FOR UPDATE",
+        [input.profileId],
+      );
+      const currentProfile = current.rows[0];
+      if (!currentProfile) throw new Error("Unknown demo profile.");
+      if (currentProfile.version !== input.expectedVersion) {
+        throw new StaleProfileError({
+          profileId: input.profileId,
+          version: currentProfile.version,
+          state: validateProfileState(input.profileId, currentProfile.state),
+          activityEvents: await postgresActivitiesWithClient(
+            client,
+            input.profileId,
+          ),
+        });
+      }
+      await client.query(
+        `UPDATE conversation_messages
+         SET status = 'failed',
+             content = CASE WHEN content = '' THEN 'Previous attempt failed safely.' ELSE content END,
+             updated_at = now()
+         WHERE profile_id = $1 AND id = $2`,
+        [input.profileId, `assistant-${input.commandId}-${row.attempt}`],
+      );
+      const resumed = await client.query<{
+        attempt: number;
+        updated_at: Date;
+      }>(
+        `UPDATE agent_turns
+         SET expected_version = $3, status = 'pending', result = NULL,
+             failure_code = NULL, attempt = attempt + 1, updated_at = now()
+         WHERE profile_id = $1 AND command_id = $2
+         RETURNING attempt, updated_at`,
+        [input.profileId, input.commandId, input.expectedVersion],
+      );
+      const attempt = resumed.rows[0].attempt;
+      await insertPostgresConversationStart(client, input, attempt);
       return {
-        outcome: "duplicate" as const,
+        outcome: "resumed" as const,
         turn: {
-          profileId: row.profile_id,
-          commandId: row.command_id,
-          expectedVersion: row.expected_version,
-          request: row.request,
-          status: row.status,
-          result: row.result,
-          failureCode: row.failure_code,
-          createdAt: row.created_at.toISOString(),
-          updatedAt: row.updated_at.toISOString(),
+          ...storedTurn,
+          expectedVersion: input.expectedVersion,
+          status: "pending",
+          result: null,
+          failureCode: null,
+          updatedAt: resumed.rows[0].updated_at.toISOString(),
+          attempt,
         },
+        assistantMessageId: `assistant-${input.commandId}-${attempt}`,
       };
     }
     const locked = await client.query<{ version: number; state: unknown }>(
@@ -573,6 +1160,10 @@ export async function reserveAgentTurn(input: {
         profileId: input.profileId,
         version: profile.version,
         state: validateProfileState(input.profileId, profile.state),
+        activityEvents: await postgresActivitiesWithClient(
+          client,
+          input.profileId,
+        ),
       });
     }
     await client.query(
@@ -591,11 +1182,12 @@ export async function reserveAgentTurn(input: {
     const inserted = await client.query<{
       created_at: Date;
       updated_at: Date;
+      attempt: number;
     }>(
       `INSERT INTO agent_turns
          (profile_id, command_id, expected_version, request, status)
        VALUES ($1, $2, $3, $4::jsonb, 'pending')
-       RETURNING created_at, updated_at`,
+       RETURNING created_at, updated_at, attempt`,
       [
         input.profileId,
         input.commandId,
@@ -603,6 +1195,7 @@ export async function reserveAgentTurn(input: {
         JSON.stringify(input.request),
       ],
     );
+    await insertPostgresConversationStart(client, input, 1);
     return {
       outcome: "reserved" as const,
       turn: {
@@ -612,7 +1205,9 @@ export async function reserveAgentTurn(input: {
         failureCode: null,
         createdAt: inserted.rows[0].created_at.toISOString(),
         updatedAt: inserted.rows[0].updated_at.toISOString(),
+        attempt: inserted.rows[0].attempt,
       },
+      assistantMessageId: `assistant-${input.commandId}-1`,
     };
   });
 }
@@ -648,6 +1243,131 @@ export async function finishAgentTurn(input: {
       input.status,
       JSON.stringify(input.result ?? null),
       input.failureCode ?? null,
+    ],
+  );
+}
+
+export async function updateAssistantMessage(input: {
+  profileId: DemoProfileId;
+  messageId: string;
+  content: string;
+  status: "partial" | "final" | "failed";
+}) {
+  const content = input.content.slice(0, 4_000);
+  if (!hasPostgresConfiguration()) {
+    const messages =
+      memoryStore().conversationMessages.get(input.profileId) ?? [];
+    const message = messages.find(
+      (candidate) => candidate.id === input.messageId,
+    );
+    if (!message) throw new Error("Unknown assistant message.");
+    message.content = content;
+    message.status = input.status;
+    message.updatedAt = new Date().toISOString();
+    return;
+  }
+  await ensurePersistenceInitialized();
+  const result = await getPool().query(
+    `UPDATE conversation_messages
+     SET content = $3, status = $4, updated_at = now()
+     WHERE profile_id = $1 AND id = $2 AND role = 'assistant'`,
+    [input.profileId, input.messageId, content, input.status],
+  );
+  if (!result.rowCount) throw new Error("Unknown assistant message.");
+}
+
+export async function appendConversationActivity(input: {
+  profileId: DemoProfileId;
+  id: string;
+  turnId: string | null;
+  kind: ConversationActivity["kind"];
+  label: string;
+  status?: ConversationActivity["status"];
+}) {
+  const activity: ConversationActivity = {
+    id: input.id,
+    turnId: input.turnId,
+    kind: input.kind,
+    label: input.label.slice(0, 240),
+    status: input.status ?? "completed",
+    createdAt: new Date().toISOString(),
+  };
+  if (!hasPostgresConfiguration()) {
+    const store = memoryStore();
+    const activities = store.conversationActivities.get(input.profileId) ?? [];
+    const current = activities.find((item) => item.id === input.id);
+    if (current) Object.assign(current, activity);
+    else activities.push(activity);
+    store.conversationActivities.set(input.profileId, activities);
+    return clone(activity);
+  }
+  await ensurePersistenceInitialized();
+  const result = await getPool().query<{ created_at: Date }>(
+    `INSERT INTO conversation_activity_events
+       (profile_id, id, turn_id, kind, label, status)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (profile_id, id) DO UPDATE
+     SET label = EXCLUDED.label, status = EXCLUDED.status, updated_at = now()
+     RETURNING created_at`,
+    [
+      input.profileId,
+      input.id,
+      input.turnId,
+      input.kind,
+      activity.label,
+      activity.status,
+    ],
+  );
+  return { ...activity, createdAt: result.rows[0].created_at.toISOString() };
+}
+
+export async function saveConversationSummary(input: {
+  profileId: DemoProfileId;
+  throughMessageId: string;
+  digest: Record<string, unknown>;
+}) {
+  if (!hasPostgresConfiguration()) {
+    memoryStore().conversationSummaries.set(input.profileId, {
+      throughMessageId: input.throughMessageId,
+      digest: clone(input.digest),
+    });
+    return;
+  }
+  await ensurePersistenceInitialized();
+  await getPool().query(
+    `INSERT INTO conversation_summaries (profile_id, through_message_id, digest)
+     VALUES ($1, $2, $3::jsonb)
+     ON CONFLICT (profile_id) DO UPDATE
+     SET through_message_id = EXCLUDED.through_message_id,
+         digest = EXCLUDED.digest, updated_at = now()`,
+    [input.profileId, input.throughMessageId, JSON.stringify(input.digest)],
+  );
+}
+
+export async function recordAgentSkillCall(input: StoredAgentSkillCall) {
+  if (input.sequence < 1 || input.sequence > 4) {
+    throw new Error("Agent skill sequence is out of bounds.");
+  }
+  const key = `${input.profileId}:${input.commandId}:${input.sequence}`;
+  if (!hasPostgresConfiguration()) {
+    memoryStore().agentSkillCalls.set(key, clone(input));
+    return;
+  }
+  await ensurePersistenceInitialized();
+  await getPool().query(
+    `INSERT INTO agent_skill_calls
+       (profile_id, command_id, sequence, name, arguments, result, status)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7)
+     ON CONFLICT (profile_id, command_id, sequence) DO UPDATE
+     SET result = EXCLUDED.result, status = EXCLUDED.status, updated_at = now()`,
+    [
+      input.profileId,
+      input.commandId,
+      input.sequence,
+      input.name,
+      JSON.stringify(input.arguments),
+      JSON.stringify(input.result),
+      input.status,
     ],
   );
 }

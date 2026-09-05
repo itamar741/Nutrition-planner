@@ -5,7 +5,7 @@ A narrow conversational nutrition-coach course project with exactly two shared d
 - **Fresh** — adaptive onboarding, food preferences, Draft generation, modification, and explicit activation.
 - **Existing** — seeded profile, Active Plan, approximately two months of weight history, deterministic trend analysis, and conversational adjustment approval.
 
-Turn 4 added PostgreSQL-backed shared state, one shared access code, and independent demo resets. Turn 5 added a bounded USDA FoodData Central workflow. Turn 6 validates and caches nutrition-complete candidates before display. Turn 7 introduced a unified coach. Turn 8 is planned to make Arnold a durable role/content conversation with bounded skills, structured preferences, and model-created Draft proposals validated by the server.
+Turn 4 added PostgreSQL-backed shared state, one shared access code, and independent demo resets. Turn 5 added a bounded USDA FoodData Central workflow. Turn 6 validates and caches nutrition-complete candidates before display. Turn 7 introduced a unified coach. Turn 8 makes Arnold a durable role/content conversation with bounded, state-dependent skills, structured preferences, model-created Draft proposals, and server-owned validation.
 
 Every free-text coach message reaches the server-owned Arnold agent with authoritative profile context and reset-scoped conversation history. Arnold can request only state-dependent bounded skills; deterministic code validates and executes them. Food insertion and Active Plan changes still require visible approval buttons.
 
