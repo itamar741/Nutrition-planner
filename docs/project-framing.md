@@ -28,7 +28,7 @@ The project is done when all of the following statements are true:
 6. The food-preference stage presents one predefined food catalog as selectable grids grouped by carbohydrate, protein, fat, vegetable, and fruit categories.
 7. The system can calculate initial nutritional targets for one supported goal: **Fat Loss**, **Maintenance**, or **Muscle Gain**.
 8. The system can produce a Draft Meal Plan using only foods approved for the current profile and nutritional values stored in the curated catalog.
-9. The Draft contains practical food quantities and two or three interchangeable choices where appropriate, and its calculated values fall within the acceptance ranges defined by the project's researched nutrition guidance.
+9. The Draft follows the selected three-meal, three-meals-plus-snack, or four-meal pattern, contains practical food quantities, and falls within the acceptance ranges defined by the project's researched nutrition guidance. It does not include food-substitution alternatives.
 10. The user can request a supported modification through the conversation and see the Draft change.
 11. The user can approve the Draft and see it become the Active Plan.
 12. The Existing Demo Profile loads with approximately two months of seeded weight measurements and an existing Active Plan.

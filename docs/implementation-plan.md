@@ -1,6 +1,6 @@
 # Implementation Plan v0.4
 
-Status: Turns 1–7 are implemented locally; complete verification and credentialed Render staging remain required.
+Status: Turns 1–7 are implemented locally. Turn 8 is planned; complete verification and credentialed Render staging remain required.
 
 This plan is governed by the project framing, description, interface design, product specification, nutrition guidance, and verification plan. The narrower documented boundary wins if two documents conflict.
 
@@ -36,7 +36,8 @@ Render Web Service (Next.js)
                         v
 Render PostgreSQL
   two versioned profile aggregates
-  chat messages inside each aggregate
+  durable conversation messages and activity events
+  agent turns, skill-call audit, and conversation summaries
   central catalog and provenance
   lookup requests and candidates
   idempotent command results
@@ -51,7 +52,7 @@ PostgreSQL owns:
 
 - exactly two rows: `new` and `existing`;
 - a schema-validated JSONB state aggregate and optimistic integer version for each profile;
-- persisted chat messages until the corresponding profile is reset;
+- durable user/assistant conversation messages, visible activity events, agent-turn records, skill-call audit records, and validated conversation summaries until the corresponding profile is reset;
 - the baseline and runtime catalog, source identifiers, provenance, retrieval time, and approval metadata;
 - lookup requests and source candidates;
 - command results used for idempotency; and
@@ -122,13 +123,17 @@ Approval is idempotent by normalized identity and source identifier. The new foo
 
 If USDA fails or returns no valid basic food, the interface may offer `Use an AI estimate` only after explicit confirmation. Any approved fallback remains permanently labelled `AI estimate · USDA not verified`.
 
-## 7. Unified Coach Orchestration
+## 7. Arnold Conversation and Skill Orchestration
 
-`POST /api/coach/message` is the only free-text conversation entry point. It reserves a persisted agent turn, loads authoritative profile and catalog context, supplies the reset-scoped transcript, and exposes only the tools valid for that profile state. The loop is model request → strict tool validation → bounded server execution → sanitized tool result → streamed model continuation → validated profile persistence.
+`POST /api/coach/message` is the only free-text conversation entry point. It atomically persists the user message and reserves an agent turn before model execution. It loads authoritative profile and catalog context, then supplies Arnold with a fixed system-prompt template plus chronological role/content transcript items. The transcript is never represented as a JSON string. The loop is model request → strict skill validation → bounded server execution → sanitized result → streamed Arnold continuation → persisted assistant message and validated profile transition.
 
-The browser sends `profileId`, `expectedVersion`, `commandId`, and text or one typed visible-control action; it never sends replacement profile state. Only one workflow-changing tool is accepted. Agent turns are idempotent, one turn may be pending per shared profile, and pending turns older than 90 seconds become recoverable. Server processing is not cancelled when a browser stream disconnects.
+The browser sends `profileId`, `expectedVersion`, `commandId`, and text or one typed visible-control action; it never sends replacement profile state. Arnold can make at most four sequential, non-parallel skill calls per turn, with availability recalculated after each result. Agent turns are idempotent, one turn may be pending per shared profile, and pending turns older than 90 seconds become recoverable. Server processing is not cancelled when a browser stream disconnects.
 
-Interactive state is stored inside the versioned profile aggregate. A topic change may preserve one paused workflow. Full messages are supplied below 50 messages and 30,000 characters; after the cap, a validated digest and latest 20 messages are supplied while all messages remain persisted. Reset clears only the selected profile's transcript, workflows, agent turns, and unapproved lookups.
+Interactive state, proposal cards, and visible-control actions are persisted with the profile state and durable conversation timeline. A topic change may preserve one paused workflow. The complete transcript remains persisted and rendered. When the estimated model request exceeds 60% of the configured context budget, Arnold receives a validated digest and latest 20 role/content messages; structured state always overrides the digest. Reset clears only the selected profile's transcript, activity events, summaries, preferences, workflows, agent turns, skill calls, and unapproved lookups.
+
+Arnold may use only these bounded skills: save a clear explicit preference; inspect central-catalog, profile-approved, Draft, and Active Plan food availability; remove an approved food from future Drafts; record or edit weight; start the bounded USDA workflow; select a displayed candidate; submit a full Draft; and submit a bounded adjustment Draft. The model never receives database access, arbitrary URLs, raw USDA response bodies, browser tools, or authority to approve a food, Draft, or adjustment. Typed approval language remains non-authoritative.
+
+Arnold creates the structured plan candidate itself using exact server-calculated targets and current approved-food data. Server code calculates all totals and validates portions, profile approval, energy, protein, AMDR, fiber, and meat/dairy rules. It returns only safe structured validation issues. Arnold may repair a rejected Draft twice; after three failed submissions it asks a focused user question and there is no hidden deterministic plan fallback. Drafts follow the selected three-meal, three-meals-plus-snack, or four-meal pattern and have no food-substitution alternatives.
 
 Conversation limits are 30 agent turns per hour per hashed session/IP and 100 per day globally. Food-source limits remain independently enforced at 10 per hour and 30 per day. Raw IP addresses are never stored.
 

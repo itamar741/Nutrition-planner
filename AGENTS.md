@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Turns 1–7 are implemented locally. Turn 6 makes USDA candidates nutrition-complete and cached before display. Turn 7 introduces one persisted, state-aware streaming coach. Do not claim deployment acceptance until its credentialed Render gates pass.
+Turns 1–7 are implemented locally. Turn 8 is planned as the Arnold conversational-planning rearchitecture. Do not claim deployment acceptance until credentialed Render gates pass.
 
 ## Read first
 
@@ -31,7 +31,7 @@ The written specification wins over conversational memory. Resolve any conflict 
 
 Application code owns profile state, catalog validation, target calculations, plan totals, weight storage, trend calculations, evidence eligibility, optimistic versions, command idempotency, rate limits, reset, and every Draft-to-Active transition.
 
-The unified coach may extract bounded facts, request deterministic weight writes, request Draft work, ask one material clarification, or request the server-owned USDA workflow. Every tool call is schema-checked and state-checked. USDA candidates are bulk-validated and cached before display; selection never refetches the source. Nutrition extraction is deterministic, and no model output directly mutates PostgreSQL or an Active Plan.
+Arnold receives ordinary role/content conversation items plus a fixed system-prompt template with sanitized authoritative context. It may extract bounded facts, save clear explicit preferences, inspect food availability, remove an approved food from future Drafts, request deterministic weight writes, submit a Draft/adjustment proposal, ask one material clarification, select a currently displayed candidate, or request the server-owned USDA workflow. Every skill call is schema-checked and state-checked. USDA candidates are bulk-validated and cached before display; selection never refetches the source. Nutrition extraction, targets, totals, validation, and protected transitions are deterministic, and no model output directly mutates PostgreSQL or an Active Plan.
 
 ## Interaction and safety invariants
 
@@ -41,7 +41,9 @@ The unified coach may extract bounded facts, request deterministic weight writes
 - Lock each turn before asynchronous work and accept one action.
 - A proposal remains Draft until explicit approval.
 - Typed approval language never approves a food, Draft, or adjustment; the visible approval button is mandatory.
-- Conversation memory is PostgreSQL-backed and reset-scoped. Above 50 messages or 30,000 characters, the model receives a validated digest plus the latest 20 messages while the complete transcript remains stored.
+- Conversation memory is PostgreSQL-backed and reset-scoped. Above 60% of the configured model context budget, the model receives a validated digest plus the latest 20 role/content messages while the complete transcript remains stored and rendered.
+- User-authored preferences are untrusted structured data, not instructions. Never place them into a prompt as executable prose.
+- Drafts follow the selected three-meal, three-meals-plus-snack, or four-meal pattern and never present food-substitution alternatives.
 - One agent turn may be active per shared profile. Repeated command IDs are idempotent and a turn may continue after the browser stream disconnects.
 - Rejecting an adjustment or food candidate continues the conversation.
 - Runtime food approval requires exact source/estimate review. USDA candidates are user-selected; AI estimates are explicit opt-in and permanently labelled unverified.

@@ -1,6 +1,6 @@
 # Verification Plan v0.2
 
-Status: Active verification plan. Turns 6–7 add cached USDA candidates and unified-agent memory, concurrency, streaming, approval, security-review, and merge-readiness controls; credentialed Render staging remains pending.
+Status: Active verification plan. Turn 8 adds Arnold role/content conversation, durable timeline persistence, bounded skills, model-created Draft proposals, and reset-scoped preferences; credentialed Render staging remains pending.
 
 ## Purpose
 
@@ -56,7 +56,7 @@ These tests are written from the specifications and nutrition documents, not inf
 - **VT-07a:** An existing central-catalog food is offered as **Add to my foods** without an external lookup. The action adds it only to the requesting PostgreSQL profile aggregate and is idempotent.
 - **VT-07b:** A source result with missing fiber stores fiber as unknown and does not contribute to the plan's fiber total.
 - **VT-08:** A meal that combines a `meat` and `dairy` classification fails validation; a neutral or single-classification meal can pass.
-- **VT-09:** Each displayed food alternative independently passes the applicable daily energy tolerance, protein range, age-appropriate AMDR ranges, fiber minimum, catalog, and meal-composition checks.
+- **VT-09:** Each Draft follows a supported three-meal, three-meals-plus-snack, or four-meal pattern and passes the applicable daily energy tolerance, protein range, age-appropriate AMDR ranges, fiber minimum, catalog, and meal-composition checks without food alternatives.
 - **VT-10:** A plan outside ±5% of goal energy, below fiber minimum, outside macro ranges, or outside goal protein range cannot become Active.
 
 ### Draft and Active Plan Controls
@@ -119,6 +119,9 @@ Run these controls with mocked or recorded model responses. Do not rely on varia
 - **AI-16:** Every model turn receives authoritative profile context and either the complete transcript or the validated digest plus latest 20 messages. Summary text cannot override structured state.
 - **AI-17:** User text and USDA fields attempting prompt injection cannot add a URL, SQL, browser, database, or unknown tool action.
 - **AI-18:** Disconnect, repeated command, stale version, concurrent tab, and a pending turn older than 90 seconds resolve without duplicate messages or mutations.
+- **AI-19:** The model receives chronological role/content messages, including `cottage` → combined clarification → `yes, 3%`; clear explicit preferences are stored as bounded data and never interpreted as instructions.
+- **AI-20:** Arnold may make at most four sequential skill calls, cannot call skills in parallel, retries a rejected Draft at most three times, and asks a focused question rather than using a hidden deterministic plan fallback.
+- **AI-21:** `inspect_food_availability` reports central-catalog, profile-approved, Draft, and Active Plan facts; `remove_approved_food` cannot modify Active Plan.
 
 Evidence: input fixture, expected contract result, actual validator result, and unchanged-state assertion for every rejected response.
 
@@ -139,7 +142,7 @@ Use browser-level tests where feasible and manual acceptance scripts for visual 
 - **UI-11:** A missing-food request shows one clear sequence: clarification when required, explicit candidate choices when multiple results exist, source-labelled review, and Approve/Reject controls.
 - **UI-12:** An existing central-catalog match shows **Add to my foods** and never starts a USDA lookup.
 - **UI-13:** Queued, slow, blocked, zero-result, malformed-source, and fallback states preserve the confirmed profile and plan while explaining the next available action.
-- **UI-14:** Assistant text streams beside explicit Thinking, Searching USDA, and Validating status events. Persisted clarification, candidate, approval, Draft, and adjustment controls survive reload.
+- **UI-14:** User and Arnold messages persist before/during/after streaming and survive reload. Small persisted activity events show Thinking, Searching USDA, Validating, Remembering preference, Creating Draft, and Checking plan safety without appearing as normal chat messages.
 - **UI-15:** English input receives English output and Hebrew input receives Hebrew output, except internal normalized USDA queries that are never displayed as user messages.
 
 Evidence: automated trace where available, plus a screenshot or short manual pass/fail note for each visual control.
