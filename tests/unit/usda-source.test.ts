@@ -4,7 +4,8 @@ import {
   buildUsdaSearchQuery,
   parseUsdaFoodDetail,
   parseUsdaSearchResponse,
-  searchUsdaFoods,
+  resolveUsdaFoodCandidates,
+  searchUsdaFoodSummaries,
   UsdaUnavailableError,
   validateNutritionPlausibility,
 } from "@/sources/usda";
@@ -67,11 +68,11 @@ describe("bounded USDA FoodData Central parsing", () => {
     ).toBe(true);
   });
 
-  it("keeps ten unique Foundation and SR Legacy search results in USDA order", () => {
+  it("keeps up to fifty unique Foundation and SR Legacy search results in USDA order", () => {
     const result = parseUsdaSearchResponse({
       foods: [
         { fdcId: 1, description: "Branded rice", dataType: "Branded" },
-        ...Array.from({ length: 12 }, (_, index) => ({
+        ...Array.from({ length: 52 }, (_, index) => ({
           fdcId: index + 10,
           description: `Rice ${index + 1}, cooked`,
           dataType: index % 2 === 0 ? "Foundation" : "SR Legacy",
@@ -81,9 +82,9 @@ describe("bounded USDA FoodData Central parsing", () => {
       ],
     });
 
-    expect(result.map((food) => food.fdcId)).toEqual([
-      10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
-    ]);
+    expect(result).toHaveLength(50);
+    expect(result.map((food) => food.fdcId).slice(0, 3)).toEqual([10, 11, 12]);
+    expect(result.at(-1)?.fdcId).toBe(59);
     expect(result[0]).toMatchObject({
       description: "Rice 1, cooked",
       dataType: "Foundation",
@@ -136,7 +137,7 @@ describe("bounded USDA FoodData Central parsing", () => {
     expect(result.energyNutrientId).toBe(2048);
   });
 
-  it("bulk-validates ten search results, falls back to complete search nutrition, and returns five", async () => {
+  it("retrieves fifty summaries and bulk-validates only the selected candidates", async () => {
     process.env.USDA_FDC_API_KEY = "test-key";
     const foods = Array.from({ length: 10 }, (_, index) => ({
       fdcId: index + 1,
@@ -150,31 +151,32 @@ describe("bounded USDA FoodData Central parsing", () => {
         { nutrientId: 1004, unitName: "g", value: 0.2 },
       ],
     }));
-    const detail = {
-      fdcId: 1,
-      description: "Food 1 detail",
-      dataType: "Foundation",
+    const details = foods.slice(0, 5).map((food) => ({
+      fdcId: food.fdcId,
+      description: `${food.description} detail`,
+      dataType: food.dataType,
       foodNutrients: [
         { nutrient: { id: 2048, unitName: "kcal" }, amount: 41 },
         { nutrient: { id: 1003, unitName: "g" }, amount: 1 },
         { nutrient: { id: 1005, unitName: "g" }, amount: 9 },
         { nutrient: { id: 1004, unitName: "g" }, amount: 0.2 },
       ],
-    };
+    }));
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ foods }), { status: 200 }),
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify([detail]), { status: 200 }),
+        new Response(JSON.stringify(details), { status: 200 }),
       );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await searchUsdaFoods({
+    const summaries = await searchUsdaFoodSummaries({
       normalizedEnglishQuery: "food",
       preparation: "raw",
     });
+    const result = await resolveUsdaFoodCandidates(summaries.slice(0, 5));
 
     expect(result).toHaveLength(5);
     expect(result[0]).toMatchObject({
@@ -185,17 +187,17 @@ describe("bounded USDA FoodData Central parsing", () => {
     });
     expect(result[1]).toMatchObject({
       fdcId: 2,
-      verification: "search_summary",
-      energyNutrientId: 1008,
+      verification: "detail",
+      energyNutrientId: 2048,
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(
       JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)),
     ).toMatchObject({
-      pageSize: 10,
+      pageSize: 50,
     });
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
-      fdcIds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+      fdcIds: [1, 2, 3, 4, 5],
     });
   });
 

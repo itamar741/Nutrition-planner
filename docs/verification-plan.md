@@ -140,6 +140,7 @@ Use browser-level tests where feasible and manual acceptance scripts for visual 
 - **UI-09:** A failed Draft, trend, proposal, or approval operation leaves confirmed state visible and never labels a failed proposal as Active.
 - **UI-10:** Draft, proposal, and Active labels are visible and unambiguous before and after every approval or rejection.
 - **UI-11:** A missing-food request shows one clear sequence: clarification when required, explicit candidate choices when multiple results exist, source-labelled review, and Approve/Reject controls.
+- **AI-21:** A USDA source pool may contain up to 50 permitted summaries; the ranking model receives only sanitized identity metadata, returns one to five in-pool IDs or a focused clarification, and never supplies nutrition values or approvals.
 - **UI-12:** An existing central-catalog match shows **Add to my foods** and never starts a USDA lookup.
 - **UI-13:** Queued, slow, blocked, zero-result, malformed-source, and fallback states preserve the confirmed profile and plan while explaining the next available action.
 - **UI-14:** User and Arnold messages persist before/during/after streaming and survive reload. Small persisted activity events show Thinking, Searching USDA, Validating, Remembering preference, Creating Draft, and Checking plan safety without appearing as normal chat messages.

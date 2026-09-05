@@ -65,7 +65,7 @@ The coaching product uses these bounded interaction primitives:
 - **Activity event:** a persisted, small blue-dot status such as **Thinking**, **Checking your foods and plans**, **Remembering your preference**, **Creating Draft**, or **Checking plan safety**. It is not a normal chat message.
 - **Chat message with quick replies:** presents a closed question with predefined choices inside the conversation.
 - **Food Grid:** presents selectable predefined catalog foods during the dedicated preference step.
-- **Catalog candidate list:** presents the first one to five nutrition-complete USDA Foundation Foods or SR Legacy records in USDA relevance order. Each card shows the four required macros per 100 g and requires one user selection.
+- **Catalog candidate list:** presents one to five nutrition-complete USDA Foundation Foods or SR Legacy records ranked for the requested food by a bounded model operation. Each card shows the four required macros per 100 g and requires one user selection.
 - **Catalog approval card:** presents normalized source data with Approve and Reject actions.
 - **Persisted interaction card:** clarification choices, candidate lists, food review, Draft review, and adjustment review are transcript-adjacent state and survive reloads.
 

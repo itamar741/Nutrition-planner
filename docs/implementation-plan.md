@@ -100,7 +100,7 @@ QUERY
                      -> OPTIONAL_VALIDATED_DRAFT_CONTINUATION
 ```
 
-When food lookup is permitted, the unified coach receives the strict `search_foods` tool alongside only the other state-dependent tools currently allowed. The food tool's arguments contain only `normalizedEnglishQuery` and `cooked | raw | packaged`. It cannot accept a URL, USDA identifier, SQL, database handle, source credential, browser instruction, or arbitrary tool. The server checks the central catalog first and owns every USDA request.
+When food lookup is permitted, the unified coach receives the strict `search_foods` tool alongside only the other state-dependent tools currently allowed. The food tool's arguments contain only `normalizedEnglishQuery` and `cooked | raw | packaged | null`; `null` means the user did not specify preparation. It cannot accept a URL, USDA identifier, SQL, database handle, source credential, browser instruction, or arbitrary tool. The server checks the central catalog first and owns every USDA request.
 
 Foods that normally require cooking default to cooked. The model asks a clarification only when preparation is materially ambiguous. Hebrew and English requests are normalized to concise English; a query such as rice does not require a cooked/raw clarification.
 
@@ -108,12 +108,12 @@ The server:
 
 1. checks the central catalog deterministically;
 2. validates model tool arguments again;
-3. calls only USDA Foundation Foods and SR Legacy search with a ten-result limit;
-4. bulk-fetches those records once and prefers complete detail data;
-5. accepts search-summary fallback only when calories, protein, carbohydrate, and fat are all present and plausible;
+3. calls only USDA Foundation Foods and SR Legacy search with a 50-result limit;
+4. sends only sanitized source identity metadata to a bounded model-ranking step and validates its one-to-five selected identifiers against that exact source pool;
+5. bulk-fetches only the selected records and requires complete, plausible detail data;
 6. extracts energy by priority 2048, 2047, then 1008, plus nutrients 1003, 1005, 1004, and nullable 1079;
 7. normalizes and stores complete candidates behind application UUIDs before display;
-8. preserves USDA relevance order, presents the first one to five valid records, and requires explicit user selection;
+8. presents the one to five validated model-ranked records, or asks a focused clarification when no source record is genuinely relevant, and requires explicit user selection;
 9. serves selection entirely from the stored candidate without another USDA request; and
 10. requires explicit approval before one transactional catalog/profile write.
 

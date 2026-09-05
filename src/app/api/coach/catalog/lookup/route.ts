@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   FoodCatalogConfigurationError,
   FoodCatalogModelError,
+  rankUsdaCandidates,
   requestFoodLookupTool,
 } from "@/ai/food-catalog";
 import { foodLookupRequestSchema } from "@/domain/catalog/api-contracts";
@@ -19,7 +20,8 @@ import {
 import { requestHasAccess } from "@/security/demo-access";
 import { rateIdentity } from "@/security/rate-identity";
 import {
-  searchUsdaFoods,
+  resolveUsdaFoodCandidates,
+  searchUsdaFoodSummaries,
   UsdaUnavailableError,
   usdaFoodUrl,
 } from "@/sources/usda";
@@ -85,6 +87,7 @@ export async function POST(request: Request) {
     });
     console.info("food_lookup_started", { lookupId: lookup.id });
     let toolArguments: FoodLookupToolArguments | null = null;
+    let rankingClarification: string | null = null;
     try {
       const result = await requestFoodLookupTool({
         message: input.query,
@@ -95,7 +98,38 @@ export async function POST(request: Request) {
             conversation: input.context,
             toolArguments: arguments_,
           });
-          return searchUsdaFoods(arguments_, {
+          const summaries = await searchUsdaFoodSummaries(arguments_, {
+            onStage: (stage, details = {}) => {
+              console.info("food_lookup_stage", {
+                lookupId: lookup.id,
+                stage,
+                ...details,
+              });
+            },
+          });
+          const ranking = await rankUsdaCandidates({
+            query: arguments_.normalizedEnglishQuery,
+            replyLanguage: /[\u0590-\u05ff]/.test(input.query)
+              ? "Hebrew"
+              : "English",
+            candidates: summaries,
+          });
+          if (ranking.outcome === "clarification") {
+            rankingClarification = ranking.message;
+            return [];
+          }
+          const summaryById = new Map(
+            summaries.map((summary) => [summary.fdcId, summary]),
+          );
+          const selectedSummaries = ranking.candidateFdcIds.map((fdcId) => {
+            const summary = summaryById.get(fdcId);
+            if (!summary)
+              throw new FoodCatalogModelError(
+                "The ranked USDA candidate was not in the search pool.",
+              );
+            return summary;
+          });
+          return resolveUsdaFoodCandidates(selectedSummaries, {
             onStage: (stage, details = {}) => {
               console.info("food_lookup_stage", {
                 lookupId: lookup.id,
@@ -106,10 +140,11 @@ export async function POST(request: Request) {
           });
         },
       });
-      if (result.outcome === "clarification") {
+      if (result.outcome === "clarification" || rankingClarification) {
+        const message = rankingClarification ?? result.message;
         await updateLookupContext(lookup.id, {
           conversation: input.context,
-          clarification: result.message,
+          clarification: message,
         });
         await updateLookup(lookup.id, {
           status: "failed",
@@ -119,7 +154,7 @@ export async function POST(request: Request) {
           ok: true,
           outcome: "clarification",
           lookupId: lookup.id,
-          message: result.message,
+          message,
         });
       }
       await saveCandidates(

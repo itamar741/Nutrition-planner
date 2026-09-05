@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { makeReadyState, makeValidDraft } from "../fixtures/turn-2";
 import { installNewCloudProfile } from "./helpers/cloud-profile";
 
-test("Turn 8 reloads persisted user, partial Arnold output, failure, and activity", async ({
+test("Turn 8 reloads persisted user and partial Arnold output without replaying completed activity", async ({
   page,
 }) => {
   const cloud = await installNewCloudProfile(page, makeReadyState());
@@ -75,7 +75,9 @@ test("Turn 8 reloads persisted user, partial Arnold output, failure, and activit
   await expect(
     page.getByText("I started checking your approved foods.", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByText("Checking your foods and plans")).toBeVisible();
+  await expect(
+    page.getByText("Checking your foods and plans"),
+  ).not.toBeVisible();
 
   await page.reload();
   await expect(
@@ -86,7 +88,7 @@ test("Turn 8 reloads persisted user, partial Arnold output, failure, and activit
   ).toBeVisible();
   await expect(
     page.getByText("This turn failed safely; confirmed state was preserved"),
-  ).toBeVisible();
+  ).not.toBeVisible();
 });
 
 test("Turn 8 typed approval leaves the Draft pending for its visible button", async ({

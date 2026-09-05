@@ -48,10 +48,12 @@ import {
   type VersionedProfile,
 } from "@/persistence/repository";
 import {
-  searchUsdaFoods,
+  resolveUsdaFoodCandidates,
+  searchUsdaFoodSummaries,
   UsdaUnavailableError,
   usdaFoodUrl,
 } from "@/sources/usda";
+import { rankUsdaCandidates } from "@/ai/food-catalog";
 import { prepareAiEstimate, prepareFoodCandidate } from "./food-candidates";
 
 type RateIdentity = { sessionHash: string; ipHash: string };
@@ -465,6 +467,7 @@ function finishNonInteractiveWorkflow(
 async function searchFoods(input: {
   profileId: "new" | "existing";
   query: string;
+  replyLanguage: "Hebrew" | "English";
   preparation: "cooked" | "raw" | "packaged" | null;
   rateIdentity: RateIdentity;
   turnId: string;
@@ -472,16 +475,6 @@ async function searchFoods(input: {
 }) {
   const existing = await findCatalogFood(input.query);
   if (existing) return { outcome: "existing" as const, food: existing };
-  if (
-    input.preparation === null &&
-    input.query.trim().toLocaleLowerCase("en-US") === "milk"
-  ) {
-    return {
-      outcome: "needs_clarification" as const,
-      prompt:
-        "Which milk should I look up: cow's milk (and what fat percentage), or a different kind of milk?",
-    };
-  }
   if (!(await recordAndCheckRateLimit(input.rateIdentity))) {
     throw new Error("The food-search limit has been reached. Try again later.");
   }
@@ -498,7 +491,43 @@ async function searchFoods(input: {
       normalizedEnglishQuery: input.query,
       preparation: input.preparation,
     };
-    const candidates = await searchUsdaFoods(arguments_, {
+    const summaries = await searchUsdaFoodSummaries(arguments_, {
+      onStage: (stage, details = {}) =>
+        console.info("agent_food_lookup_stage", {
+          turnId: input.turnId,
+          lookupId: lookup.id,
+          stage,
+          ...details,
+        }),
+    });
+    const ranking = await rankUsdaCandidates({
+      query: input.query,
+      replyLanguage: input.replyLanguage,
+      candidates: summaries,
+    });
+    if (ranking.outcome === "clarification") {
+      await updateLookup(lookup.id, {
+        status: "failed",
+        failureCode: "needs_clarification",
+      });
+      return {
+        outcome: "needs_clarification" as const,
+        prompt: ranking.message,
+      };
+    }
+    const summaryById = new Map(
+      summaries.map((summary) => [summary.fdcId, summary]),
+    );
+    const selectedSummaries = ranking.candidateFdcIds.map((fdcId) => {
+      const summary = summaryById.get(fdcId);
+      if (!summary) {
+        throw new Error(
+          "The ranked USDA candidate was not in the search pool.",
+        );
+      }
+      return summary;
+    });
+    const candidates = await resolveUsdaFoodCandidates(selectedSummaries, {
       onStage: (stage, details = {}) =>
         console.info("agent_food_lookup_stage", {
           turnId: input.turnId,
@@ -1052,6 +1081,11 @@ export async function executeCoachTurn(input: {
       const result = await searchFoods({
         profileId: input.request.profileId,
         query: String(args.normalizedEnglishQuery),
+        replyLanguage:
+          input.request.input.type === "text" &&
+          /[\u0590-\u05ff]/.test(input.request.input.text)
+            ? "Hebrew"
+            : "English",
         preparation: args.preparation as "cooked" | "raw" | "packaged" | null,
         rateIdentity: input.rateIdentity,
         turnId: input.turnId,

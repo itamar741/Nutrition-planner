@@ -31,6 +31,36 @@ const agent = vi.hoisted(() => ({
   toolResults: [] as Array<Record<string, unknown>>,
 }));
 
+const foodSearch = vi.hoisted(() => ({
+  summaries: [
+    {
+      fdcId: 100,
+      title: "Milk chocolate",
+      description: "SR Legacy · Sweets",
+      dataType: "SR Legacy" as const,
+    },
+  ],
+  ranking: {
+    outcome: "clarification" as const,
+    message: "Which type of milk would you like to add?",
+  },
+  searchSummaries: vi.fn(),
+}));
+
+vi.mock("@/sources/usda", () => ({
+  searchUsdaFoodSummaries: (...args: unknown[]) => {
+    foodSearch.searchSummaries(...args);
+    return Promise.resolve(foodSearch.summaries);
+  },
+  resolveUsdaFoodCandidates: vi.fn(),
+  UsdaUnavailableError: class UsdaUnavailableError extends Error {},
+  usdaFoodUrl: (fdcId: number) => `https://fdc.example/${fdcId}`,
+}));
+
+vi.mock("@/ai/food-catalog", () => ({
+  rankUsdaCandidates: () => Promise.resolve(foodSearch.ranking),
+}));
+
 vi.mock("@/ai/coach-agent", () => ({
   buildArnoldSystemPrompt: (context: Record<string, unknown>) =>
     `ARNOLD\n${JSON.stringify(context)}`,
@@ -113,6 +143,11 @@ describe("unified coach orchestration", () => {
     agent.allowedAfterCalls = [];
     agent.responseText = "Completed safely.";
     agent.toolResults = [];
+    foodSearch.searchSummaries.mockReset();
+    foodSearch.ranking = {
+      outcome: "clarification",
+      message: "Which type of milk would you like to add?",
+    };
     delete process.env.OPENAI_CONTEXT_WINDOW;
   });
 
@@ -175,7 +210,7 @@ describe("unified coach orchestration", () => {
     ).toBe(1);
   });
 
-  it("asks a focused milk question instead of showing foods that merely contain milk", async () => {
+  it("uses the generic ranking clarification instead of a milk-specific branch", async () => {
     const initial = await getProfile("existing");
     agent.tool = {
       name: "search_foods",
@@ -189,8 +224,9 @@ describe("unified coach orchestration", () => {
     expect(result.profile.state.agentSession.pendingInteraction).toMatchObject({
       type: "clarification",
       workflow: "food",
-      prompt: expect.stringContaining("what fat percentage"),
+      prompt: "Which type of milk would you like to add?",
     });
+    expect(foodSearch.searchSummaries).toHaveBeenCalledOnce();
     expect(agent.toolResults).toContainEqual({
       outcome: "needs_clarification",
       interaction: expect.objectContaining({ type: "clarification" }),

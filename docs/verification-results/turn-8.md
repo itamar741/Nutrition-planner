@@ -11,7 +11,7 @@ Status: local implementation and deterministic verification passed. The Turn 8 m
 ## Automated evidence
 
 - `npm run verify` passed formatting, ESLint, TypeScript, the unit suite, repository security scan, production build, and Playwright.
-- Unit suite passed: 19 files and 100 tests.
+- Unit suite passed: 20 files and 105 tests.
 - Playwright passed: 17 Chromium browser tests.
 - `npm audit --audit-level=high` reported zero vulnerabilities.
 
@@ -27,6 +27,7 @@ Status: local implementation and deterministic verification passed. The Turn 8 m
 - Repeated commands do not duplicate user messages. Failed or stale attempts can resume under the same command, and concurrent turns or ordinary profile changes are rejected while Arnold is active.
 - Food, Draft, and adjustment approvals remain matching visible-control actions; typed approval text cannot perform a protected mutation.
 - Existing performs one Arnold trend review per browser/profile session and creates an adjustment only after the persisted Generate AI proposal event.
+- USDA ranking receives up to 50 sanitized identity summaries, selects only one to five returned identifiers after strict validation and one repair attempt, then loads nutrition details only for those selections. No-match ranking creates a focused clarification instead of weak candidate cards.
 
 ## Remaining live gate
 
