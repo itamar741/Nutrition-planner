@@ -41,9 +41,12 @@ describe("bounded USDA FoodData Central parsing", () => {
         preparation: "cooked",
       }),
     ).toBe("pasta cooked");
-    expect(buildUsdaSearchQuery({ normalizedEnglishQuery: "cow's milk" })).toBe(
-      "cow's milk",
-    );
+    expect(
+      buildUsdaSearchQuery({
+        normalizedEnglishQuery: "cow's milk",
+        preparation: null,
+      }),
+    ).toBe("cow's milk");
   });
 
   it("rejects injected URLs, SQL, and arbitrary tool arguments", () => {
@@ -59,6 +62,7 @@ describe("bounded USDA FoodData Central parsing", () => {
     expect(
       foodLookupToolArgumentsSchema.safeParse({
         normalizedEnglishQuery: "cow's milk",
+        preparation: null,
       }).success,
     ).toBe(true);
   });

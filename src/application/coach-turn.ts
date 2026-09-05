@@ -465,7 +465,7 @@ function finishNonInteractiveWorkflow(
 async function searchFoods(input: {
   profileId: "new" | "existing";
   query: string;
-  preparation?: "cooked" | "raw" | "packaged";
+  preparation: "cooked" | "raw" | "packaged" | null;
   rateIdentity: RateIdentity;
   turnId: string;
   onStatus: (value: Status) => void;
@@ -1042,8 +1042,7 @@ export async function executeCoachTurn(input: {
       const result = await searchFoods({
         profileId: input.request.profileId,
         query: String(args.normalizedEnglishQuery),
-        preparation: args.preparation as
-          "cooked" | "raw" | "packaged" | undefined,
+        preparation: args.preparation as "cooked" | "raw" | "packaged" | null,
         rateIdentity: input.rateIdentity,
         turnId: input.turnId,
         onStatus: input.onStatus,

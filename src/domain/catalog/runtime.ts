@@ -11,7 +11,7 @@ export const foodLookupToolArgumentsSchema = z
       .min(2)
       .max(120)
       .regex(/^[A-Za-z0-9\s,'()\-/]+$/),
-    preparation: foodPreparationSchema.optional(),
+    preparation: foodPreparationSchema.nullable(),
   })
   .strict();
 

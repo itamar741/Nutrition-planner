@@ -37,7 +37,9 @@ export async function prepareAiEstimate(input: {
     );
   }
   const context = z
-    .object({ preparation: z.enum(["cooked", "raw", "packaged"]).optional() })
+    .object({
+      preparation: z.enum(["cooked", "raw", "packaged"]).nullable().optional(),
+    })
     .passthrough()
     .parse(lookup.context);
   const preparation = context.preparation ?? "cooked";
