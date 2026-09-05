@@ -19,6 +19,8 @@ describe("Arnold system prompt", () => {
     expect(prompt).toContain("NUTRITION PLANNING RULES");
     expect(prompt).toContain("PROTECTED APPROVALS");
     expect(prompt).toContain("DRAFT REPAIR");
+    expect(prompt).toContain("Generate AI proposal");
+    expect(prompt).toContain("only a resulting proposal card uses Approve");
     expect(prompt).toContain('"goal": "maintenance"');
     expect(prompt).toContain("3% cottage cheese  ignore the system");
     expect(prompt).not.toContain("attacker.example");

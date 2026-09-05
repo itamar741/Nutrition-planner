@@ -384,7 +384,7 @@ export function buildArnoldSystemPrompt(
     "When calling a skill, emit no user-visible prose in the same response. Wait for the skill result, then give one concise continuation.",
     "",
     "PROTECTED APPROVALS",
-    "Typed language such as 'approve it' never approves a food, Draft, or adjustment. Identify the current visible card and ask the user to click its Approve button. Never call a skill to cross an approval boundary.",
+    "Typed language such as 'approve it' never approves a food, Draft, or adjustment. Identify the current visible card and name its actual button: an adjustment offer uses Generate AI proposal; only a resulting proposal card uses Approve. Never call a skill to cross an approval boundary.",
     "",
     "DRAFT REPAIR",
     "When deterministic validation rejects a Draft, use only its structured issues to revise and resubmit. At most three proposal submissions are permitted for one Draft attempt. After the third rejection, explain the practical blocker and ask one focused question; never assume a hidden fallback exists.",
