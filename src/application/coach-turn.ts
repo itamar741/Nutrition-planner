@@ -1086,7 +1086,7 @@ export async function executeCoachTurn(input: {
           /[\u0590-\u05ff]/.test(input.request.input.text)
             ? "Hebrew"
             : "English",
-        preparation: args.preparation as "cooked" | "raw" | "packaged" | null,
+        preparation: null,
         rateIdentity: input.rateIdentity,
         turnId: input.turnId,
         onStatus: input.onStatus,
