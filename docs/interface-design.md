@@ -39,7 +39,7 @@ The system does not enable Draft generation when required information or food se
 7. Ask for explicit approval using a proposal-local Approve button. Typed approval language has no effect.
 8. Approval updates and renders the Active Plan. Rejection preserves the current plan.
 9. Rejecting an adjustment asks what the user disliked and accepts one bounded follow-up before presenting another Draft proposal.
-10. A supported conversational menu change or approved-food continuation creates an ordinary Draft at the current Active Plan targets. The current Active Plan remains visible until the Draft's own approval button is used.
+10. A supported conversational menu change or approved-food continuation creates a complete ordinary Draft at the current Active Plan targets. Including a newly approved food rebalances other approved portions or foods as needed rather than appending it unchanged; the Draft visibly lists the changed amounts. The current Active Plan remains visible until the Draft's own approval button is used.
 
 An invalid weight value is not added to the chart. The conversation explains what is wrong and requests a corrected value.
 
@@ -93,8 +93,10 @@ The coaching product uses these bounded interaction primitives:
 - Draft generation, modification, activation, and adjustment approval are distinct actions.
 - Fresh and Existing use the same ordinary Draft skill. Existing ordinary Drafts retain the current Active Plan target snapshot; only a deterministic trend adjustment may change those targets.
 - A conversational request may change only a Draft.
+- An approved-food continuation builds a full replacement Draft. It includes the required food at a practical portion and rebalances the Draft against the Active Plan where needed; it never silently appends that food to unchanged meals.
 - Activating or replacing an Active Plan always requires a dedicated approval action.
 - A weight message triggers deterministic value validation and trend processing; AI prose cannot write directly to weight history.
+- For Maintenance, the trend review also checks a non-user-editable Active Plan baseline against two consecutive seven-measurement averages. A persistent 0.70 kg deviation may make a bounded adjustment available even when the short-term percentage band is not crossed; it is not a target-weight workflow.
 - Unknown foods enter only the bounded central-catalog workflow. They are never searched by a model browser, guessed silently, or written before approval.
 
 ## Feedback Design

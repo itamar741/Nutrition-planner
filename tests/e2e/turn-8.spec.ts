@@ -203,6 +203,21 @@ test("Turn 8 keeps an ordinary Existing Draft across reload and activates it onl
             ...state.activePlan.plan,
             id: `plan-${request.commandId}`,
             version: state.activePlan.version + 1,
+            meals: state.activePlan.plan.meals.map((meal) => ({
+              ...meal,
+              items:
+                meal.id === "snack"
+                  ? [
+                      ...meal.items,
+                      {
+                        id: "tofu-integration",
+                        catalogFoodId: "tofu-firm",
+                        grams: 60,
+                        alternatives: [],
+                      },
+                    ]
+                  : meal.items,
+            })),
           },
         },
         agentSession: { ...state.agentSession, pendingInteraction: null },
@@ -222,6 +237,8 @@ test("Turn 8 keeps an ordinary Existing Draft across reload and activates it onl
           schemaVersion: 1,
           version: state.activePlan.version + 1,
           activatedAt: new Date().toISOString(),
+          maintenanceReferenceWeightKg:
+            state.activePlan.maintenanceReferenceWeightKg,
           plan: draft.plan,
         },
         draft: null,
@@ -264,6 +281,9 @@ test("Turn 8 keeps an ordinary Existing Draft across reload and activates it onl
   await expect(
     page.getByText("Draft Meal Plan", { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Changes from active plan" }),
+  ).toContainText("Added Firm tofu: 0 g → 60 g");
   await expect(page.getByText("Version 1; changes require")).toBeVisible();
   await page.reload();
   await expect(

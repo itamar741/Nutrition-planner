@@ -214,6 +214,57 @@ describe("unified coach orchestration", () => {
     ).toBe(1);
   });
 
+  it("offers a Maintenance adjustment for sustained 700 g drift even when the rate is stable", async () => {
+    const initial = await getProfile("existing");
+    if (!("measurements" in initial.state))
+      throw new Error("Expected Existing state.");
+    const seeded = await mutateProfile({
+      profileId: "existing",
+      expectedVersion: initial.version,
+      commandId: "seed-sustained-maintenance-drift",
+      mutation: (state) => {
+        if ("profile" in state) throw new Error("Expected Existing state.");
+        return {
+          ...state,
+          measurements: state.measurements.map((measurement, index) => ({
+            ...measurement,
+            weightKg: index < 24 ? 75 : 75.72,
+          })),
+          activePlan: {
+            ...state.activePlan,
+            maintenanceReferenceWeightKg: 75,
+          },
+        };
+      },
+    });
+    if (!("measurements" in seeded.state))
+      throw new Error("Expected Existing state.");
+
+    const result = await executeCoachTurn({
+      ...turnInput(
+        "existing",
+        seeded.version,
+        "review-sustained-maintenance-drift",
+        "unused",
+      ),
+      request: {
+        profileId: "existing",
+        expectedVersion: seeded.version,
+        commandId: "review-sustained-maintenance-drift",
+        input: {
+          type: "interaction",
+          interactionId: `existing-session-review-v${seeded.state.activePlan.version}`,
+          action: "review_trend",
+        },
+      },
+    });
+
+    expect(result.profile.state.agentSession.pendingInteraction).toMatchObject({
+      type: "adjustment_offer",
+      direction: "decrease",
+    });
+  });
+
   it("uses the generic ranking clarification instead of a milk-specific branch", async () => {
     const initial = await getProfile("existing");
     agent.tool = {
@@ -582,6 +633,117 @@ describe("unified coach orchestration", () => {
       throw new Error("Expected Existing state.");
     expect(activated.profile.state.draft).toBeNull();
     expect(activated.profile.state.activePlan.version).toBe(2);
+    expect(
+      activated.profile.state.activePlan.maintenanceReferenceWeightKg,
+    ).toBeCloseTo(
+      activated.profile.state.measurements
+        .slice(-7)
+        .reduce((sum, measurement) => sum + measurement.weightKg, 0) / 7,
+      8,
+    );
+  });
+
+  it("forces a complete rebalanced Draft when an approved food is added to an Existing plan", async () => {
+    const initial = await getProfile("existing");
+    if (!("measurements" in initial.state))
+      throw new Error("Expected Existing state.");
+    const activeBefore = structuredClone(initial.state.activePlan);
+    const pending: AgentInteraction = {
+      id: "existing-tofu-continuation",
+      type: "confirm_draft_food",
+      foodId: "tofu-firm",
+      displayName: "Firm tofu",
+    };
+    const seeded = await mutateProfile({
+      profileId: "existing",
+      expectedVersion: initial.version,
+      commandId: "seed-existing-tofu-continuation",
+      mutation: (state) => ({
+        ...state,
+        agentSession: { ...state.agentSession, pendingInteraction: pending },
+      }),
+    });
+    agent.tool = {
+      name: "submit_draft_proposal",
+      arguments: {
+        summary: "Adds tofu without changing the current plan.",
+        meals: activeBefore.plan.meals.map((meal) => ({
+          id: meal.id,
+          items: [
+            ...meal.items.map((item) => ({
+              catalogFoodId: item.catalogFoodId,
+              grams: item.grams,
+            })),
+            ...(meal.id === "snack"
+              ? [{ catalogFoodId: "tofu-firm", grams: 60 }]
+              : []),
+          ],
+        })),
+      },
+    };
+
+    const result = await executeCoachTurn({
+      ...turnInput(
+        "existing",
+        seeded.version,
+        "existing-integrate-tofu",
+        "unused",
+      ),
+      request: {
+        profileId: "existing",
+        expectedVersion: seeded.version,
+        commandId: "existing-integrate-tofu",
+        input: {
+          type: "interaction",
+          interactionId: pending.id,
+          action: "confirm_draft_food",
+        },
+      },
+    });
+
+    expect(agent.requiredFirstTools).toEqual(["submit_draft_proposal"]);
+    expect(agent.toolResults[0]).toMatchObject({
+      accepted: false,
+      issues: expect.arrayContaining([
+        "This adds the required food without reducing or replacing another Active Plan portion. Rebalance the complete Draft before resubmitting.",
+      ]),
+    });
+    if (!("measurements" in result.profile.state))
+      throw new Error("Expected Existing state.");
+    expect(result.profile.state.draft).toBeNull();
+    expect(result.profile.state.activePlan).toEqual(activeBefore);
+  });
+
+  it("forces a Draft proposal for a persisted food-integration request expressed in text", async () => {
+    const initial = await getProfile("existing");
+    if (!("measurements" in initial.state))
+      throw new Error("Expected Existing state.");
+    const seeded = await mutateProfile({
+      profileId: "existing",
+      expectedVersion: initial.version,
+      commandId: "seed-food-integration-intent",
+      mutation: (state) => ({
+        ...state,
+        agentSession: {
+          ...state.agentSession,
+          draftIntent: {
+            basePlanVersion: state.activePlan?.version ?? null,
+            requiredCatalogFoodId: "tofu-firm",
+          },
+        },
+      }),
+    });
+
+    await executeCoachTurn(
+      turnInput(
+        "existing",
+        seeded.version,
+        "existing-propose-tofu-plan",
+        "Propose a plan that includes tofu.",
+      ),
+    );
+
+    expect(agent.requiredFirstTools).toEqual(["submit_draft_proposal"]);
   });
 
   it("rejects an Existing Draft whose base Active Plan version is stale", async () => {

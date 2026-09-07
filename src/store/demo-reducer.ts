@@ -391,6 +391,7 @@ export function demoReducer(
         schemaVersion: 1,
         version: (state.activePlan?.version ?? 0) + 1,
         activatedAt: action.activatedAt,
+        maintenanceReferenceWeightKg: null,
         plan,
       };
       return {

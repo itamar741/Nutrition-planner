@@ -1,7 +1,10 @@
 import { z } from "zod";
 import { activePlanSchema, draftProposalSchema } from "@/domain/plan/schemas";
 import type { ActivePlan, DraftProposal } from "@/domain/plan/types";
-import type { WeightMeasurement } from "@/domain/weight/trend";
+import {
+  maintenanceReferenceWeightFromInitialMeasurements,
+  type WeightMeasurement,
+} from "@/domain/weight/trend";
 import {
   agentSessionSchema,
   type AgentSessionState,
@@ -64,5 +67,37 @@ export function parseExistingState(value: unknown): ExistingDemoState {
         draft: "draft" in legacy.data ? legacy.data.draft : null,
       }
     : value;
-  return existingStateSchema.parse(upgraded);
+  const record =
+    typeof upgraded === "object" && upgraded !== null
+      ? (upgraded as Record<string, unknown>)
+      : null;
+  const activePlan =
+    record &&
+    typeof record.activePlan === "object" &&
+    record.activePlan !== null
+      ? (record.activePlan as Record<string, unknown>)
+      : null;
+  const measurements = Array.isArray(record?.measurements)
+    ? record.measurements.filter(
+        (measurement): measurement is WeightMeasurement =>
+          typeof measurement === "object" &&
+          measurement !== null &&
+          typeof (measurement as WeightMeasurement).id === "string" &&
+          typeof (measurement as WeightMeasurement).date === "string" &&
+          Number.isFinite((measurement as WeightMeasurement).weightKg) &&
+          typeof (measurement as WeightMeasurement).commandId === "string",
+      )
+    : [];
+  const withMaintenanceReference =
+    activePlan && !("maintenanceReferenceWeightKg" in activePlan)
+      ? {
+          ...record,
+          activePlan: {
+            ...activePlan,
+            maintenanceReferenceWeightKg:
+              maintenanceReferenceWeightFromInitialMeasurements(measurements),
+          },
+        }
+      : upgraded;
+  return existingStateSchema.parse(withMaintenanceReference);
 }

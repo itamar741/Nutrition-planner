@@ -1,5 +1,8 @@
 import type { DraftProposal } from "@/domain/plan/types";
-import type { WeightMeasurement } from "@/domain/weight/trend";
+import {
+  maintenanceReferenceWeightFromRecentMeasurements,
+  type WeightMeasurement,
+} from "@/domain/weight/trend";
 import type {
   ExistingChatMessage,
   ExistingDemoState,
@@ -82,6 +85,10 @@ export function existingDemoReducer(
           ...state.activePlan,
           version: action.draft.plan.version,
           activatedAt: action.activatedAt,
+          maintenanceReferenceWeightKg:
+            maintenanceReferenceWeightFromRecentMeasurements(
+              state.measurements,
+            ),
           plan: action.draft.plan,
         },
         messages: [...state.messages, ...action.messages],

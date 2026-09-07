@@ -120,6 +120,8 @@ test("B-01 reviews, declines, revises, and approves an adjustment in chat", asyn
             schemaVersion: 1,
             version: pending.draft.plan.version,
             activatedAt: new Date().toISOString(),
+            maintenanceReferenceWeightKg:
+              state.activePlan.maintenanceReferenceWeightKg,
             plan: pending.draft.plan,
           },
           agentSession: { ...state.agentSession, pendingInteraction: null },

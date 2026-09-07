@@ -69,6 +69,7 @@ export interface ActivePlan {
   schemaVersion: 1;
   version: number;
   activatedAt: string;
+  maintenanceReferenceWeightKg: number | null;
   plan: MealPlan;
 }
 

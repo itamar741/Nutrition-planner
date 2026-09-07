@@ -21,6 +21,95 @@ export interface WeightTrend {
 }
 
 const MS_PER_DAY = 86_400_000;
+export const MAINTENANCE_SUSTAINED_DRIFT_KG = 0.7;
+const MAINTENANCE_REFERENCE_SAMPLE_SIZE = 7;
+
+export interface MaintenanceWeightDrift {
+  referenceWeightKg: number | null;
+  latestAverageKg: number | null;
+  precedingAverageKg: number | null;
+  direction: "increase" | "decrease" | null;
+}
+
+function chronologicalUniqueMeasurements(measurements: WeightMeasurement[]) {
+  const valid = measurements
+    .filter((item) => Number.isFinite(Date.parse(item.date)))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  return [...new Map(valid.map((item) => [item.date, item])).values()];
+}
+
+function averageWeightKg(measurements: WeightMeasurement[]) {
+  if (measurements.length === 0) return null;
+  return (
+    measurements.reduce((sum, measurement) => sum + measurement.weightKg, 0) /
+    measurements.length
+  );
+}
+
+export function maintenanceReferenceWeightFromRecentMeasurements(
+  measurements: WeightMeasurement[],
+) {
+  return averageWeightKg(
+    chronologicalUniqueMeasurements(measurements).slice(
+      -MAINTENANCE_REFERENCE_SAMPLE_SIZE,
+    ),
+  );
+}
+
+export function maintenanceReferenceWeightFromInitialMeasurements(
+  measurements: WeightMeasurement[],
+) {
+  return averageWeightKg(
+    chronologicalUniqueMeasurements(measurements).slice(
+      0,
+      MAINTENANCE_REFERENCE_SAMPLE_SIZE,
+    ),
+  );
+}
+
+export function calculateMaintenanceWeightDrift(input: {
+  measurements: WeightMeasurement[];
+  referenceWeightKg: number | null;
+}): MaintenanceWeightDrift {
+  const ordered = chronologicalUniqueMeasurements(input.measurements);
+  const latest = ordered.slice(-MAINTENANCE_REFERENCE_SAMPLE_SIZE);
+  const preceding = ordered.slice(
+    -MAINTENANCE_REFERENCE_SAMPLE_SIZE * 2,
+    -MAINTENANCE_REFERENCE_SAMPLE_SIZE,
+  );
+  const latestAverageKg = averageWeightKg(latest);
+  const precedingAverageKg = averageWeightKg(preceding);
+  if (
+    input.referenceWeightKg === null ||
+    latest.length < MAINTENANCE_REFERENCE_SAMPLE_SIZE ||
+    preceding.length < MAINTENANCE_REFERENCE_SAMPLE_SIZE ||
+    latestAverageKg === null ||
+    precedingAverageKg === null
+  ) {
+    return {
+      referenceWeightKg: input.referenceWeightKg,
+      latestAverageKg,
+      precedingAverageKg,
+      direction: null,
+    };
+  }
+  const aboveReference =
+    latestAverageKg - input.referenceWeightKg >=
+      MAINTENANCE_SUSTAINED_DRIFT_KG &&
+    precedingAverageKg - input.referenceWeightKg >=
+      MAINTENANCE_SUSTAINED_DRIFT_KG;
+  const belowReference =
+    input.referenceWeightKg - latestAverageKg >=
+      MAINTENANCE_SUSTAINED_DRIFT_KG &&
+    input.referenceWeightKg - precedingAverageKg >=
+      MAINTENANCE_SUSTAINED_DRIFT_KG;
+  return {
+    referenceWeightKg: input.referenceWeightKg,
+    latestAverageKg,
+    precedingAverageKg,
+    direction: aboveReference ? "decrease" : belowReference ? "increase" : null,
+  };
+}
 
 export function formatWeightKg(value: number) {
   return new Intl.NumberFormat("en-US", {
@@ -42,11 +131,10 @@ export function calculateWeightTrend(
   input: { now?: Date; activePlanActivatedAt?: string } = {},
 ): WeightTrend {
   const now = input.now ?? new Date();
-  const recent = measurements
-    .filter((item) => Number.isFinite(Date.parse(item.date)))
+  const recent = chronologicalUniqueMeasurements(measurements)
     .filter((item) => now.getTime() - Date.parse(item.date) <= 35 * MS_PER_DAY)
     .sort((a, b) => a.date.localeCompare(b.date));
-  const unique = [...new Map(recent.map((item) => [item.date, item])).values()];
+  const unique = recent;
   const first = unique[0];
   const last = unique[unique.length - 1];
   const spanDays =

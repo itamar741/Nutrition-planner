@@ -88,6 +88,26 @@ describe("versioned demo persistence", () => {
     });
   });
 
+  it("derives a maintenance reference when an existing persisted Active Plan lacks one", () => {
+    const current = createExistingDemoState(
+      new Date("2026-09-05T00:00:00.000Z"),
+    );
+    const legacy = structuredClone(current);
+    Reflect.deleteProperty(
+      legacy.activePlan as unknown as Record<string, unknown>,
+      "maintenanceReferenceWeightKg",
+    );
+
+    const upgraded = parseExistingState(legacy);
+
+    expect(upgraded.activePlan.maintenanceReferenceWeightKg).toBeCloseTo(
+      current.activePlan.maintenanceReferenceWeightKg ?? 0,
+      8,
+    );
+    expect(upgraded.measurements).toEqual(current.measurements);
+    expect(upgraded.messages).toEqual(current.messages);
+  });
+
   it("isolates profile changes and rejects stale versions", async () => {
     const existingBefore = await getProfile<ExistingDemoState>("existing");
     const fresh = await getProfile<DemoState>("new");

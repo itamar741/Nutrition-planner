@@ -23,7 +23,9 @@ import { isProfileReady } from "@/domain/profile/onboarding";
 import type { StructuredProfile } from "@/domain/profile/types";
 import {
   adjustmentDirection,
+  calculateMaintenanceWeightDrift,
   calculateWeightTrend,
+  maintenanceReferenceWeightFromRecentMeasurements,
   normalizeWeightKg,
 } from "@/domain/weight/trend";
 import {
@@ -190,6 +192,16 @@ function contextFor(
     pendingDraftIntent: state.agentSession.draftIntent,
     currentDraft: state.draft,
     activePlan: state.activePlan,
+    requiredFoodIntegration:
+      requiredCatalogFoodId && state.activePlan
+        ? {
+            requiredCatalogFoodId,
+            objective:
+              "Create a complete replacement Draft that includes this food while preserving the current Active Plan targets.",
+            planningRule:
+              "Do not append the food to an otherwise unchanged Active Plan. Rebalance other approved portions or foods as needed, prefer the smallest practical set of changes, and explain those changes in the Draft summary.",
+          }
+        : null,
     ordinaryDraftTargetSource:
       "profile" in state
         ? "deterministically calculated Fresh targets"
@@ -213,6 +225,7 @@ function contextFor(
             minimum: adjustment.targets.energyKcal * 0.95,
             maximum: adjustment.targets.energyKcal * 1.05,
           },
+          maintenanceDrift: adjustment.maintenanceDrift,
         }
       : null,
   };
@@ -278,6 +291,64 @@ function requiresImmediateFoodSearch(
   }
   const subject = explicitFoodRequestSubject(text);
   return subject !== null && !genericFoodSubjects.has(subject);
+}
+
+function requestsDraftIntegration(input: CoachMessageRequest["input"]) {
+  if (input.type !== "text") return false;
+  const text = input.text.trim();
+  return (
+    /\b(?:add|put|include|use|integrate|create|make|propose|generate|build|draft)\b[\s\S]{0,80}\b(?:plan|draft|menu)\b/iu.test(
+      text,
+    ) || /(?:הוסף|להוסיף|לשלב)[\s\S]{0,80}(?:לתפריט|בתפריט|לטיוטה)/u.test(text)
+  );
+}
+
+function requiresImmediateDraftProposal(
+  input: CoachMessageRequest["input"],
+  state: PersistedDemoState,
+) {
+  if ("profile" in state && !isProfileReady(state.profile)) return false;
+  if (input.type === "interaction" && input.action === "confirm_draft_food") {
+    return true;
+  }
+  return Boolean(
+    state.agentSession.draftIntent?.requiredCatalogFoodId &&
+    requestsDraftIntegration(input),
+  );
+}
+
+function gramsByFood(plan: {
+  meals: Array<{ items: Array<{ catalogFoodId: string; grams: number }> }>;
+}) {
+  const grams = new Map<string, number>();
+  for (const meal of plan.meals) {
+    for (const item of meal.items) {
+      grams.set(
+        item.catalogFoodId,
+        (grams.get(item.catalogFoodId) ?? 0) + item.grams,
+      );
+    }
+  }
+  return grams;
+}
+
+function hasUncompensatedRequiredFoodAddition(
+  state: PersistedDemoState,
+  candidate: DraftCandidate,
+  requiredCatalogFoodId: string | null,
+) {
+  if (!requiredCatalogFoodId || !state.activePlan) return false;
+  const before = gramsByFood(state.activePlan.plan);
+  const after = gramsByFood(candidate);
+  const requiredIncrease =
+    (after.get(requiredCatalogFoodId) ?? 0) -
+    (before.get(requiredCatalogFoodId) ?? 0);
+  if (requiredIncrease <= 0) return false;
+  return [...before.entries()]
+    .filter(([foodId]) => foodId !== requiredCatalogFoodId)
+    .every(
+      ([foodId, previousGrams]) => (after.get(foodId) ?? 0) >= previousGrams,
+    );
 }
 
 async function conversationForModel(input: {
@@ -384,9 +455,17 @@ function adjustedTargetsFor(
   const trend = calculateWeightTrend(state.measurements, {
     activePlanActivatedAt: state.activePlan.activatedAt,
   });
-  const direction =
+  const rateDirection =
     trend.evidence === "sufficient"
       ? adjustmentDirection(existingReadyProfile.goal!, trend.weeklyPercent)
+      : null;
+  const maintenanceDrift = calculateMaintenanceWeightDrift({
+    measurements: state.measurements,
+    referenceWeightKg: state.activePlan.maintenanceReferenceWeightKg,
+  });
+  const direction =
+    trend.evidence === "sufficient"
+      ? (rateDirection ?? maintenanceDrift.direction)
       : null;
   if (!direction) return null;
   const adjustmentKcal = Math.max(
@@ -404,6 +483,7 @@ function adjustedTargetsFor(
     (direction === "increase" ? adjustmentKcal : -adjustmentKcal);
   return {
     trend,
+    maintenanceDrift,
     direction,
     adjustmentKcal,
     targets: {
@@ -715,6 +795,12 @@ export async function executeCoachTurn(input: {
             schemaVersion: 1,
             version: nextVersion,
             activatedAt: new Date().toISOString(),
+            maintenanceReferenceWeightKg:
+              "profile" in state
+                ? null
+                : maintenanceReferenceWeightFromRecentMeasurements(
+                    state.measurements,
+                  ),
             plan,
           },
         };
@@ -925,6 +1011,10 @@ export async function executeCoachTurn(input: {
             schemaVersion: 1,
             version: validatedPlan.version,
             activatedAt: new Date().toISOString(),
+            maintenanceReferenceWeightKg:
+              maintenanceReferenceWeightFromRecentMeasurements(
+                state.measurements,
+              ),
             plan: validatedPlan,
           },
         },
@@ -1341,6 +1431,15 @@ export async function executeCoachTurn(input: {
         ...(includesRequiredFood
           ? []
           : [`The Draft must include approved food ${requiredCatalogFoodId}.`]),
+        ...(hasUncompensatedRequiredFoodAddition(
+          state,
+          candidate,
+          requiredCatalogFoodId,
+        )
+          ? [
+              "This adds the required food without reducing or replacing another Active Plan portion. Rebalance the complete Draft before resubmitting.",
+            ]
+          : []),
         ...plan.validation.issues,
       ].slice(0, 20);
       console.info("coach_proposal_validated", {
@@ -1620,9 +1719,11 @@ export async function executeCoachTurn(input: {
     conversation: conversation.messages,
     getAllowedTools: getAllowed,
     getRequiredFirstTool: () =>
-      requiresImmediateFoodSearch(input.request.input, currentInteraction)
-        ? "search_foods"
-        : null,
+      requiresImmediateDraftProposal(input.request.input, state)
+        ? "submit_draft_proposal"
+        : requiresImmediateFoodSearch(input.request.input, currentInteraction)
+          ? "search_foods"
+          : null,
     onText: input.onText,
     onTool: executeTool,
   });

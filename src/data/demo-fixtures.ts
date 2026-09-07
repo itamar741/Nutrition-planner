@@ -3,7 +3,10 @@ import { calculateTargets } from "@/domain/nutrition/calculations";
 import { validateAndBuildPlan } from "@/domain/plan/validation";
 import type { ActivePlan, DraftCandidate } from "@/domain/plan/types";
 import type { DemoProfileId, StructuredProfile } from "@/domain/profile/types";
-import type { WeightMeasurement } from "@/domain/weight/trend";
+import {
+  maintenanceReferenceWeightFromInitialMeasurements,
+  type WeightMeasurement,
+} from "@/domain/weight/trend";
 import type { DemoState } from "@/store/demo-reducer";
 import type { ExistingDemoState } from "@/store/existing-demo-store";
 import { emptyAgentSession } from "@/domain/agent/types";
@@ -91,16 +94,24 @@ export const existingReadyProfile: StructuredProfile = {
 export function createExistingWeightHistory(
   now = new Date(),
 ): WeightMeasurement[] {
+  const seedWeightsKg = [
+    75.18, 75.24, 75.21, 75.27, 75.19, 75.23, 75.26, 75.2, 75.25, 75.17, 75.18,
+    75.24, 75.21, 75.27, 75.19, 75.23, 75.26, 75.2, 75.25, 75.17, 75.18, 75.24,
+    75.21, 75.27, 75.01, 75.06, 75.1, 75.12, 75.1, 75.14, 75.14, 75.26, 75.28,
+    75.21, 75.28, 75.33, 75.37, 75.39, 75.37, 75.41, 75.41, 75.53, 75.55, 75.48,
+    75.55, 75.6, 75.65, 75.66, 75.64, 75.68, 75.68, 75.8, 75.82, 75.75, 75.78,
+    75.85, 75.91, 75.96, 76,
+  ] as const;
   const todayStart = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
   );
-  return Array.from({ length: 59 }, (_, index) => {
+  return seedWeightsKg.map((weightKg, index) => {
     const date = new Date(todayStart);
-    date.setUTCDate(todayStart.getUTCDate() - (59 - index));
+    date.setUTCDate(date.getUTCDate() - (seedWeightsKg.length - index));
     return {
       id: `existing-seed-${index + 1}`,
       date: date.toISOString().slice(0, 10),
-      weightKg: 80 + index * 0.0571428571,
+      weightKg,
       commandId: `existing-seed-command-${index + 1}`,
     };
   });
@@ -164,6 +175,10 @@ export function createExistingActivePlan(now = new Date()): ActivePlan {
     schemaVersion: 1,
     version: 1,
     activatedAt: new Date(now.getTime() - 61 * 86_400_000).toISOString(),
+    maintenanceReferenceWeightKg:
+      maintenanceReferenceWeightFromInitialMeasurements(
+        createExistingWeightHistory(now),
+      ),
     plan,
   };
 }

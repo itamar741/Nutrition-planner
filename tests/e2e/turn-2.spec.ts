@@ -76,6 +76,7 @@ async function installTurn2Agent(
           schemaVersion: 1,
           version: (state.activePlan?.version ?? 0) + 1,
           activatedAt: new Date().toISOString(),
+          maintenanceReferenceWeightKg: null,
           plan: state.draft.plan,
         },
         draft: null,

@@ -78,6 +78,8 @@ The plan lifecycle is deliberately small:
 
 There is no plan-history interface and no automatic activation.
 
+When a user asks to include an approved food in an Existing plan, Arnold creates a complete replacement Draft at the unchanged Active Plan targets. It treats the Active Plan as a baseline: the required food must be included at a valid portion and other approved portions or foods may be rebalanced to preserve the nutrition rules. It must not append the food to an otherwise unchanged plan. The Draft visibly summarizes its amounts changed from the Active Plan; approval remains a separate explicit action.
+
 ## Existing Profile and Weight Adjustment
 
 The Existing Demo Profile contains deterministic seeded state: a completed profile, one Active Plan, and approximately two months of dated weight measurements. It does not depend on simulated long-term chat history.
@@ -85,6 +87,8 @@ The Existing Demo Profile contains deterministic seeded state: a completed profi
 The user can report today's weight or edit an existing dated weight through the conversation, while the chart remains an alternative editing control. Once a value is validated and recorded, it appears in the weight-progress visualization. Deterministic code—not the language model—calculates trend facts and decides whether the configured minimum evidence threshold has been met.
 
 When an Existing browser/profile session first opens, Arnold reviews the calculated trend facts, the structured profile, and the Active Plan. It either explains why the plan should remain unchanged, requests more consistent weights, or offers to prepare an adjustment. The visible **Generate AI proposal** control is a persisted event that asks Arnold to create a bounded adjustment Draft. The proposal has no effect on the Active Plan until the user approves it. Rejecting or ignoring the proposal preserves the current plan.
+
+For Maintenance, the deterministic review also prevents persistent slow drift from being treated as indefinite stability. Each Active Plan carries a non-user-editable baseline derived from confirmed measurements when it was activated. If two consecutive seven-measurement averages remain at least 0.70 kg above or below that baseline, the server permits the same bounded adjustment direction even when the 35-day weekly percentage remains inside its ordinary band. This baseline is not a target-weight feature and resets only with explicit approval of a new Active Plan.
 
 If evidence is insufficient, the coach states that no evidence-based caloric adjustment can yet be proposed. A supported food substitution may still be handled as a separate Draft change because it does not claim to respond to the weight trend.
 

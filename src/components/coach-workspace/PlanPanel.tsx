@@ -10,6 +10,39 @@ function formatNumber(value: number, digits = 0) {
   }).format(value);
 }
 
+function gramsByFood(proposal: DraftProposal | ActivePlan) {
+  const grams = new Map<string, number>();
+  for (const meal of proposal.plan.meals) {
+    for (const item of meal.items) {
+      grams.set(
+        item.catalogFoodId,
+        (grams.get(item.catalogFoodId) ?? 0) + item.grams,
+      );
+    }
+  }
+  return grams;
+}
+
+function planChangeLabels(
+  draft: DraftProposal,
+  activePlan: ActivePlan,
+  catalog: readonly CatalogFood[],
+) {
+  const before = gramsByFood(activePlan);
+  const after = gramsByFood(draft);
+  const foodNames = new Map(catalog.map((food) => [food.id, food.displayName]));
+  return [...new Set([...before.keys(), ...after.keys()])]
+    .map((foodId) => ({
+      name: foodNames.get(foodId) ?? foodId,
+      before: before.get(foodId) ?? 0,
+      after: after.get(foodId) ?? 0,
+    }))
+    .filter((change) => change.before !== change.after)
+    .sort(
+      (left, right) => right.after - right.before - (left.after - left.before),
+    );
+}
+
 export function PlanContents({
   proposal,
   catalog = foodCatalog,
@@ -95,6 +128,32 @@ export function PlanPanel({
           <span className={styles.validBadge}>Validated</span>
         </div>
         <p className={styles.planSummary}>{draft.summary}</p>
+        {activePlan ? (
+          <section
+            aria-label="Changes from active plan"
+            className={styles.planChanges}
+          >
+            <strong>Changes from your Active Plan</strong>
+            {planChangeLabels(draft, activePlan, catalog)
+              .slice(0, 6)
+              .map((change) => {
+                const direction =
+                  change.before === 0
+                    ? "Added"
+                    : change.after === 0
+                      ? "Removed"
+                      : change.after > change.before
+                        ? "Increased"
+                        : "Reduced";
+                return (
+                  <span key={change.name}>
+                    {direction} {change.name}: {change.before} g →{" "}
+                    {change.after} g
+                  </span>
+                );
+              })}
+          </section>
+        ) : null}
         <PlanContents catalog={catalog} proposal={draft} />
         {activePlan ? (
           <p className={styles.planNotice}>

@@ -677,6 +677,26 @@
   margin: 12px 0;
 }
 
+.planChanges {
+  display: grid;
+  gap: 5px;
+  margin: 14px 0;
+  padding: 11px 12px;
+  border: 1px solid rgba(190, 108, 42, 0.28);
+  border-radius: 12px;
+  background: #fff7ef;
+  color: var(--muted-ink);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.planChanges strong {
+  color: var(--primary-hover);
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
 .adjustmentComparison {
   display: grid;
   grid-template-columns: 1fr auto 1fr;

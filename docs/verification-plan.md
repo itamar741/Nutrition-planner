@@ -65,6 +65,8 @@ These tests are written from the specifications and nutrition documents, not inf
 - **VT-12:** Approving the exact current valid Draft promotes it to Active once.
 - **VT-13:** Rejecting a Draft, retrying a failed approval, or submitting the same approval command twice does not duplicate or alter state.
 - **VT-14:** Approval of a stale Draft or adjustment proposal whose base Active Plan version no longer matches is rejected.
+- **VT-14g:** An Existing food-continuation Draft must include the approved food at a valid portion and rebalance the Active Plan. A proposal that only appends the food while leaving every other Active Plan amount unchanged is rejected; a valid Draft renders the changed amounts before approval.
+- **VT-14h:** A Maintenance Active Plan retains a deterministic measurement-derived reference. With sufficient evidence, two non-overlapping seven-measurement averages both at least 0.70 kg above it permit only a decrease; both at least 0.70 kg below it permit only an increase; one short-lived block does not permit an adjustment.
 
 ### Cloud Persistence Controls
 
@@ -122,7 +124,7 @@ Run these controls with mocked or recorded model responses. Do not rely on varia
 - **AI-19:** The model receives chronological role/content messages, including `cottage` → combined clarification → `yes, 3%`; clear explicit preferences are stored as bounded data and never interpreted as instructions.
 - **AI-20:** Arnold may make at most four sequential skill calls, cannot call skills in parallel, retries a rejected Draft at most three times, and asks a focused question rather than using a hidden deterministic plan fallback.
 - **AI-21:** `inspect_food_availability` reports central-catalog, profile-approved, Draft, and Active Plan facts; `remove_approved_food` cannot modify Active Plan.
-- **AI-22:** Fresh and Existing use the same ordinary Draft skill. An Existing Draft retains the current Active Plan targets, survives reload, and cannot activate from text or a stale button.
+- **AI-22:** Fresh and Existing use the same ordinary Draft skill. An Existing Draft retains the current Active Plan targets, survives reload, and cannot activate from text or a stale button. A confirmed food continuation forces the complete Draft skill before prose, includes that food, and requires rebalance rather than an uncompensated append.
 
 Evidence: input fixture, expected contract result, actual validator result, and unchanged-state assertion for every rejected response.
 
