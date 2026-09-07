@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Turns 1–7 are implemented locally. Turn 8 is planned as the Arnold conversational-planning rearchitecture. Do not claim deployment acceptance until credentialed Render gates pass.
+Turns 1–8 are implemented locally. Do not claim deployment acceptance until credentialed Render gates pass.
 
 ## Read first
 

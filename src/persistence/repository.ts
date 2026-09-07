@@ -10,7 +10,7 @@ import type { ConversationActivity } from "@/domain/agent/types";
 import type { DemoProfileId } from "@/domain/profile/types";
 import type { DemoState } from "@/store/demo-reducer";
 import {
-  existingStateSchema,
+  parseExistingState,
   type ExistingDemoState,
 } from "@/store/existing-demo-store";
 import { persistedStateSchema } from "@/store/local-demo-store";
@@ -193,7 +193,7 @@ function validateProfileState(
 ): PersistedDemoState {
   return profileId === "new"
     ? persistedStateSchema.parse(state)
-    : existingStateSchema.parse(state);
+    : parseExistingState(state);
 }
 
 export class StaleProfileError extends Error {

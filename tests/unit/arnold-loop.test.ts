@@ -51,6 +51,21 @@ function proposalCall(index: number) {
   };
 }
 
+function foodSearchCall() {
+  return {
+    status: "completed",
+    output_text: "",
+    output: [
+      {
+        type: "function_call",
+        name: "search_foods",
+        call_id: "call-search",
+        arguments: JSON.stringify({ normalizedEnglishQuery: "milk" }),
+      },
+    ],
+  };
+}
+
 describe("Arnold bounded skill loop", () => {
   beforeEach(() => {
     process.env.OPENAI_API_KEY = "test-key";
@@ -75,8 +90,8 @@ describe("Arnold bounded skill loop", () => {
     const result = await runCoachAgent({
       getSystemPrompt: () => "fixed prompt",
       conversation: [
-        { role: "assistant", content: "What fat percentage?" },
-        { role: "user", content: "Yes, 3%." },
+        { role: "assistant", content: "Which basic food should I add?" },
+        { role: "user", content: "Milk." },
       ],
       getAllowedTools: () => (attempts < 3 ? ["submit_draft_proposal"] : []),
       onText: vi.fn(),
@@ -98,8 +113,8 @@ describe("Arnold bounded skill loop", () => {
       "3:submit_draft_proposal",
     ]);
     expect(provider.calls[0].input).toEqual([
-      { role: "assistant", content: "What fat percentage?" },
-      { role: "user", content: "Yes, 3%." },
+      { role: "assistant", content: "Which basic food should I add?" },
+      { role: "user", content: "Milk." },
     ]);
     expect(provider.calls[0].input).not.toEqual(expect.any(String));
     expect(provider.calls[3]).toMatchObject({
@@ -111,7 +126,7 @@ describe("Arnold bounded skill loop", () => {
   });
 
   it("does not repeat identical prose emitted before and after a skill call", async () => {
-    const repeated = "Do you mean cow's milk, and what fat percentage?";
+    const repeated = "I found the currently approved foods.";
     provider.responses = [
       {
         status: "completed",
@@ -145,6 +160,41 @@ describe("Arnold bounded skill loop", () => {
 
     expect(result.text).toBe(repeated);
     expect(onText.mock.calls.flat().join("")).toBe(repeated);
+  });
+
+  it("forces the bounded food search before prose for an explicit named-food request", async () => {
+    provider.responses = [
+      foodSearchCall(),
+      {
+        status: "completed",
+        output_text: "I found three relevant candidates.",
+        output: [],
+      },
+    ];
+    const onTool = vi.fn(async () => ({ outcome: "candidates", count: 3 }));
+
+    await runCoachAgent({
+      getSystemPrompt: () => "fixed prompt",
+      conversation: [
+        { role: "user", content: "I want to add milk to my catalog" },
+      ],
+      getAllowedTools: () => ["search_foods"],
+      getRequiredFirstTool: () => "search_foods",
+      onText: vi.fn(),
+      onTool,
+    });
+
+    expect(provider.calls[0]).toMatchObject({
+      tool_choice: { type: "function", name: "search_foods" },
+      parallel_tool_calls: false,
+    });
+    expect(onTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "search_foods",
+        arguments: { normalizedEnglishQuery: "milk" },
+      }),
+      1,
+    );
   });
 
   it("tags provider failures with a safe diagnostic stage", async () => {

@@ -82,14 +82,13 @@ async function installCatalogAgent(
         agentSession: {
           ...state.agentSession,
           pendingInteraction:
-            normalized === "cottage"
+            normalized === "i want to add food"
               ? {
                   id: `clarification-${body.commandId}`,
                   type: "clarification",
                   workflow: "food",
-                  prompt:
-                    "Do you mean cottage cheese, and what fat percentage do you want?",
-                  quickReplies: ["1%", "2%", "5%"],
+                  prompt: "Which basic food would you like to add?",
+                  quickReplies: [],
                 }
               : normalized === "the fifth one"
                 ? {
@@ -258,7 +257,7 @@ test("Turn 7 offers AI estimation only after an explicit USDA failure", async ({
   await expect(page.getByText(/code: no_results/)).toBeVisible();
 });
 
-test("Turn 7 persists one combined cottage clarification and understands the next reply", async ({
+test("Turn 8 persists a missing-name clarification and searches the named follow-up", async ({
   page,
 }) => {
   const cloud = await installNewCloudProfile(page, makeReadyState());
@@ -268,17 +267,18 @@ test("Turn 7 persists one combined cottage clarification and understands the nex
   const input = page.getByRole("textbox", {
     name: "Message to nutrition coach",
   });
-  await input.fill("cottage");
+  await input.fill("I want to add food");
   await page.getByRole("button", { name: "Send" }).click();
   await expect(
-    page.getByText(/Do you mean cottage cheese.*fat percentage/i),
+    page.getByText("Which basic food would you like to add?"),
   ).toBeVisible();
 
   await page.reload();
   await expect(
-    page.getByText(/Do you mean cottage cheese.*fat percentage/i),
+    page.getByText("Which basic food would you like to add?"),
   ).toBeVisible();
-  await page.getByRole("button", { name: "5%" }).click();
+  await input.fill("cottage cheese");
+  await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByLabel("USDA food candidates")).toBeVisible();
 });
 

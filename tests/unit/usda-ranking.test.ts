@@ -8,7 +8,7 @@ vi.mock("openai", () => ({
   },
 }));
 
-import { rankUsdaCandidates } from "@/ai/food-catalog";
+import { rankUsdaCandidates, requestFoodLookupTool } from "@/ai/food-catalog";
 
 describe("bounded USDA semantic ranking", () => {
   beforeEach(() => {
@@ -87,6 +87,43 @@ describe("bounded USDA semantic ranking", () => {
           dataType: "Foundation",
         },
       ],
+    });
+  });
+
+  it("forces the legacy bounded lookup for a supplied basic food name", async () => {
+    responses.create.mockResolvedValueOnce({
+      status: "completed",
+      output_text: "",
+      output: [
+        {
+          type: "function_call",
+          name: "search_usda_foods",
+          call_id: "lookup-milk",
+          arguments: JSON.stringify({ normalizedEnglishQuery: "milk" }),
+        },
+      ],
+    });
+    const execute = vi.fn(async () => []);
+
+    await expect(
+      requestFoodLookupTool({
+        message: "milk",
+        context: "general",
+        execute,
+      }),
+    ).resolves.toMatchObject({
+      outcome: "candidates",
+      arguments_: { normalizedEnglishQuery: "milk", preparation: null },
+    });
+
+    expect(responses.create).toHaveBeenCalledOnce();
+    expect(responses.create.mock.calls[0]?.[0]).toMatchObject({
+      store: false,
+      tool_choice: { type: "function", name: "search_usda_foods" },
+    });
+    expect(execute).toHaveBeenCalledWith({
+      normalizedEnglishQuery: "milk",
+      preparation: null,
     });
   });
 });

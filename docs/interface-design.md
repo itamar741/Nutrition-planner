@@ -39,6 +39,7 @@ The system does not enable Draft generation when required information or food se
 7. Ask for explicit approval using a proposal-local Approve button. Typed approval language has no effect.
 8. Approval updates and renders the Active Plan. Rejection preserves the current plan.
 9. Rejecting an adjustment asks what the user disliked and accepts one bounded follow-up before presenting another Draft proposal.
+10. A supported conversational menu change or approved-food continuation creates an ordinary Draft at the current Active Plan targets. The current Active Plan remains visible until the Draft's own approval button is used.
 
 An invalid weight value is not added to the chart. The conversation explains what is wrong and requests a corrected value.
 
@@ -90,6 +91,7 @@ The coaching product uses these bounded interaction primitives:
 ### Plan and Adjustment Rules
 
 - Draft generation, modification, activation, and adjustment approval are distinct actions.
+- Fresh and Existing use the same ordinary Draft skill. Existing ordinary Drafts retain the current Active Plan target snapshot; only a deterministic trend adjustment may change those targets.
 - A conversational request may change only a Draft.
 - Activating or replacing an Active Plan always requires a dedicated approval action.
 - A weight message triggers deterministic value validation and trend processing; AI prose cannot write directly to weight history.

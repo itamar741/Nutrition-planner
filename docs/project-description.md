@@ -53,7 +53,7 @@ The plan generator may use only catalog foods approved for the profile. A user c
 
 1. The application checks the central catalog first.
 2. If the item already exists, the coach offers one explicit **Add to my foods** action; it does not perform an external lookup.
-3. If preparation state or display unit is material and missing, the coach asks one short clarification question.
+3. A supplied basic-food name is enough for the first source search. The coach asks for the name only when none was supplied, or asks a focused follow-up when the bounded source ranking finds no genuine match.
 4. The Next.js server synchronously searches only USDA FoodData Central Foundation Foods and SR Legacy. It retrieves up to 50 safe source summaries, gives a sanitized identity-only pool to a bounded model-ranking operation, then bulk-fetches and validates nutrition only for the model's one to five selected candidates. Recipes, restaurant items, branded products, and composite dishes are excluded. If no candidate is genuinely relevant, Arnold asks a focused clarification rather than showing weak matches.
 5. The user chooses an explicit result when more than one match is available.
 6. Candidate nutrition is cached before display. Selection never triggers another USDA request. The application shows a source-labelled nutrition proposal and requires **Approve** or **Reject** before any catalog write.
@@ -87,6 +87,8 @@ The user can report today's weight or edit an existing dated weight through the 
 When an Existing browser/profile session first opens, Arnold reviews the calculated trend facts, the structured profile, and the Active Plan. It either explains why the plan should remain unchanged, requests more consistent weights, or offers to prepare an adjustment. The visible **Generate AI proposal** control is a persisted event that asks Arnold to create a bounded adjustment Draft. The proposal has no effect on the Active Plan until the user approves it. Rejecting or ignoring the proposal preserves the current plan.
 
 If evidence is insufficient, the coach states that no evidence-based caloric adjustment can yet be proposed. A supported food substitution may still be handled as a separate Draft change because it does not claim to respond to the weight trend.
+
+The Existing profile may also request an ordinary replacement Draft through the same `submit_draft_proposal` skill used by Fresh. This Draft uses the current Active Plan's exact target snapshot, remains separately visible across reloads, and can replace the Active Plan only through its own approval button. Only the trend-adjustment path may change the Existing profile's energy target.
 
 ## Division of Responsibility
 

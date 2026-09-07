@@ -304,6 +304,12 @@ export async function POST(request: Request) {
           }).catch(() => undefined);
           console.error("coach_turn_failed", {
             turnId: input.commandId,
+            commandId: input.commandId,
+            profileId: input.profileId,
+            expectedVersion: input.expectedVersion,
+            inputType: input.input.type,
+            action:
+              input.input.type === "interaction" ? input.input.action : "text",
             stage: external.stage ?? "agent",
             failureCode,
             lookupId: external.lookupId,

@@ -13,6 +13,7 @@ This turn replaces the current JSON-shaped transcript handoff and disconnected c
 - Arnold replies in the language of the user's latest message.
 - Onboarding stays deterministic until it finishes: closed questions disable typing and use quick replies; the food grid disables typing. Arnold joins immediately afterwards with an introductory message and asks before making the first Draft.
 - Existing automatically receives one real Arnold opening message per browser/profile session. Arnold reviews deterministic trend facts, the Active Plan, and the profile goal; it either explains why the plan should remain unchanged, asks for more consistent weights, or offers to prepare an adjustment proposal. It must not create an adjustment merely by opening the session.
+- Fresh and Existing use the same ordinary Draft skill. An ordinary Existing Draft retains the current Active Plan target snapshot; only the bounded trend-adjustment skill may change those targets.
 - The existing `Generate AI proposal` control becomes a persisted structured user event, not a fake text message. It invokes the same agent turn and asks Arnold to prepare an adjustment Draft.
 - Draft meal count follows the selected meal pattern and relevant saved preferences: three meals, three meals plus a snack, or four meals. Drafts contain foods, portions, meals, per-meal totals, and daily totals. They do **not** include food-substitution alternatives.
 
@@ -23,8 +24,8 @@ This turn replaces the current JSON-shaped transcript handoff and disconnected c
 For each turn, the server saves the user message immediately with an agent-turn record in `pending` state, then loads authoritative state from PostgreSQL. The model input must use ordinary role/content items in chronological order, for example:
 
 ```text
-assistant: Did you mean cottage cheese? If so, what fat percentage do you prefer?
-user: Yes, 3%.
+assistant: Which basic food would you like to add?
+user: Milk.
 ```
 
 The server provides one fixed system-prompt template with a dynamic, trusted state block. The transcript must never be nested as a JSON string that the model has to interpret as a conversation.
@@ -51,7 +52,7 @@ The server sends complete role/content history until the estimated request would
 The system prompt has these sections:
 
 1. **Identity and scope:** Arnold is a helpful nutrition-planning coach for the bounded demo. It avoids clinical advice and redirects unsupported requests briefly.
-2. **Conversation behavior:** use the actual role/content sequence, resolve contextual replies such as `yes, 3%`, ask only material clarifications, and match the user's latest language.
+2. **Conversation behavior:** use the actual role/content sequence, resolve contextual replies, ask only material clarifications, and match the user's latest language. A supplied basic-food name starts the first search without a variant question.
 3. **Authoritative context:** trust the dynamic profile, catalog, plan, trend, and target data over assumptions or prior dialogue.
 4. **Nutrition planning rules:** use the supplied exact goals and constraints from the existing nutrition research. Arnold composes sensible meals only from the profile's approved foods; it does not calculate EER itself.
 5. **Skills:** use a skill when fresh server facts or a permitted change are needed. Never claim a tool was completed until its sanitized result returns.
@@ -70,7 +71,7 @@ All skills have a short description, strict input/output schemas, server-side au
 - `search_foods`: begin the existing bounded USDA workflow when the food is absent and the user explicitly wants it added.
 - `select_food_candidate`: select a currently displayed candidate, including a clear textual selection such as `the fifth one`. Selection never approves or inserts a food.
 - `record_weight` and `edit_weight`: validate and persist today’s weight or a dated historical correction.
-- `submit_draft_proposal`: submit Arnold's complete structured Draft. The server validates all permitted foods, portion rules, energy, protein, AMDR, fiber, and meat/dairy rules before storing a visible Draft card.
+- `submit_draft_proposal`: submit Arnold's complete structured Draft for Fresh or Existing. The server validates all permitted foods, portion rules, energy, protein, AMDR, fiber, and meat/dairy rules before storing a visible Draft card. Existing ordinary Drafts use the current Active Plan targets and base version.
 - `submit_adjustment_proposal`: submit a complete adjustment Draft. The server permits only deterministic trend-safe direction and magnitude, validates it as a Draft, and never changes the Active Plan.
 
 ### User-interface actions, not skills
@@ -127,7 +128,7 @@ Add clear loading, retry, stale-version, concurrent-turn, and recoverable-failur
 Add tests and browser checks for:
 
 - reload-safe display of full transcript, pending messages, streamed text, failed turn, and Retry;
-- `cottage` -> `Did you mean cottage cheese? What fat percentage?` -> `yes, 3%`, followed by a saved 3% preference and the correct next food workflow;
+- a food-addition request without a name followed by a named-food reply, plus a direct named-food request that begins the bounded search before any variant clarification;
 - correct role/content history plus authoritative dynamic context, including language matching;
 - `approve it` identifying a pending card but requiring the matching visible button;
 - preference persistence and independent Reset removal;

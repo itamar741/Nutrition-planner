@@ -100,9 +100,9 @@ QUERY
                      -> OPTIONAL_VALIDATED_DRAFT_CONTINUATION
 ```
 
-When food lookup is permitted, the unified coach receives the strict `search_foods` tool alongside only the other state-dependent tools currently allowed. The food tool's arguments contain only `normalizedEnglishQuery` and `cooked | raw | packaged | null`; `null` means the user did not specify preparation. It cannot accept a URL, USDA identifier, SQL, database handle, source credential, browser instruction, or arbitrary tool. The server checks the central catalog first and owns every USDA request.
+When food lookup is permitted, the unified coach receives the strict `search_foods` tool alongside only the other state-dependent tools currently allowed. The food tool's only argument is `normalizedEnglishQuery`. It cannot accept a URL, USDA identifier, SQL, database handle, source credential, browser instruction, or arbitrary tool. The server checks the central catalog first and owns every USDA request.
 
-Foods that normally require cooking default to cooked. The model asks a clarification only when preparation is materially ambiguous. Hebrew and English requests are normalized to concise English; a query such as rice does not require a cooked/raw clarification.
+A user-supplied basic-food name is enough for the first source search. An explicit named-food addition forces `search_foods` before prose so the model cannot replace the search with a variant question. Arnold asks for a food name only when none was supplied, and the bounded ranker may ask one focused follow-up when no genuine source match exists.
 
 The server:
 
@@ -134,6 +134,8 @@ Interactive state, proposal cards, and visible-control actions are persisted wit
 Arnold may use only these bounded skills: save a clear explicit preference; inspect central-catalog, profile-approved, Draft, and Active Plan food availability; remove an approved food from future Drafts; record or edit weight; start the bounded USDA workflow; select a displayed candidate; submit a full Draft; and submit a bounded adjustment Draft. The model never receives database access, arbitrary URLs, raw USDA response bodies, browser tools, or authority to approve a food, Draft, or adjustment. Typed approval language remains non-authoritative.
 
 Arnold creates the structured plan candidate itself using exact server-calculated targets and current approved-food data. Server code calculates all totals and validates portions, profile approval, energy, protein, AMDR, fiber, and meat/dairy rules. It returns only safe structured validation issues. Arnold may repair a rejected Draft twice; after three failed submissions it asks a focused user question and there is no hidden deterministic plan fallback. Drafts follow the selected three-meal, three-meals-plus-snack, or four-meal pattern and have no food-substitution alternatives.
+
+Fresh and Existing expose the same ordinary `submit_draft_proposal` skill. Fresh uses deterministically calculated onboarding targets. Existing uses the current Active Plan target snapshot, binds the Draft to that Active Plan version, and keeps both Draft and Active Plan visible until button approval. `submit_adjustment_proposal` remains separate and is the only Existing path that may use trend-adjusted targets. The two proposal kinds cannot be pending simultaneously.
 
 Conversation limits are 30 agent turns per hour per hashed session/IP and 100 per day globally. Food-source limits remain independently enforced at 10 per hour and 30 per day. Raw IP addresses are never stored.
 

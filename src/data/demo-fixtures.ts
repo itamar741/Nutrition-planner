@@ -170,8 +170,9 @@ export function createExistingActivePlan(now = new Date()): ActivePlan {
 
 export function createExistingDemoState(now = new Date()): ExistingDemoState {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     activePlan: createExistingActivePlan(now),
+    draft: null,
     measurements: createExistingWeightHistory(now),
     messages: [
       {

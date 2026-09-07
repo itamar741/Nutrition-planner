@@ -70,6 +70,29 @@ async function initializePostgres() {
      WHERE state->'agentSession'->'preferences' IS NULL`,
   );
   await pool.query(
+    `UPDATE demo_profiles
+     SET state = jsonb_set(state, '{agentSession,draftIntent}', 'null'::jsonb, true),
+         updated_at = now()
+     WHERE NOT (state->'agentSession' ? 'draftIntent')`,
+  );
+  await pool.query(
+    `UPDATE demo_profiles
+     SET state = jsonb_set(
+           jsonb_set(
+             state,
+             '{draft}',
+             COALESCE(state->'draft', 'null'::jsonb),
+             true
+           ),
+           '{schemaVersion}',
+           '2'::jsonb,
+           true
+         ),
+         updated_at = now()
+     WHERE profile_id = 'existing'
+       AND ((state->>'schemaVersion')::integer < 2 OR NOT (state ? 'draft'))`,
+  );
+  await pool.query(
     `INSERT INTO conversation_messages
        (profile_id, id, role, content, status, created_at, updated_at)
      SELECT profiles.profile_id, message.value->>'id', message.value->>'role',

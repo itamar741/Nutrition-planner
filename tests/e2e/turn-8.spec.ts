@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { makeReadyState, makeValidDraft } from "../fixtures/turn-2";
 import { installNewCloudProfile } from "./helpers/cloud-profile";
+import { createExistingDemoState } from "@/data/demo-fixtures";
 
 test("Turn 8 reloads persisted user and partial Arnold output without replaying completed activity", async ({
   page,
@@ -144,4 +145,135 @@ test("Turn 8 typed approval leaves the Draft pending for its visible button", as
   await expect(
     page.getByText(/Please use the Approve & activate button/),
   ).toBeVisible();
+});
+
+test("Turn 8 keeps an ordinary Existing Draft across reload and activates it only by button", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    window.sessionStorage.setItem("arnold-trend-review:existing", "started");
+  });
+  let state = createExistingDemoState(new Date("2026-09-05T00:00:00.000Z"));
+  state = {
+    ...state,
+    agentSession: {
+      ...state.agentSession,
+      pendingInteraction: {
+        id: "existing-food-continuation",
+        type: "confirm_draft_food",
+        foodId: "white-rice-cooked",
+        displayName: "White rice",
+      },
+    },
+  };
+  let version = 1;
+  await page.route("**/api/demo/state/existing", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        profile: { profileId: "existing", version, state },
+        catalog: [],
+      }),
+    });
+  });
+  await page.route("**/api/coach/message", async (route) => {
+    const request = route.request().postDataJSON() as {
+      commandId: string;
+      input:
+        | { type: "text"; text: string }
+        | { type: "interaction"; action: string; interactionId: string };
+    };
+    let assistant = "Your validated Draft is ready to review.";
+    if (
+      request.input.type === "interaction" &&
+      request.input.action === "confirm_draft_food"
+    ) {
+      state = {
+        ...state,
+        draft: {
+          schemaVersion: 1,
+          id: `draft-${request.commandId}`,
+          basePlanVersion: state.activePlan.version,
+          reason: "modification",
+          summary: "A new arrangement at your current nutrition targets.",
+          plan: {
+            ...state.activePlan.plan,
+            id: `plan-${request.commandId}`,
+            version: state.activePlan.version + 1,
+          },
+        },
+        agentSession: { ...state.agentSession, pendingInteraction: null },
+      };
+    } else if (request.input.type === "interaction") {
+      const draft = state.draft;
+      if (
+        request.input.action !== "approve_draft" ||
+        !draft ||
+        draft.id !== request.input.interactionId
+      ) {
+        return route.fulfill({ status: 409, body: "stale interaction" });
+      }
+      state = {
+        ...state,
+        activePlan: {
+          schemaVersion: 1,
+          version: state.activePlan.version + 1,
+          activatedAt: new Date().toISOString(),
+          plan: draft.plan,
+        },
+        draft: null,
+      };
+      assistant = "Approved. Your new plan is now Active.";
+    }
+    state = {
+      ...state,
+      messages: [
+        ...state.messages,
+        {
+          id: `user-${request.commandId}`,
+          role: "user",
+          text:
+            request.input.type === "text"
+              ? request.input.text
+              : request.input.action,
+        },
+        {
+          id: `assistant-${request.commandId}`,
+          role: "assistant",
+          text: assistant,
+        },
+      ],
+    };
+    version += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        profile: { profileId: "existing", version, state },
+      }),
+    });
+  });
+
+  await page.goto("/coach/existing");
+  await page.getByRole("button", { name: "Create Draft" }).click();
+
+  await expect(
+    page.getByText("Draft Meal Plan", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Version 1; changes require")).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByText("Draft Meal Plan", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Version 1; changes require")).toBeVisible();
+
+  await page.getByRole("button", { name: "Approve & activate" }).click();
+  await expect(page.getByText("Draft Meal Plan", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(page.getByText("Version 2; changes require")).toBeVisible();
 });

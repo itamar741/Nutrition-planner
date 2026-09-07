@@ -140,8 +140,8 @@ export async function POST(request: Request) {
           });
         },
       });
-      if (result.outcome === "clarification" || rankingClarification) {
-        const message = rankingClarification ?? result.message;
+      if (rankingClarification) {
+        const message = rankingClarification;
         await updateLookupContext(lookup.id, {
           conversation: input.context,
           clarification: message,

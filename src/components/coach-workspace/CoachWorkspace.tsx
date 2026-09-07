@@ -296,6 +296,23 @@ function ExistingFoundation() {
       setAgentStatus(null);
     }
   }
+  function approveExistingDraft() {
+    if (!existing.draft || agentBusy) return;
+    void sendExistingAgent({
+      type: "interaction",
+      interactionId: existing.draft.id,
+      action: "approve_draft",
+    });
+  }
+
+  function rejectExistingDraft() {
+    if (!existing.draft || agentBusy) return;
+    void sendExistingAgent({
+      type: "interaction",
+      interactionId: existing.draft.id,
+      action: "reject_draft",
+    });
+  }
   function saveTodayWeight(weightKg: number, source: "chat" | "form") {
     const date = new Date().toISOString().slice(0, 10);
     if (existing.measurements.some((item) => item.date === date)) {
@@ -456,6 +473,17 @@ function ExistingFoundation() {
         </div>
       ) : null}
       <div className={styles.existingGrid}>
+        {existing.draft ? (
+          <PlanPanel
+            activePlan={existing.activePlan}
+            catalog={catalog}
+            disabled={agentBusy}
+            draft={existing.draft}
+            onApprove={approveExistingDraft}
+            onReject={rejectExistingDraft}
+            targets={existing.activePlan.plan.targetSnapshot}
+          />
+        ) : null}
         <article className={styles.existingCard}>
           <span>Profile</span>
           <h3>

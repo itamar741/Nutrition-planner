@@ -1,6 +1,6 @@
 # Product Specification v0.3
 
-Status: Active specification. Turns 1–7 are implemented locally and await final verification and credentialed Render staging.
+Status: Active specification. Turns 1–8 are implemented locally and await final verification and credentialed Render staging.
 
 This specification is governed by [Project Framing](project-framing.md), [Project Description](project-description.md), and [Interface Design](interface-design.md). If a future interpretation expands the product beyond those documents, the narrower documented scope wins until the specification is deliberately revised.
 
@@ -55,7 +55,7 @@ Each criterion must produce a clear pass or fail result. Nutrition criteria use 
 
 - **SC-12 — Five catalog categories:** The Food Grid exposes selectable catalog foods grouped as carbohydrates, proteins, fats, vegetables, and fruits.
 - **SC-13 — Selected-food persistence:** Submitting a valid Food Grid selection stores the chosen catalog identifiers as the profile's approved foods and visibly completes food preference progress.
-- **SC-14 — Controlled catalog addition:** A missing basic food can enter the catalog only after an existing-catalog check, any required preparation clarification, explicit user selection of a returned USDA candidate or a clearly labelled AI estimate, deterministic validation, and explicit approval. Recipes, restaurant items, branded products, composite dishes, bulk import, and automatic catalog mutation are rejected.
+- **SC-14 — Controlled catalog addition:** A missing basic food can enter the catalog only after an existing-catalog check, a bounded source search from the supplied basic-food name, explicit user selection of a returned USDA candidate or a clearly labelled AI estimate, deterministic validation, and explicit approval. A focused clarification is allowed when no food name was supplied or no genuine source match exists. Recipes, restaurant items, branded products, composite dishes, bulk import, and automatic catalog mutation are rejected.
 - **SC-15 — Shared source of food truth:** The preference grid and plan calculations use the same curated catalog entries and nutritional values. A runtime source may produce a reviewable candidate, but only an approved validated record becomes a catalog entry.
 - **SC-16 — Kosher simplification:** Every catalog item used by the application is from the pre-reviewed kosher-oriented catalog, and deterministic validation rejects a meal containing both meat and dairy classifications. No separate kashrut workflow or inference system is present.
 
@@ -70,6 +70,7 @@ Each criterion must produce a clear pass or fail result. Nutrition criteria use 
 - **SC-23 — Supported Draft modification:** A supported conversational change creates a new validated Draft rendering while leaving any current Active Plan unchanged.
 - **SC-24 — Explicit activation:** Selecting the dedicated approval action for a valid Draft promotes that exact Draft to Active and renders it with an **Active Plan** label.
 - **SC-25 — Decline preserves state:** Declining activation or requesting another change does not replace the current Active Plan.
+- **SC-25a — Existing ordinary Draft:** Existing may create an ordinary Draft through the same bounded Draft skill as Fresh. It uses the current Active Plan target snapshot and cannot change the Active Plan before its dedicated approval action.
 
 ### Existing Demo Profile and Weight Adjustment
 
@@ -97,7 +98,7 @@ Each criterion must produce a clear pass or fail result. Nutrition criteria use 
 - **SC-41 — Optimistic conflict:** Every mutation supplies an expected version and idempotency command. A stale request returns `409`, reloads the current profile, and applies no stale overwrite.
 - **SC-42 — Shared access:** Deployed routes require one shared access code represented by a signed, `HttpOnly`, `Secure`, `SameSite=Lax` cookie. This gate does not create accounts or a general authentication system.
 - **SC-43 — Persistent source limits:** Food lookups are limited to 10 workflows per hour for the same HMAC-hashed session or IP and 30 per day globally. Raw IP addresses are never stored, and reset does not clear events.
-- **SC-44 — Bounded source workflow:** When food lookup is permitted, the unified agent may call only the strict `search_foods` source tool with a normalized English query and preparation; any other tools exposed in that turn are separately bounded application actions. The server checks the central catalog, searches only Foundation Foods and SR Legacy, retrieves up to 50 sanitized identity summaries, validates one to five model-ranked source identifiers from that pool, caches only their nutrition-complete candidates, and requires explicit approval. Candidate selection never triggers another USDA request.
+- **SC-44 — Bounded source workflow:** When food lookup is permitted, the unified agent may call only the strict `search_foods` source tool with a normalized English query; any other tools exposed in that turn are separately bounded application actions. A named basic food forces the first bounded search rather than a pre-search variant question. The server checks the central catalog, searches only Foundation Foods and SR Legacy, retrieves up to 50 sanitized identity summaries, validates one to five model-ranked source identifiers from that pool, caches only their nutrition-complete candidates, and requires explicit approval. Candidate selection never triggers another USDA request.
 - **SC-45 — Arnold conversation:** Every free-text turn uses one server-owned Arnold endpoint with authoritative structured profile context, reset-scoped ordinary role/content transcript memory, bounded state-dependent skills, durable user-visible output, and persisted activity events.
 - **SC-46 — Protected approvals:** Typed approval cannot insert a food or change an Active Plan. Food, Draft, and adjustment approval succeeds only from its current visible button and validated server state.
 - **SC-47 — Durable interactions:** Clarifications, candidate lists, review cards, Drafts, and adjustment proposals survive reloads. One agent turn is active per profile; command IDs are idempotent and stale or concurrent requests return recoverable conflicts.

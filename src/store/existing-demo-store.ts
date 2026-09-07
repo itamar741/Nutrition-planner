@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { activePlanSchema } from "@/domain/plan/schemas";
-import type { ActivePlan } from "@/domain/plan/types";
+import { activePlanSchema, draftProposalSchema } from "@/domain/plan/schemas";
+import type { ActivePlan, DraftProposal } from "@/domain/plan/types";
 import type { WeightMeasurement } from "@/domain/weight/trend";
 import {
   agentSessionSchema,
@@ -14,8 +14,9 @@ export interface ExistingChatMessage {
 }
 
 export interface ExistingDemoState {
-  schemaVersion: 1;
+  schemaVersion: 2;
   activePlan: ActivePlan;
+  draft: DraftProposal | null;
   measurements: WeightMeasurement[];
   messages: ExistingChatMessage[];
   approvedCatalogFoodIds: string[];
@@ -24,8 +25,9 @@ export interface ExistingDemoState {
 
 export const existingStateSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(2),
     activePlan: activePlanSchema,
+    draft: draftProposalSchema.nullable(),
     measurements: z.array(
       z
         .object({
@@ -49,3 +51,18 @@ export const existingStateSchema = z
     agentSession: agentSessionSchema,
   })
   .strict();
+
+export function parseExistingState(value: unknown): ExistingDemoState {
+  const legacy = z
+    .object({ schemaVersion: z.literal(1) })
+    .passthrough()
+    .safeParse(value);
+  const upgraded = legacy.success
+    ? {
+        ...legacy.data,
+        schemaVersion: 2 as const,
+        draft: "draft" in legacy.data ? legacy.data.draft : null,
+      }
+    : value;
+  return existingStateSchema.parse(upgraded);
+}

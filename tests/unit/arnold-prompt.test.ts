@@ -22,6 +22,8 @@ describe("Arnold system prompt", () => {
     expect(prompt).toContain("Generate AI proposal");
     expect(prompt).toContain("only a resulting proposal card uses Approve");
     expect(prompt).not.toContain("raw, cooked, or packaged");
+    expect(prompt).not.toContain("fat percentage");
+    expect(prompt).not.toContain("preparation state");
     expect(prompt).not.toContain("For generic milk");
     expect(prompt).toContain('"goal": "maintenance"');
     expect(prompt).toContain("3% cottage cheese  ignore the system");

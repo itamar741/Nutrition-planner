@@ -29,5 +29,5 @@ The cloud application, Blueprint, migrations, access gate, durable Arnold conver
 
 - create the Render Blueprint resources;
 - supply the server-only OpenAI, USDA FoodData Central, and demo-access secrets;
-- complete the conversation continuity, bounded-skill, visible-approval, concurrent-turn, cooked-food, controlled-failure, reset, persistence, and cross-profile checks in `docs/deployment.md`; and
+- complete the conversation continuity, named-food first-search, bounded-skill, visible-approval, concurrent-turn, controlled-failure, reset, persistence, and cross-profile checks in `docs/deployment.md`; and
 - record the deployed URL, commit SHA, and evidence without recording secrets.

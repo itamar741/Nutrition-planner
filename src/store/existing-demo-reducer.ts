@@ -77,6 +77,7 @@ export function existingDemoReducer(
       }
       return {
         ...state,
+        draft: null,
         activePlan: {
           ...state.activePlan,
           version: action.draft.plan.version,

@@ -101,11 +101,21 @@ export const conversationActivitySchema = z
 
 export type ConversationActivity = z.infer<typeof conversationActivitySchema>;
 
+export const draftIntentSchema = z
+  .object({
+    basePlanVersion: z.number().int().positive().nullable(),
+    requiredCatalogFoodId: z.string().min(1).max(100).nullable(),
+  })
+  .strict();
+
+export type DraftIntent = z.infer<typeof draftIntentSchema>;
+
 export interface AgentSessionState {
   summary: string | null;
   preferences: ConversationPreference[];
   pendingInteraction: AgentInteraction | null;
   pausedInteraction: AgentInteraction | null;
+  draftIntent: DraftIntent | null;
 }
 
 export const emptyAgentSession = (): AgentSessionState => ({
@@ -113,6 +123,7 @@ export const emptyAgentSession = (): AgentSessionState => ({
   preferences: [],
   pendingInteraction: null,
   pausedInteraction: null,
+  draftIntent: null,
 });
 
 const foodApprovalCandidateSchema = z
@@ -209,6 +220,7 @@ export const agentSessionSchema = z
     preferences: z.array(conversationPreferenceSchema).max(100).default([]),
     pendingInteraction: agentInteractionSchema.nullable(),
     pausedInteraction: agentInteractionSchema.nullable(),
+    draftIntent: draftIntentSchema.nullable().default(null),
   })
   .strict();
 

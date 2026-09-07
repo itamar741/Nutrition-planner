@@ -21,6 +21,8 @@ import {
 } from "@/persistence/repository";
 import type { DemoState } from "@/store/demo-reducer";
 import type { ExistingDemoState } from "@/store/existing-demo-store";
+import { parseExistingState } from "@/store/existing-demo-store";
+import { createExistingDemoState } from "@/data/demo-fixtures";
 
 const runtimeFood: CatalogFood = {
   schemaVersion: 1,
@@ -58,6 +60,34 @@ beforeEach(() => {
 });
 
 describe("versioned demo persistence", () => {
+  it("upgrades a legacy Existing aggregate without changing confirmed data", () => {
+    const current = createExistingDemoState(
+      new Date("2026-09-05T00:00:00.000Z"),
+    );
+    const legacy = {
+      ...current,
+      schemaVersion: 1,
+      agentSession: {
+        summary: "keep this summary",
+        preferences: current.agentSession.preferences,
+        pendingInteraction: current.agentSession.pendingInteraction,
+        pausedInteraction: current.agentSession.pausedInteraction,
+      },
+    };
+    Reflect.deleteProperty(legacy, "draft");
+
+    const upgraded = parseExistingState(legacy);
+
+    expect(upgraded).toEqual({
+      ...current,
+      draft: null,
+      agentSession: {
+        ...current.agentSession,
+        summary: "keep this summary",
+      },
+    });
+  });
+
   it("isolates profile changes and rejects stale versions", async () => {
     const existingBefore = await getProfile<ExistingDemoState>("existing");
     const fresh = await getProfile<DemoState>("new");

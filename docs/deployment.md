@@ -43,7 +43,7 @@ Run this checklist against the deployed URL:
 2. Change Fresh, then reload it. Confirm the state persists and Existing is unchanged.
 3. Reset Fresh. Confirm only Fresh returns to empty onboarding.
 4. Add or edit an Existing weight, reload, then reset Existing. Confirm the original plan and seeded history return.
-5. Ask for cooked jasmine rice in the main coach chat. Confirm no cooked/raw clarification is requested solely because cooking was omitted, choose one of at most five USDA candidates, inspect the approval card, and reject it once.
+5. Ask for jasmine rice in the main coach chat. Confirm the named food starts a search before any variant question, choose one of at most five USDA candidates, inspect the approval card, and reject it once.
 6. Correct the query, approve the record, and confirm it is selected for the requesting profile.
 7. Open the other profile and confirm the food is available centrally but is not selected there.
 8. If planning is complete, approve another runtime food and confirm the application creates only a new Draft containing it; the Active Plan remains unchanged.
