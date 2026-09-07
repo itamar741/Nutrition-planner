@@ -98,6 +98,7 @@ Generate 35 daily points from `weight(day) = 80 + (slope_kg_per_day × day)` and
 - **VT-26 — Muscle Gain fast:** slope `+0.0857142857 kg/day` produces an approximately `+0.75%/week` trend and permits only a decrease.
 - **VT-27:** Every allowed adjustment is exactly 5% of current Active Plan energy, rounded half-up to 25 kcal and clamped to 100–200 kcal. The AI receives that exact bound and cannot substitute another value.
 - **VT-28:** After an approved adjustment, the evidence gate resets until a new qualifying unchanged-plan window exists.
+- **VT-29 — Explanation parity:** For every supported goal and the age-18/adult equation boundary, the displayed activity mapping, substituted EER result, goal adjustment, rounded target, macro values, validation ranges, evidence result, goal band, adjustment direction, and adjustment magnitude exactly match the shared deterministic domain result. A presentation component rendered with another valid profile requires no demo-specific branch.
 
 ## Gate 3 — Structured AI Contract Tests
 
@@ -148,6 +149,7 @@ Use browser-level tests where feasible and manual acceptance scripts for visual 
 - **UI-13:** Queued, slow, blocked, zero-result, malformed-source, and fallback states preserve the confirmed profile and plan while explaining the next available action.
 - **UI-14:** User and Arnold messages persist before/during/after streaming and survive reload. Small persisted activity events show Thinking, Searching USDA, Validating, Remembering preference, Creating Draft, and Checking plan safety without appearing as normal chat messages.
 - **UI-15:** English input receives English output and Hebrew input receives Hebrew output, except internal normalized USDA queries that are never displayed as user messages.
+- **UI-16:** The nutrition decision summary remains hidden until targets exist, then exposes keyboard-accessible personal calculation, source, and plan-validation details in the current workspace. The weight decision surface never renders a zero trend as evaluated when evidence is insufficient and never describes an available adjustment as already Active.
 
 Evidence: automated trace where available, plus a screenshot or short manual pass/fail note for each visual control.
 
@@ -160,16 +162,17 @@ Evidence: automated trace where available, plus a screenshot or short manual pas
 3. Verify the next question is only for missing information.
 4. Complete an open question and a closed quick-reply question, including the turn-lock control.
 5. Complete the five Food Grid categories.
-6. Generate a valid, catalog-backed Draft within the selected goal's nutrition limits.
-7. Request one supported Draft modification and verify the Active Plan remains unchanged.
-8. Approve the Draft and verify the exact validated Draft becomes Active.
+6. Open the target explanation and verify its personal EER, goal rule, macro formulas, and source links against the deterministic fixture.
+7. Generate a valid, catalog-backed Draft within the selected goal's nutrition limits and verify its visible validation checks.
+8. Request one supported Draft modification and verify the Active Plan remains unchanged.
+9. Approve the Draft and verify the exact validated Draft becomes Active.
 
 ### Demo B — Existing Demo Profile
 
 1. Start from the committed Existing Demo Profile fixture with an Active Plan and approximately two months of seeded weights.
 2. Verify the plan and weight visualization load before any new message.
 3. Enter a valid new weight and verify one new plotted point.
-4. Verify the deterministic trend facts, evidence result, and goal-band classification against the fixture.
+4. Verify the visible deterministic trend facts, evidence result, goal band, decision reason, and research explanation against the fixture.
 5. Run an insufficient-evidence control and verify no caloric proposal appears.
 6. Run a sufficient-evidence control, verify a bounded Draft proposal, and verify the Active Plan has not changed.
 7. Reject once and verify no change; rerun and approve once, then verify the validated proposal becomes Active.

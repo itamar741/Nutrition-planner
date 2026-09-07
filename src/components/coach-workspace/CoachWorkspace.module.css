@@ -762,6 +762,326 @@
   font-size: 0.92rem;
 }
 
+.transparencyPanel {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid rgba(39, 93, 67, 0.2);
+  border-radius: 18px;
+  background:
+    linear-gradient(145deg, rgba(226, 240, 230, 0.72), transparent 52%),
+    var(--paper);
+}
+
+.existingLayout > .transparencyPanel {
+  margin-top: 28px;
+}
+
+.transparencyHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.transparencyHeader h3,
+.weightDecisionPanel h3 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.45rem;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+}
+
+.transparencyValidated {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: var(--mint);
+  color: var(--primary-hover);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.transparencyIntro,
+.weightDecisionPanel > p:not(.kicker) {
+  margin: 8px 0 0;
+  color: var(--muted-ink);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.decisionJourney {
+  display: grid;
+  margin: 16px 0;
+  grid-template-columns: repeat(3, 1fr);
+  overflow: hidden;
+  border: 1px solid rgba(39, 93, 67, 0.16);
+  border-radius: 12px;
+  background: rgba(255, 253, 248, 0.78);
+}
+
+.decisionJourney > span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 8px;
+}
+
+.decisionJourney > span + span {
+  border-left: 1px solid rgba(39, 93, 67, 0.16);
+}
+
+.decisionJourney small,
+.nutrientExplanationGrid small {
+  color: var(--muted-ink);
+  font-size: 0.62rem;
+}
+
+.decisionJourney strong {
+  color: var(--ink);
+  font-size: 0.82rem;
+}
+
+.explanationSteps {
+  display: grid;
+  gap: 8px;
+}
+
+.explanationSteps > details,
+.weightDecisionDetails {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 253, 248, 0.84);
+}
+
+.explanationSteps summary {
+  display: grid;
+  padding: 11px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+}
+
+.explanationSteps summary::-webkit-details-marker,
+.weightDecisionDetails summary::-webkit-details-marker {
+  display: none;
+}
+
+.explanationSteps summary > span {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--mint);
+  color: var(--primary-hover);
+  font-size: 0.7rem;
+  font-weight: 850;
+}
+
+.explanationSteps summary > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.explanationSteps summary strong {
+  color: var(--ink);
+  font-size: 0.78rem;
+}
+
+.explanationSteps summary small {
+  color: var(--muted-ink);
+  font-size: 0.65rem;
+}
+
+.explanationSteps summary b {
+  color: var(--primary-hover);
+  font-size: 0.72rem;
+  text-align: right;
+}
+
+.explanationBody {
+  padding: 3px 12px 13px 45px;
+  color: var(--muted-ink);
+  font-size: 0.76rem;
+  line-height: 1.55;
+}
+
+.explanationBody > p {
+  margin: 8px 0;
+}
+
+.explanationBody code {
+  display: block;
+  overflow-x: auto;
+  padding: 9px;
+  border-radius: 8px;
+  background: #f3efe6;
+  color: var(--ink);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.68rem;
+  white-space: normal;
+}
+
+.adjustmentNote {
+  padding: 9px;
+  border-left: 3px solid var(--accent);
+  background: #fff7ef;
+  color: var(--ink);
+}
+
+.explanationSources {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.explanationSources > span {
+  color: var(--ink);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.explanationSources a {
+  width: fit-content;
+  color: var(--primary);
+  text-underline-offset: 2px;
+}
+
+.nutrientExplanationGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.nutrientExplanationGrid section {
+  display: grid;
+  gap: 4px;
+  padding: 9px;
+  border-radius: 9px;
+  background: #f7f6f0;
+}
+
+.nutrientExplanationGrid strong {
+  color: var(--ink);
+  font-size: 0.88rem;
+}
+
+.nutrientExplanationGrid code {
+  padding: 0;
+  background: transparent;
+  font-size: 0.62rem;
+}
+
+.validationChecks {
+  display: grid;
+  gap: 7px;
+  margin: 4px 0 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.validationCheck {
+  display: grid;
+  padding: 8px;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  border-radius: 9px;
+  background: #f7f6f0;
+}
+
+.checkPassed,
+.checkFailed {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  font-weight: 900;
+}
+
+.checkPassed {
+  background: var(--mint);
+  color: var(--primary-hover);
+}
+
+.checkFailed {
+  background: #fce4df;
+  color: #8e3428;
+}
+
+.validationCheck div {
+  display: grid;
+  gap: 1px;
+}
+
+.validationCheck strong {
+  color: var(--ink);
+}
+
+.validationCheck p,
+.validationCheck small {
+  margin: 0;
+}
+
+.validationCheck small {
+  color: var(--muted-ink);
+}
+
+.weightDecisionPanel {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid rgba(190, 108, 42, 0.22);
+  border-radius: 16px;
+  background: #fffaf3;
+}
+
+.weightDecisionStats {
+  display: grid;
+  margin: 14px 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--paper);
+}
+
+.weightDecisionStats span {
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  color: var(--muted-ink);
+  font-size: 0.68rem;
+}
+
+.weightDecisionStats span + span {
+  border-left: 1px solid var(--border);
+}
+
+.weightDecisionStats strong {
+  color: var(--ink);
+  font-size: 0.84rem;
+}
+
+.weightDecisionDetails summary {
+  padding: 10px 12px;
+  cursor: pointer;
+  color: var(--primary-hover);
+  font-size: 0.76rem;
+  font-weight: 800;
+  list-style: none;
+}
+
+.weightDecisionDetails .explanationBody {
+  padding-left: 12px;
+}
+
 .planMeals {
   display: grid;
   gap: 9px;
@@ -1197,6 +1517,19 @@
   .weightChatCard {
     grid-column: auto;
   }
+
+  .weightDecisionStats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .weightDecisionStats span:nth-child(3) {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+
+  .weightDecisionStats span:nth-child(4) {
+    border-top: 1px solid var(--border);
+  }
 }
 
 @media (max-width: 560px) {
@@ -1253,6 +1586,41 @@
   .trendStats span + span {
     border-top: 1px solid var(--border);
     border-left: 0;
+  }
+
+  .transparencyHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .transparencyValidated {
+    width: fit-content;
+  }
+
+  .decisionJourney,
+  .nutrientExplanationGrid,
+  .weightDecisionStats {
+    grid-template-columns: 1fr;
+  }
+
+  .decisionJourney > span + span,
+  .weightDecisionStats span + span,
+  .weightDecisionStats span:nth-child(4) {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+
+  .explanationSteps summary {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .explanationSteps summary b {
+    grid-column: 2;
+    text-align: left;
+  }
+
+  .explanationBody {
+    padding-left: 12px;
   }
 
   .editWeightPanel form,

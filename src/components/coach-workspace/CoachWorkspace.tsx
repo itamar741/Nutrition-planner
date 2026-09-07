@@ -24,11 +24,11 @@ import {
 } from "@/data/food-catalog";
 import { getChecklist, isProfileReady } from "@/domain/profile/onboarding";
 import {
-  calculateWeightTrend,
   formatWeightKg,
   normalizeWeightKg,
   type WeightMeasurement,
 } from "@/domain/weight/trend";
+import { evaluateWeightAdjustmentDecision } from "@/domain/weight/decision";
 import type { DemoProfileId, QuickReplyOption } from "@/domain/profile/types";
 import {
   CloudStateError,
@@ -51,6 +51,10 @@ import { createCatalogSnapshot } from "@/domain/catalog/snapshot";
 import { FoodGrid } from "./FoodGrid";
 import { PlanContents, PlanPanel } from "./PlanPanel";
 import { WeightTrendChart } from "./WeightTrendChart";
+import {
+  NutritionTransparencyPanel,
+  WeightDecisionPanel,
+} from "./NutritionTransparencyPanel";
 import { sendCoachMessage, AgentClientError } from "@/store/agent-client";
 import type { CoachMessageRequest } from "@/domain/agent/types";
 import type { ConversationActivity } from "@/domain/agent/types";
@@ -221,13 +225,16 @@ function ExistingFoundation() {
     });
   }
 
-  const trend = useMemo(
+  const weightDecision = useMemo(
     () =>
-      calculateWeightTrend(existing.measurements, {
-        activePlanActivatedAt: existing.activePlan.activatedAt,
+      evaluateWeightAdjustmentDecision({
+        goal: profile.goal ?? "maintenance",
+        measurements: existing.measurements,
+        activePlan: existing.activePlan,
       }),
-    [existing.activePlan.activatedAt, existing.measurements],
+    [existing.activePlan, existing.measurements, profile.goal],
   );
+  const trend = weightDecision.trend;
   function appendChat(role: "assistant" | "user", text: string) {
     return { id: `${role}-${createCommandId()}`, role, text };
   }
@@ -504,6 +511,11 @@ function ExistingFoundation() {
           </p>
         </article>
       </div>
+      <NutritionTransparencyPanel
+        plan={existing.activePlan.plan}
+        profile={profile}
+        targetSnapshot={existing.activePlan.plan.targetSnapshot}
+      />
       <section className={styles.weightWorkspace} aria-label="Weight tracking">
         <article className={styles.weightChartCard}>
           <div className={styles.weightCardHeader}>
@@ -525,28 +537,7 @@ function ExistingFoundation() {
             onSelect={startEditing}
             trend={trend}
           />
-          <div className={styles.trendStats}>
-            <span>
-              <strong>{trend.weeklyKg.toFixed(2)} kg</strong>
-              weekly change
-            </span>
-            <span>
-              <strong>{trend.weeklyPercent.toFixed(2)}%</strong>
-              weekly percentage
-            </span>
-            <span>
-              <strong>
-                {trend.evidence === "sufficient"
-                  ? "Evidence ready"
-                  : "More data needed"}
-              </strong>
-              {trend.evidence === "sufficient"
-                ? "Trend can be evaluated"
-                : trend.evidenceReason === "active_plan_changed"
-                  ? "The Active Plan changed in this window"
-                  : "28 measurements across 28 days are required"}
-            </span>
-          </div>
+          <WeightDecisionPanel decision={weightDecision} />
         </article>
         <article className={styles.existingCard}>
           <span>Record today’s weight</span>
@@ -1576,6 +1567,17 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                       .join(" · ")}
                   </p>
                 </details>
+              ) : null}
+              {state.targets ? (
+                <NutritionTransparencyPanel
+                  plan={state.draft?.plan ?? state.activePlan?.plan ?? null}
+                  profile={state.profile}
+                  targetSnapshot={
+                    state.draft?.plan.targetSnapshot ??
+                    state.activePlan?.plan.targetSnapshot ??
+                    state.targets
+                  }
+                />
               ) : null}
               <PlanPanel
                 activePlan={state.activePlan}

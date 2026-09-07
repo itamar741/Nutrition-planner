@@ -1,5 +1,5 @@
 import { expect, test, type Route } from "@playwright/test";
-import { createNewDemoState } from "@/data/demo-fixtures";
+import { createNewDemoState, existingReadyProfile } from "@/data/demo-fixtures";
 import { calculateTargets } from "@/domain/nutrition/calculations";
 import { getNextTurn } from "@/domain/profile/onboarding";
 import type { StructuredProfile } from "@/domain/profile/types";
@@ -169,5 +169,38 @@ test("the Existing Demo Profile stays a fixed prepared foundation in Turn 1", as
     page.getByRole("heading", { name: "Maintenance" }),
   ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Low active" })).toBeVisible();
+  await expect(
+    page.getByRole("article", { name: "How your nutrition plan works" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("article", {
+      name: "Why your Active Plan stays or changes",
+    }),
+  ).toBeVisible();
   await expect(page.getByRole("link", { name: /Profiles/ })).toBeVisible();
+});
+
+test("completed Fresh targets reveal the personal calculation before a plan exists", async ({
+  page,
+}) => {
+  const profile = { ...existingReadyProfile, goal: "muscle_gain" as const };
+  const state = {
+    ...createNewDemoState(),
+    profile,
+    targets: calculateTargets(profile),
+    activeTurn: getNextTurn(profile),
+  };
+  await installNewCloudProfile(page, state);
+  await page.goto("/coach/new");
+
+  const explanation = page.getByRole("article", {
+    name: "How your nutrition plan works",
+  });
+  await expect(explanation).toBeVisible();
+  await expect(explanation).toContainText("3,250 kcal");
+  await explanation.getByText("Estimated daily energy needs").click();
+  await expect(explanation).toContainText("2945.77 kcal/day");
+  await expect(
+    explanation.getByRole("link", { name: /Energy, 2023/ }),
+  ).toHaveAttribute("href", "https://www.ncbi.nlm.nih.gov/books/NBK591034/");
 });

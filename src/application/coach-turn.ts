@@ -13,17 +13,13 @@ import type {
 } from "@/domain/agent/types";
 import { createCatalogSnapshot } from "@/domain/catalog/snapshot";
 import type { CatalogFood } from "@/domain/catalog/types";
-import {
-  calculateTargets,
-  roundTo25HalfUp,
-} from "@/domain/nutrition/calculations";
+import { calculateTargets } from "@/domain/nutrition/calculations";
 import { revalidatePlan, validateAndBuildPlan } from "@/domain/plan/validation";
 import type { DraftCandidate, DraftProposal } from "@/domain/plan/types";
 import { isProfileReady } from "@/domain/profile/onboarding";
 import type { StructuredProfile } from "@/domain/profile/types";
+import { evaluateWeightAdjustmentDecision } from "@/domain/weight/decision";
 import {
-  adjustmentDirection,
-  calculateMaintenanceWeightDrift,
   calculateWeightTrend,
   maintenanceReferenceWeightFromRecentMeasurements,
   normalizeWeightKg,
@@ -452,38 +448,25 @@ function plansUsingFood(state: PersistedDemoState, foodId: string) {
 function adjustedTargetsFor(
   state: Exclude<PersistedDemoState, { profile: unknown }>,
 ) {
-  const trend = calculateWeightTrend(state.measurements, {
-    activePlanActivatedAt: state.activePlan.activatedAt,
-  });
-  const rateDirection =
-    trend.evidence === "sufficient"
-      ? adjustmentDirection(existingReadyProfile.goal!, trend.weeklyPercent)
-      : null;
-  const maintenanceDrift = calculateMaintenanceWeightDrift({
+  const decision = evaluateWeightAdjustmentDecision({
+    goal: existingReadyProfile.goal!,
     measurements: state.measurements,
-    referenceWeightKg: state.activePlan.maintenanceReferenceWeightKg,
+    activePlan: state.activePlan,
   });
-  const direction =
-    trend.evidence === "sufficient"
-      ? (rateDirection ?? maintenanceDrift.direction)
-      : null;
-  if (!direction) return null;
-  const adjustmentKcal = Math.max(
-    100,
-    Math.min(
-      200,
-      roundTo25HalfUp(
-        state.activePlan.plan.validation.totals.energyKcal * 0.05,
-      ),
-    ),
-  );
+  if (
+    decision.status !== "adjustment_available" ||
+    !decision.direction ||
+    decision.adjustmentKcal === null
+  )
+    return null;
+  const { direction, adjustmentKcal } = decision;
   const base = state.activePlan.plan.targetSnapshot;
   const energyKcal =
     base.energyKcal +
     (direction === "increase" ? adjustmentKcal : -adjustmentKcal);
   return {
-    trend,
-    maintenanceDrift,
+    trend: decision.trend,
+    maintenanceDrift: decision.maintenanceDrift,
     direction,
     adjustmentKcal,
     targets: {

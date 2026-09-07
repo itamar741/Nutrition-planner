@@ -170,51 +170,155 @@ function macroPercentages(totals: NutrientAmounts) {
   };
 }
 
+export interface PlanNutritionRanges {
+  energyKcal: { minimum: number; maximum: number };
+  proteinG: { minimum: number; maximum: number };
+  proteinPercent: { minimum: number; maximum: number };
+  carbohydratePercent: { minimum: number; maximum: number };
+  fatPercent: { minimum: number; maximum: number };
+  fiberMinimumG: number;
+}
+
+export function getPlanNutritionRanges(
+  profile: StructuredProfile,
+  targets: NutritionTargets,
+): PlanNutritionRanges | null {
+  if (profile.age === null || profile.currentWeightKg === null) return null;
+  const proteinMinimumMultiplier = profile.goal === "maintenance" ? 1.4 : 1.6;
+  return {
+    energyKcal: {
+      minimum: targets.energyKcal * 0.95,
+      maximum: targets.energyKcal * 1.05,
+    },
+    proteinG: {
+      minimum: proteinMinimumMultiplier * profile.currentWeightKg,
+      maximum: 2 * profile.currentWeightKg,
+    },
+    proteinPercent: { minimum: 10, maximum: profile.age === 18 ? 30 : 35 },
+    carbohydratePercent: { minimum: 45, maximum: 65 },
+    fatPercent: { minimum: profile.age === 18 ? 25 : 20, maximum: 35 },
+    fiberMinimumG: targets.fiberMinimumG,
+  };
+}
+
 function nutritionIssues(
   totals: NutrientAmounts,
   profile: StructuredProfile,
   targets: NutritionTargets,
 ): string[] {
-  if (profile.age === null || profile.currentWeightKg === null) {
+  const ranges = getPlanNutritionRanges(profile, targets);
+  if (!ranges) {
     return ["A complete age and current weight are required."];
   }
 
   const issues: string[] = [];
   const percentages = macroPercentages(totals);
-  const energyMinimum = targets.energyKcal * 0.95;
-  const energyMaximum = targets.energyKcal * 1.05;
-  const proteinMinimumMultiplier = profile.goal === "maintenance" ? 1.4 : 1.6;
-  const proteinMinimum = proteinMinimumMultiplier * profile.currentWeightKg;
-  const proteinMaximum = 2 * profile.currentWeightKg;
-  const proteinPercentageMaximum = profile.age === 18 ? 30 : 35;
-  const fatPercentageMinimum = profile.age === 18 ? 25 : 20;
 
-  if (totals.energyKcal < energyMinimum || totals.energyKcal > energyMaximum) {
+  if (
+    totals.energyKcal < ranges.energyKcal.minimum ||
+    totals.energyKcal > ranges.energyKcal.maximum
+  ) {
     issues.push(`Energy must be within ±5% of ${targets.energyKcal} kcal.`);
   }
-  if (totals.proteinG < proteinMinimum || totals.proteinG > proteinMaximum) {
+  if (
+    totals.proteinG < ranges.proteinG.minimum ||
+    totals.proteinG > ranges.proteinG.maximum
+  ) {
     issues.push(
-      `Protein must be between ${proteinMinimum.toFixed(1)} g and ${proteinMaximum.toFixed(1)} g.`,
+      `Protein must be between ${ranges.proteinG.minimum.toFixed(1)} g and ${ranges.proteinG.maximum.toFixed(1)} g.`,
     );
   }
   if (
-    percentages.protein < 10 ||
-    percentages.protein > proteinPercentageMaximum
+    percentages.protein < ranges.proteinPercent.minimum ||
+    percentages.protein > ranges.proteinPercent.maximum
   ) {
     issues.push("Protein is outside the age-appropriate AMDR.");
   }
-  if (percentages.carbohydrate < 45 || percentages.carbohydrate > 65) {
+  if (
+    percentages.carbohydrate < ranges.carbohydratePercent.minimum ||
+    percentages.carbohydrate > ranges.carbohydratePercent.maximum
+  ) {
     issues.push("Carbohydrate is outside the 45–65% AMDR.");
   }
-  if (percentages.fat < fatPercentageMinimum || percentages.fat > 35) {
+  if (
+    percentages.fat < ranges.fatPercent.minimum ||
+    percentages.fat > ranges.fatPercent.maximum
+  ) {
     issues.push("Fat is outside the age-appropriate AMDR.");
   }
-  if (totals.fiberG < targets.fiberMinimumG) {
-    issues.push(
-      `Fiber must be at least ${targets.fiberMinimumG.toFixed(1)} g.`,
-    );
+  if (totals.fiberG < ranges.fiberMinimumG) {
+    issues.push(`Fiber must be at least ${ranges.fiberMinimumG.toFixed(1)} g.`);
   }
   return issues;
+}
+
+export interface PlanValidationExplanationCheck {
+  key: "energy" | "protein" | "macros" | "fiber" | "plan_rules";
+  label: string;
+  actual: string;
+  expected: string;
+  passed: boolean;
+}
+
+export function buildPlanValidationExplanation(
+  profile: StructuredProfile,
+  plan: MealPlan,
+): PlanValidationExplanationCheck[] {
+  const ranges = getPlanNutritionRanges(profile, plan.targetSnapshot);
+  if (!ranges) return [];
+  const { totals, macroPercentages: percentages } = plan.validation;
+  const energyPassed =
+    totals.energyKcal >= ranges.energyKcal.minimum &&
+    totals.energyKcal <= ranges.energyKcal.maximum;
+  const proteinPassed =
+    totals.proteinG >= ranges.proteinG.minimum &&
+    totals.proteinG <= ranges.proteinG.maximum &&
+    percentages.protein >= ranges.proteinPercent.minimum &&
+    percentages.protein <= ranges.proteinPercent.maximum;
+  const macrosPassed =
+    percentages.carbohydrate >= ranges.carbohydratePercent.minimum &&
+    percentages.carbohydrate <= ranges.carbohydratePercent.maximum &&
+    percentages.fat >= ranges.fatPercent.minimum &&
+    percentages.fat <= ranges.fatPercent.maximum;
+
+  return [
+    {
+      key: "energy",
+      label: "Energy",
+      actual: `${totals.energyKcal.toFixed(0)} kcal`,
+      expected: `${ranges.energyKcal.minimum.toFixed(0)}–${ranges.energyKcal.maximum.toFixed(0)} kcal (±5%)`,
+      passed: energyPassed,
+    },
+    {
+      key: "protein",
+      label: "Protein",
+      actual: `${totals.proteinG.toFixed(1)} g · ${percentages.protein.toFixed(1)}%`,
+      expected: `${ranges.proteinG.minimum.toFixed(1)}–${ranges.proteinG.maximum.toFixed(1)} g and ${ranges.proteinPercent.minimum}–${ranges.proteinPercent.maximum}%`,
+      passed: proteinPassed,
+    },
+    {
+      key: "macros",
+      label: "Carbohydrate & fat",
+      actual: `${percentages.carbohydrate.toFixed(1)}% carbohydrate · ${percentages.fat.toFixed(1)}% fat`,
+      expected: `${ranges.carbohydratePercent.minimum}–${ranges.carbohydratePercent.maximum}% carbohydrate · ${ranges.fatPercent.minimum}–${ranges.fatPercent.maximum}% fat`,
+      passed: macrosPassed,
+    },
+    {
+      key: "fiber",
+      label: "Fiber",
+      actual: `${totals.fiberG.toFixed(1)} g`,
+      expected: `At least ${ranges.fiberMinimumG.toFixed(1)} g`,
+      passed: totals.fiberG >= ranges.fiberMinimumG,
+    },
+    {
+      key: "plan_rules",
+      label: "Plan rules",
+      actual: plan.validation.valid ? "All passed" : "Needs revision",
+      expected:
+        "Approved foods, practical portions, meal pattern and composition",
+      passed: plan.validation.valid,
+    },
+  ];
 }
 
 function mealCompositionIssues(

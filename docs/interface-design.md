@@ -43,6 +43,16 @@ The system does not enable Draft generation when required information or food se
 
 An invalid weight value is not added to the chart. The conversation explains what is wrong and requests a corrected value.
 
+### Nutrition Decision Explanation
+
+After targets are ready, the current workspace shows **How your nutrition plan works** without navigating away from the active conversation or plan. Its closed summary shows the energy estimate, goal adjustment, and current target. Its keyboard-accessible disclosures show the personal inputs, activity-score mapping, substituted EER equation, goal rule and rounding, macro and fiber formulas, and named research sources.
+
+When a Draft or Active Plan is present, the explanation adds a validation section with actual energy, protein, macro distribution, and fiber values against their deterministic ranges, plus the combined catalog, practical-portion, meal-pattern, and composition result. If a previously approved weight adjustment changed the Active target, the initial goal target, approved delta, and current target remain distinct.
+
+The Existing weight chart is followed by **The decision behind the chart**. It shows qualifying measurement count and span, the regression-derived weekly rate only when evidence is sufficient, the goal band, applicable Maintenance reference and seven-measurement averages, and one conclusion: more data required, keep the Active Plan, or a bounded adjustment is available. Availability never implies activation; the current approval controls remain authoritative.
+
+All explanatory surfaces accept ordinary supported profile, target, plan, and weight inputs. They do not branch on a demo profile identifier, invoke the model, persist disclosure state, or collect engagement analytics.
+
 ## Information Hierarchy
 
 The workspace prioritizes the user's current decision and current plan state over history or explanation.
