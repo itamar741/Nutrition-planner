@@ -71,6 +71,24 @@ describe("adaptive onboarding domain", () => {
     });
   });
 
+  it("accepts no exercise as a complete zero-volume exercise routine", () => {
+    const profile = applyFactPatch(emptyProfile, {
+      exerciseType: "none",
+      exerciseFrequencyPerWeek: 0,
+      exerciseSessionMinutes: 0,
+      exerciseIntensity: "moderate",
+    });
+
+    expect(profile).toMatchObject({
+      exerciseType: "none",
+      exerciseFrequencyPerWeek: 0,
+      exerciseSessionMinutes: 0,
+    });
+    expect(
+      getChecklist(profile).find((item) => item.key === "exercise")?.complete,
+    ).toBe(true);
+  });
+
   it("rejects unsupported patch fields and invalid values", () => {
     expect(() =>
       applyFactPatch(emptyProfile, { age: 12 } as { age: number }),

@@ -187,7 +187,7 @@ export function getNextTurn(profile: StructuredProfile): AssistantTurn {
       id: "collect-exercise",
       field: "multiple",
       prompt:
-        "Describe your exercise: resistance, cardio, or mixed; sessions per week; minutes per session; and whether the effort is moderate or vigorous.",
+        "Describe your exercise: resistance, cardio, or mixed; sessions per week; minutes per session; and whether the effort is moderate or vigorous. If you do not exercise, say no exercise.",
     };
   }
 

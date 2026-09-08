@@ -5,7 +5,7 @@ export type Goal = "fat_loss" | "maintenance" | "muscle_gain";
 export type EquationSex = "male" | "female";
 export type DailyRoutine =
   "mostly_seated" | "mixed_or_on_feet" | "physically_demanding";
-export type ExerciseType = "resistance" | "cardio" | "mixed";
+export type ExerciseType = "none" | "resistance" | "cardio" | "mixed";
 export type ExerciseIntensity = "moderate" | "vigorous";
 export type MealPattern =
   "three_meals" | "three_meals_one_snack" | "four_meals";

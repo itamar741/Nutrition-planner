@@ -22,6 +22,35 @@ const validExtraction = JSON.stringify({
 });
 
 describe("structured OpenAI onboarding contract", () => {
+  it("handles an explicit no-exercise answer without asking the model to infer it", async () => {
+    const createResponse = vi.fn();
+    const result = await extractOnboardingFacts(
+      {
+        commandId: "command-no-exercise",
+        message: "-no exercise",
+        profile: {
+          ...emptyProfile,
+          age: 30,
+          equationSex: "male",
+          heightCm: 180,
+          currentWeightKg: 80,
+          goal: "maintenance",
+          dailyRoutine: "mostly_seated",
+        },
+      },
+      createResponse,
+    );
+
+    expect(result.patch).toEqual({
+      exerciseType: "none",
+      exerciseFrequencyPerWeek: 0,
+      exerciseSessionMinutes: 0,
+      exerciseIntensity: "moderate",
+    });
+    expect(result.acknowledgement).toBe("Noted: no exercise.");
+    expect(createResponse).not.toHaveBeenCalled();
+  });
+
   it("accepts a strict multi-fact response", async () => {
     const createResponse = vi.fn().mockResolvedValue(validExtraction);
     const result = await extractOnboardingFacts(

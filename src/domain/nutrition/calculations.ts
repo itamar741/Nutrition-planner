@@ -69,6 +69,8 @@ export function getModerateEquivalentMinutes(input: {
   sessionMinutes: number;
   intensity: ExerciseIntensity;
 }): number {
+  if (input.exerciseType === "none") return 0;
+
   const weeklyMinutes = input.frequencyPerWeek * input.sessionMinutes;
 
   if (input.exerciseType === "resistance") {

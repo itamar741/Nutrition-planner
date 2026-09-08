@@ -30,8 +30,8 @@ export const modelFactExtractionSchema = z
         goal: goalSchema.nullable(),
         dailyRoutine: dailyRoutineSchema.nullable(),
         exerciseType: exerciseTypeSchema.nullable(),
-        exerciseFrequencyPerWeek: z.number().int().min(1).max(14).nullable(),
-        exerciseSessionMinutes: z.number().int().min(10).max(300).nullable(),
+        exerciseFrequencyPerWeek: z.number().int().min(0).max(14).nullable(),
+        exerciseSessionMinutes: z.number().int().min(0).max(300).nullable(),
         exerciseIntensity: exerciseIntensitySchema.nullable(),
         eatingRoutine: z.string().trim().min(2).max(500).nullable(),
         mealPattern: mealPatternSchema.nullable(),
@@ -115,16 +115,16 @@ export const modelFactExtractionJsonSchema = {
         },
         exerciseType: {
           type: ["string", "null"],
-          enum: ["resistance", "cardio", "mixed", null],
+          enum: ["none", "resistance", "cardio", "mixed", null],
         },
         exerciseFrequencyPerWeek: {
           type: ["integer", "null"],
-          minimum: 1,
+          minimum: 0,
           maximum: 14,
         },
         exerciseSessionMinutes: {
           type: ["integer", "null"],
-          minimum: 10,
+          minimum: 0,
           maximum: 300,
         },
         exerciseIntensity: {

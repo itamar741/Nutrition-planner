@@ -7,7 +7,12 @@ export const dailyRoutineSchema = z.enum([
   "mixed_or_on_feet",
   "physically_demanding",
 ]);
-export const exerciseTypeSchema = z.enum(["resistance", "cardio", "mixed"]);
+export const exerciseTypeSchema = z.enum([
+  "none",
+  "resistance",
+  "cardio",
+  "mixed",
+]);
 export const exerciseIntensitySchema = z.enum(["moderate", "vigorous"]);
 export const mealPatternSchema = z.enum([
   "three_meals",
@@ -25,8 +30,8 @@ export const structuredProfileSchema = z
     goal: goalSchema.nullable(),
     dailyRoutine: dailyRoutineSchema.nullable(),
     exerciseType: exerciseTypeSchema.nullable(),
-    exerciseFrequencyPerWeek: z.number().int().min(1).max(14).nullable(),
-    exerciseSessionMinutes: z.number().int().min(10).max(300).nullable(),
+    exerciseFrequencyPerWeek: z.number().int().min(0).max(14).nullable(),
+    exerciseSessionMinutes: z.number().int().min(0).max(300).nullable(),
     exerciseIntensity: exerciseIntensitySchema.nullable(),
     eatingRoutine: z.string().trim().min(2).max(500).nullable(),
     mealPattern: mealPatternSchema.nullable(),
@@ -44,8 +49,8 @@ export const profileFactPatchSchema = z
     goal: goalSchema.optional(),
     dailyRoutine: dailyRoutineSchema.optional(),
     exerciseType: exerciseTypeSchema.optional(),
-    exerciseFrequencyPerWeek: z.number().int().min(1).max(14).optional(),
-    exerciseSessionMinutes: z.number().int().min(10).max(300).optional(),
+    exerciseFrequencyPerWeek: z.number().int().min(0).max(14).optional(),
+    exerciseSessionMinutes: z.number().int().min(0).max(300).optional(),
     exerciseIntensity: exerciseIntensitySchema.optional(),
     eatingRoutine: z.string().trim().min(2).max(500).optional(),
     mealPattern: mealPatternSchema.optional(),
