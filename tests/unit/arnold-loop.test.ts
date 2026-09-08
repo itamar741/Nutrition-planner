@@ -197,6 +197,41 @@ describe("Arnold bounded skill loop", () => {
     );
   });
 
+  it("forces a Draft repair tool after deterministic validation rejects the first candidate", async () => {
+    provider.responses = [
+      proposalCall(1),
+      proposalCall(2),
+      {
+        status: "completed",
+        output_text: "The validated Draft is ready.",
+        output: [],
+      },
+    ];
+    let attempts = 0;
+    const onTool = vi.fn(async () => {
+      attempts += 1;
+      return { accepted: attempts > 1 };
+    });
+
+    await runCoachAgent({
+      getSystemPrompt: () => "fixed prompt",
+      conversation: [{ role: "user", content: "Generate my Draft Meal Plan" }],
+      getAllowedTools: () => (attempts < 2 ? ["submit_draft_proposal"] : []),
+      getRequiredFirstTool: () => "submit_draft_proposal",
+      getRequiredTool: () => (attempts === 1 ? "submit_draft_proposal" : null),
+      onText: vi.fn(),
+      onTool,
+    });
+
+    expect(onTool).toHaveBeenCalledTimes(2);
+    expect(provider.calls[0]).toMatchObject({
+      tool_choice: { type: "function", name: "submit_draft_proposal" },
+    });
+    expect(provider.calls[1]).toMatchObject({
+      tool_choice: { type: "function", name: "submit_draft_proposal" },
+    });
+  });
+
   it("tags provider failures with a safe diagnostic stage", async () => {
     provider.responses = [];
 

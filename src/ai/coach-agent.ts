@@ -443,6 +443,7 @@ export async function runCoachAgent(input: {
   conversation: Array<{ role: "assistant" | "user"; content: string }>;
   getAllowedTools: () => CoachToolName[];
   getRequiredFirstTool?: () => CoachToolName | null;
+  getRequiredTool?: (sequence: number) => CoachToolName | null;
   onText: (delta: string) => void;
   onTool: (
     call: CoachToolCall,
@@ -460,9 +461,11 @@ export async function runCoachAgent(input: {
   for (let sequence = 1; sequence <= 5; sequence += 1) {
     const allowed = sequence <= 4 ? input.getAllowedTools() : [];
     const selectedTools = allowed.map((name) => tools[name]);
-    const requiredFirstTool =
-      sequence === 1 ? (input.getRequiredFirstTool?.() ?? null) : null;
-    if (requiredFirstTool && !allowed.includes(requiredFirstTool)) {
+    const requiredTool =
+      sequence === 1
+        ? (input.getRequiredFirstTool?.() ?? null)
+        : (input.getRequiredTool?.(sequence) ?? null);
+    if (requiredTool && !allowed.includes(requiredTool)) {
       throw new CoachAgentError("The required bounded skill is unavailable.");
     }
     const stream = await atStage("provider_request", () =>
@@ -475,8 +478,8 @@ export async function runCoachAgent(input: {
         ...(selectedTools.length > 0
           ? {
               tools: selectedTools,
-              tool_choice: requiredFirstTool
-                ? ({ type: "function", name: requiredFirstTool } as const)
+              tool_choice: requiredTool
+                ? ({ type: "function", name: requiredTool } as const)
                 : ("auto" as const),
               parallel_tool_calls: false,
             }

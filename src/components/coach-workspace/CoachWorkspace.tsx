@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  FormEvent,
+  KeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   onboardingFailureSchema,
   onboardingSuccessSchema,
@@ -60,6 +67,19 @@ import type { CoachMessageRequest } from "@/domain/agent/types";
 import type { ConversationActivity } from "@/domain/agent/types";
 import { AgentInteractionPanel } from "./AgentInteractionPanel";
 import styles from "./CoachWorkspace.module.css";
+
+function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+  if (
+    event.key !== "Enter" ||
+    event.shiftKey ||
+    event.nativeEvent.isComposing ||
+    event.currentTarget.disabled
+  ) {
+    return;
+  }
+  event.preventDefault();
+  event.currentTarget.form?.requestSubmit();
+}
 
 function createCommandId() {
   return (
@@ -622,6 +642,7 @@ function ExistingFoundation() {
               aria-label="Message to nutrition coach"
               disabled={agentBusy}
               maxLength={1_000}
+              onKeyDown={handleComposerKeyDown}
               onChange={(event) => setChatInput(event.target.value)}
               placeholder="Add a food, record a weight, or ask about your plan"
               rows={2}
@@ -1402,6 +1423,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                       aria-label="Message to nutrition coach"
                       disabled={!inputEnabled}
                       maxLength={1_000}
+                      onKeyDown={handleComposerKeyDown}
                       onChange={(event) => setDraftMessage(event.target.value)}
                       placeholder="Try: replace one food, or change one portion…"
                       rows={2}
@@ -1421,6 +1443,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                       aria-label="Message to nutrition coach"
                       disabled={!inputEnabled}
                       maxLength={1_000}
+                      onKeyDown={handleComposerKeyDown}
                       onChange={(event) => setDraftMessage(event.target.value)}
                       placeholder="Ask about your plan, record feedback, or add a food…"
                       rows={2}
@@ -1462,6 +1485,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                         className={styles.feedbackInput}
                         disabled={state.status !== "idle"}
                         maxLength={1_000}
+                        onKeyDown={handleComposerKeyDown}
                         onChange={(event) =>
                           setDraftMessage(event.target.value)
                         }
@@ -1488,6 +1512,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                       aria-label="Message to nutrition coach"
                       disabled={!inputEnabled}
                       maxLength={1_000}
+                      onKeyDown={handleComposerKeyDown}
                       onChange={(event) => setDraftMessage(event.target.value)}
                       placeholder={
                         inputEnabled

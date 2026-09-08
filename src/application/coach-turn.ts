@@ -299,6 +299,26 @@ function requestsDraftIntegration(input: CoachMessageRequest["input"]) {
   );
 }
 
+function requestsDraftProposal(input: CoachMessageRequest["input"]) {
+  if (input.type !== "text") return false;
+  const text = input.text.trim();
+  if (
+    /\b(?:don't|do not|not|never)\b[\s\S]{0,80}\b(?:draft|meal plan|menu)\b/iu.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+  return (
+    /\b(?:generate|create|make|build|prepare|propose)\b[\s\S]{0,100}\b(?:draft|meal\s+plan|menu)\b/iu.test(
+      text,
+    ) ||
+    /(?:צור|תכין|הכן|תייצר|בנה)[\s\S]{0,100}(?:טיוטה|תפריט|תוכנית\s+ארוחות)/u.test(
+      text,
+    )
+  );
+}
+
 function requiresImmediateDraftProposal(
   input: CoachMessageRequest["input"],
   state: PersistedDemoState,
@@ -491,7 +511,7 @@ function allowedTools(
     "select_food_candidate",
   ];
   if ("profile" in state) {
-    if (isProfileReady(state.profile) && proposalAttempts < 3) {
+    if (isProfileReady(state.profile) && !state.draft && proposalAttempts < 3) {
       common.push("submit_draft_proposal");
     }
   } else {
@@ -511,7 +531,7 @@ function allowedTools(
       proposalAttempts < 3
     ) {
       common.push("submit_adjustment_proposal");
-    } else if (!adjustmentPending && proposalAttempts < 3) {
+    } else if (!adjustmentPending && !state.draft && proposalAttempts < 3) {
       common.push("submit_draft_proposal");
     }
   }
@@ -1657,6 +1677,19 @@ export async function executeCoachTurn(input: {
     }
     return policyAllowed;
   };
+  const shouldForceDraftProposal = () => {
+    if (state.draft || proposalAttempts >= 3) return false;
+    const pendingDraftFeedback =
+      currentInteraction?.type === "clarification" &&
+      currentInteraction.workflow === "draft" &&
+      input.request.input.type === "text" &&
+      input.request.input.text.trim().length > 0;
+    return (
+      requestsDraftProposal(input.request.input) ||
+      requiresImmediateDraftProposal(input.request.input, state) ||
+      pendingDraftFeedback
+    );
+  };
   const contextWithoutDigest = {
     ...contextFor(
       currentProfile,
@@ -1705,11 +1738,15 @@ export async function executeCoachTurn(input: {
       input.request.input.type === "interaction" &&
       input.request.input.action === "generate_adjustment"
         ? "submit_adjustment_proposal"
-        : requiresImmediateDraftProposal(input.request.input, state)
+        : shouldForceDraftProposal()
           ? "submit_draft_proposal"
           : requiresImmediateFoodSearch(input.request.input, currentInteraction)
             ? "search_foods"
             : null,
+    getRequiredTool: (sequence) =>
+      sequence > 1 && shouldForceDraftProposal()
+        ? "submit_draft_proposal"
+        : null,
     onText: input.onText,
     onTool: executeTool,
   });

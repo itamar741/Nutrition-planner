@@ -1004,6 +1004,7 @@ describe("unified coach orchestration", () => {
     if (!("profile" in result.profile.state)) {
       throw new Error("Expected Fresh state.");
     }
+    expect(agent.requiredFirstTools).toEqual(["submit_draft_proposal"]);
     expect(result.profile.state.draft?.plan.validation.valid).toBe(true);
     expect(
       result.profile.state.draft?.plan.meals.flatMap((meal) =>

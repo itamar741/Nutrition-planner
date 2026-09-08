@@ -235,6 +235,31 @@ test("Draft failure and retry preserve state and avoid duplicate actions", async
   ).toHaveCount(1);
 });
 
+test("Enter sends Fresh chat and Shift+Enter keeps a newline", async ({
+  page,
+}) => {
+  const cloud = await startWithState(page, makeReadyState());
+  await installTurn2Agent(page, cloud);
+
+  const input = page.getByRole("textbox", {
+    name: "Message to nutrition coach",
+  });
+  await input.fill("Please create my Draft");
+  await input.press("Shift+Enter");
+  await input.type("Meal Plan");
+  await expect(input).toHaveValue("Please create my Draft\nMeal Plan");
+  await input.press("Enter");
+
+  await expect(
+    page.getByText("Draft Meal Plan", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.locator('[data-role="user"]', {
+      hasText: "Please create my Draft\nMeal Plan",
+    }),
+  ).toHaveCount(1);
+});
+
 test("declining a Draft opens feedback for a revised proposal", async ({
   page,
 }) => {

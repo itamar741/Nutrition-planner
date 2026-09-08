@@ -21,6 +21,37 @@ test.beforeEach(async ({ request }) => {
   });
 });
 
+test("Enter sends the Existing coach message", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.sessionStorage.setItem("arnold-trend-review:existing", "started");
+  });
+  let requests = 0;
+  await page.route("**/api/coach/message", async (route) => {
+    requests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        profile: {
+          profileId: "existing",
+          version: 2,
+          state: createExistingDemoState(),
+        },
+      }),
+    });
+  });
+  await page.goto("/coach/existing");
+
+  const input = page.getByRole("textbox", {
+    name: "Message to nutrition coach",
+  });
+  await input.fill("Tell me about my plan");
+  await input.press("Enter");
+  await expect.poll(() => requests).toBe(1);
+  await expect(input).toHaveValue("");
+});
+
 test("B-01 reviews, declines, revises, and approves an adjustment in chat", async ({
   page,
 }) => {
