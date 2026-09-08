@@ -1702,11 +1702,14 @@ export async function executeCoachTurn(input: {
     conversation: conversation.messages,
     getAllowedTools: getAllowed,
     getRequiredFirstTool: () =>
-      requiresImmediateDraftProposal(input.request.input, state)
-        ? "submit_draft_proposal"
-        : requiresImmediateFoodSearch(input.request.input, currentInteraction)
-          ? "search_foods"
-          : null,
+      input.request.input.type === "interaction" &&
+      input.request.input.action === "generate_adjustment"
+        ? "submit_adjustment_proposal"
+        : requiresImmediateDraftProposal(input.request.input, state)
+          ? "submit_draft_proposal"
+          : requiresImmediateFoodSearch(input.request.input, currentInteraction)
+            ? "search_foods"
+            : null,
     onText: input.onText,
     onTool: executeTool,
   });

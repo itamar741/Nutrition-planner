@@ -265,6 +265,84 @@ describe("unified coach orchestration", () => {
     });
   });
 
+  it("forces the adjustment skill for the Generate AI proposal control", async () => {
+    const initial = await getProfile("existing");
+    if (!("measurements" in initial.state))
+      throw new Error("Expected Existing state.");
+    const seeded = await mutateProfile({
+      profileId: "existing",
+      expectedVersion: initial.version,
+      commandId: "seed-adjustment-control",
+      mutation: (state) => {
+        if ("profile" in state) throw new Error("Expected Existing state.");
+        return {
+          ...state,
+          measurements: state.measurements.map((measurement, index) => ({
+            ...measurement,
+            weightKg: index < 24 ? 75 : 75.72,
+          })),
+          activePlan: {
+            ...state.activePlan,
+            maintenanceReferenceWeightKg: 75,
+          },
+          agentSession: {
+            ...state.agentSession,
+            pendingInteraction: {
+              id: `adjustment-offer-v${state.activePlan.version}`,
+              type: "adjustment_offer",
+              basePlanVersion: state.activePlan.version,
+              direction: "decrease",
+              adjustmentKcal: 150,
+            },
+          },
+        };
+      },
+    });
+    if (!("activePlan" in seeded.state) || !seeded.state.activePlan)
+      throw new Error("Expected Existing state.");
+    agent.tool = {
+      name: "submit_adjustment_proposal",
+      arguments: {
+        summary: "A bounded adjustment Draft.",
+        meals: seeded.state.activePlan.plan.meals.map((meal) => ({
+          id: meal.id,
+          items: meal.items.map(({ catalogFoodId, grams }) => ({
+            catalogFoodId,
+            grams,
+          })),
+        })),
+      },
+    };
+
+    const result = await executeCoachTurn({
+      ...turnInput(
+        "existing",
+        seeded.version,
+        "generate-adjustment-control",
+        "unused",
+      ),
+      request: {
+        profileId: "existing",
+        expectedVersion: seeded.version,
+        commandId: "generate-adjustment-control",
+        input: {
+          type: "interaction",
+          interactionId: `adjustment-offer-v${seeded.state.activePlan.version}`,
+          action: "generate_adjustment",
+        },
+      },
+    });
+
+    expect(agent.requiredFirstTools).toEqual(["submit_adjustment_proposal"]);
+    expect(agent.toolResults[0]).toMatchObject({
+      accepted: false,
+      attemptsRemaining: 2,
+    });
+    expect(result.profile.state.agentSession.pendingInteraction?.type).toBe(
+      "adjustment_offer",
+    );
+  });
+
   it("uses the generic ranking clarification instead of a milk-specific branch", async () => {
     const initial = await getProfile("existing");
     agent.tool = {
