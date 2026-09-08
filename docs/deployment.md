@@ -45,7 +45,7 @@ The deployed service must keep `DEMO_ACCESS_CODE` enabled. Never commit `.env.lo
 - one free Node Web Service running the Next.js application; and
 - one free Render PostgreSQL database.
 
-The Web Service runs the SQL migration before `next start`. The health endpoint then validates and seeds both profile fixtures and the baseline catalog. [Render documents](https://render.com/docs/free) that free PostgreSQL expires after 30 days, provides 1 GB, and has no backups; use it only for the short course presentation. The resource definitions follow Render's [Blueprint specification](https://render.com/docs/blueprint-spec).
+The Web Service starts `next start` immediately so Render can detect the listening port. The `/api/health` endpoint then initializes the SQL schema, validates the database connection, and seeds both profile fixtures and the baseline catalog before reporting healthy. [Render documents](https://render.com/docs/free) that free PostgreSQL expires after 30 days, provides 1 GB, and has no backups; use it only for the short course presentation. The resource definitions follow Render's [Blueprint specification](https://render.com/docs/blueprint-spec).
 
 ## Required server variables
 
@@ -72,7 +72,7 @@ Never put real values in `.env.example`, Git, browser code, screenshots, or veri
 
 2. In Render, create a new Blueprint and select this repository.
 3. Review the two resources from `render.yaml`.
-4. Confirm the Web Service uses `npm ci && npm run build` for build and `npm run start:render` for start, with `/api/health` as its health check.
+4. Confirm the Web Service uses `npm ci && npm run build` for build and `npm run start:render` for start, with `/api/health` as its health check. The server must start before the health check initializes the database.
 5. Enter the three manually synchronized secrets: `DEMO_ACCESS_CODE`, `OPENAI_API_KEY`, and `USDA_FDC_API_KEY`.
 6. Deploy and wait for `/api/health` to return HTTP 200.
 7. Open the Web Service URL and enter the shared access code.
