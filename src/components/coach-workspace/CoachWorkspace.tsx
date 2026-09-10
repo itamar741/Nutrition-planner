@@ -553,35 +553,67 @@ function ExistingFoundation() {
             </button>
           </div>
           <WeightTrendChart
+            footer={
+              <form
+                className={styles.recordWeightForm}
+                onSubmit={submitWeightForm}
+              >
+                <label className={styles.srOnly} htmlFor="record-weight">
+                  Weight in kilograms
+                </label>
+                <input
+                  aria-label="Weight in kilograms"
+                  disabled={agentBusy}
+                  id="record-weight"
+                  inputMode="decimal"
+                  min="1"
+                  onChange={(event) => setWeightInput(event.target.value)}
+                  placeholder="kg"
+                  step="0.01"
+                  type="number"
+                  value={weightInput}
+                />
+                <button
+                  className={styles.primaryAction}
+                  disabled={agentBusy}
+                  type="submit"
+                >
+                  Save today
+                </button>
+              </form>
+            }
             measurements={existing.measurements}
             onSelect={startEditing}
             trend={trend}
           />
           <WeightDecisionPanel decision={weightDecision} />
         </article>
-        <article className={styles.existingCard}>
-          <span>Record today’s weight</span>
-          <form onSubmit={submitWeightForm}>
-            <input
-              aria-label="Weight in kilograms"
-              disabled={agentBusy}
-              inputMode="decimal"
-              min="1"
-              onChange={(event) => setWeightInput(event.target.value)}
-              placeholder="kg"
-              step="0.01"
-              type="number"
-              value={weightInput}
+        <article
+          className={`${styles.existingCard} ${styles.weightActivePlan}`}
+        >
+          <span>Active Plan</span>
+          <h3>
+            {existing.activePlan.plan.validation.totals.energyKcal.toFixed(0)}{" "}
+            kcal/day
+          </h3>
+          <p>
+            Version {existing.activePlan.version}; changes require an explicit
+            approval.
+          </p>
+          <details className={styles.activePlanDetails}>
+            <summary>View active daily plan</summary>
+            <PlanContents
+              catalog={catalog}
+              proposal={{
+                schemaVersion: 1,
+                id: `active-${existing.activePlan.version}`,
+                basePlanVersion: existing.activePlan.version,
+                reason: "initial",
+                summary: "Your approved repeatable day.",
+                plan: existing.activePlan.plan,
+              }}
             />
-            <button
-              className={styles.primaryAction}
-              disabled={agentBusy}
-              type="submit"
-            >
-              Save today
-            </button>
-          </form>
-          <p>To correct an earlier day, select its point on the chart.</p>
+          </details>
         </article>
         <article className={styles.weightChatCard}>
           <span>Coach conversation</span>
@@ -694,33 +726,6 @@ function ExistingFoundation() {
           </form>
         </section>
       ) : null}
-      <div className={styles.existingGrid}>
-        <article className={styles.existingCard}>
-          <span>Active Plan</span>
-          <h3>
-            {existing.activePlan.plan.validation.totals.energyKcal.toFixed(0)}{" "}
-            kcal/day
-          </h3>
-          <p>
-            Version {existing.activePlan.version}; changes require an explicit
-            approval.
-          </p>
-          <details className={styles.activePlanDetails}>
-            <summary>View active daily plan</summary>
-            <PlanContents
-              catalog={catalog}
-              proposal={{
-                schemaVersion: 1,
-                id: `active-${existing.activePlan.version}`,
-                basePlanVersion: existing.activePlan.version,
-                reason: "initial",
-                summary: "Your approved repeatable day.",
-                plan: existing.activePlan.plan,
-              }}
-            />
-          </details>
-        </article>
-      </div>
       <CatalogSection
         approvedIds={existing.approvedCatalogFoodIds}
         catalog={catalog}

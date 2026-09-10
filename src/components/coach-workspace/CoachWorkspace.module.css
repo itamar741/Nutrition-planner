@@ -1294,6 +1294,50 @@
   font-size: 0.78rem;
 }
 
+.chartFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 8px;
+}
+
+.chartFooter .chartHint {
+  margin: 0;
+}
+
+.recordWeightForm {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.recordWeightForm input {
+  width: 88px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: white;
+  color: var(--ink);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.weightActivePlan {
+  grid-column: span 1;
+  margin-top: 0;
+}
+
 .trendStats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1619,6 +1663,10 @@
     grid-column: auto;
   }
 
+  .weightActivePlan {
+    grid-column: auto;
+  }
+
   .weightDecisionStats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1636,6 +1684,19 @@
 @media (max-width: 560px) {
   .page {
     padding: 10px;
+  }
+
+  .chartFooter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .recordWeightForm {
+    width: 100%;
+  }
+
+  .recordWeightForm input {
+    flex: 1;
   }
 
   .profileLabel {

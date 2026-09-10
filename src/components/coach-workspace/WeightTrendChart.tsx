@@ -3,6 +3,7 @@ import {
   type WeightMeasurement,
   type WeightTrend,
 } from "@/domain/weight/trend";
+import type { ReactNode } from "react";
 import styles from "./CoachWorkspace.module.css";
 
 const WIDTH = 680;
@@ -20,10 +21,12 @@ export function WeightTrendChart({
   measurements,
   trend,
   onSelect,
+  footer,
 }: {
   measurements: WeightMeasurement[];
   trend: WeightTrend;
   onSelect: (measurement: WeightMeasurement) => void;
+  footer?: ReactNode;
 }) {
   const ordered = [...measurements].sort((a, b) =>
     a.date.localeCompare(b.date),
@@ -131,9 +134,12 @@ export function WeightTrendChart({
           {formatDate(ordered[ordered.length - 1].date)}
         </text>
       </svg>
-      <p className={styles.chartHint}>
-        Select a point to edit that day&apos;s weight.
-      </p>
+      <div className={styles.chartFooter}>
+        <p className={styles.chartHint}>
+          Select a point to edit that day&apos;s weight.
+        </p>
+        {footer}
+      </div>
     </div>
   );
 }

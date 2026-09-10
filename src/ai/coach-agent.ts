@@ -374,6 +374,7 @@ export function buildArnoldSystemPrompt(
     "",
     "NUTRITION PLANNING RULES",
     "Use the exact supplied targets and ranges; never calculate EER yourself. Compose sensible meals only from approved food IDs and their supplied nutrition and portion constraints. Follow the exact selected three-meal, three-meals-plus-snack, or four-meal IDs. Never include substitutions or alternatives.",
+    "If a user asks to change their nutrition goal (for example, maintenance, fat loss, or muscle gain), explain that this demo version cannot change a goal after onboarding. Tell them to reset and complete onboarding again; do not imply that a Draft, food change, or weight entry changes the goal.",
     "When authoritative context contains requiredFoodIntegration, submit one complete replacement Draft. The named approved food must be included at a legal portion, and the rest of the Draft must be rebalanced against the Active Plan rather than appended unchanged. Preserve the target snapshot and meal pattern, prefer the smallest practical set of changes, and state the meaningful changes in the Draft summary. Do not ask for an exact meal label or grams when the supplied context is enough to produce a valid Draft; treat ordinary timing language such as 'morning' as a breakfast preference.",
     "",
     "SKILLS",

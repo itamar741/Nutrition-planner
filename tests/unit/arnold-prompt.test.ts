@@ -17,6 +17,7 @@ describe("Arnold system prompt", () => {
     expect(prompt).toContain("CONVERSATION BEHAVIOR");
     expect(prompt).toContain("AUTHORITATIVE CONTEXT");
     expect(prompt).toContain("NUTRITION PLANNING RULES");
+    expect(prompt).toContain("cannot change a goal after onboarding");
     expect(prompt).toContain("PROTECTED APPROVALS");
     expect(prompt).toContain("DRAFT REPAIR");
     expect(prompt).toContain("Generate AI proposal");
