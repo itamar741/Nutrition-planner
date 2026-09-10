@@ -1090,7 +1090,43 @@ describe("unified coach orchestration", () => {
     expect(agent.toolResults.at(-1)).toMatchObject({
       attemptedDraft: { attempt: 3 },
       failedAttempts: [{ attempt: 1 }, { attempt: 2 }, { attempt: 3 }],
+      repairGuidance: {
+        requiredMealIdsInOrder: ["breakfast", "lunch", "snack", "dinner"],
+        energyKcal: expect.objectContaining({
+          action: expect.stringContaining("increase by at least"),
+        }),
+        proteinG: expect.objectContaining({
+          action: expect.stringContaining("increase by at least"),
+        }),
+      },
     });
+  });
+
+  it("gives Arnold the exact generic IDs for a four-meal profile", async () => {
+    const initial = await getProfile("new");
+    const ready = makeReadyState();
+    const seeded = await mutateProfile({
+      profileId: "new",
+      expectedVersion: initial.version,
+      commandId: "seed-four-meal-profile",
+      mutation: () => ({
+        ...ready,
+        profile: { ...ready.profile, mealPattern: "four_meals" },
+      }),
+    });
+
+    await executeCoachTurn(
+      turnInput(
+        "new",
+        seeded.version,
+        "inspect-four-meal-context",
+        "How would you structure my day?",
+      ),
+    );
+
+    expect(agent.systemPrompts[0]).toContain(
+      '"expectedMealIds":["meal_1","meal_2","meal_3","meal_4"]',
+    );
   });
 
   it("keeps a required-food Draft intent after the third rejected proposal", async () => {

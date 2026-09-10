@@ -104,6 +104,31 @@ describe("nutrition transparency", () => {
     ]);
   });
 
+  it("keeps Plan rules passed when only nutrition ranges fail", () => {
+    const activePlan = createExistingActivePlan(now);
+    const nutritionOnlyFailure = {
+      ...activePlan.plan,
+      validation: {
+        ...activePlan.plan.validation,
+        valid: false,
+        issues: ["Energy must be within ±5% of 2875 kcal."],
+        totals: {
+          ...activePlan.plan.validation.totals,
+          energyKcal: 2000,
+        },
+      },
+    };
+    const checks = buildPlanValidationExplanation(
+      existingReadyProfile,
+      nutritionOnlyFailure,
+    );
+
+    expect(checks.find((check) => check.key === "energy")?.passed).toBe(false);
+    expect(checks.find((check) => check.key === "plan_rules")?.passed).toBe(
+      true,
+    );
+  });
+
   it("uses one decision model for the evidence gate, goal band and drift guard", () => {
     const activePlan = {
       ...createExistingActivePlan(now),

@@ -88,4 +88,30 @@ describe("Draft attempt review", () => {
       ),
     ).toBeInTheDocument();
   });
+
+  it("does not render empty validation messages", () => {
+    const withEmptyMessages = attempt(1, 500, 2600);
+    withEmptyMessages.issues = ["", "   ", "Energy must be within range."];
+    render(
+      <AgentInteractionPanel
+        catalog={[]}
+        disabled={false}
+        interaction={{
+          id: "empty-message-review",
+          type: "draft_failure_review",
+          attempts: [withEmptyMessages],
+          prompt: "Choose a direction.",
+        }}
+        onAction={vi.fn()}
+        onQuickReply={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText("Energy must be within range."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Energy must be within range.").closest("ul")?.children,
+    ).toHaveLength(1);
+  });
 });

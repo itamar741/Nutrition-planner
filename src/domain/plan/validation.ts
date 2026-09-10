@@ -260,6 +260,17 @@ export interface PlanValidationExplanationCheck {
   passed: boolean;
 }
 
+function isDirectNutritionIssue(issue: string) {
+  return [
+    "Energy must ",
+    "Protein must ",
+    "Protein is outside ",
+    "Carbohydrate is outside ",
+    "Fat is outside ",
+    "Fiber must ",
+  ].some((prefix) => issue.startsWith(prefix));
+}
+
 export function buildPlanValidationExplanation(
   profile: StructuredProfile,
   plan: MealPlan,
@@ -280,6 +291,10 @@ export function buildPlanValidationExplanation(
     percentages.carbohydrate <= ranges.carbohydratePercent.maximum &&
     percentages.fat >= ranges.fatPercent.minimum &&
     percentages.fat <= ranges.fatPercent.maximum;
+  const planRulesPassed = plan.validation.issues
+    .map((issue) => issue.trim())
+    .filter(Boolean)
+    .every(isDirectNutritionIssue);
 
   return [
     {
@@ -313,10 +328,10 @@ export function buildPlanValidationExplanation(
     {
       key: "plan_rules",
       label: "Plan rules",
-      actual: plan.validation.valid ? "All passed" : "Needs revision",
+      actual: planRulesPassed ? "All passed" : "Needs revision",
       expected:
         "Approved foods, practical portions, meal pattern and composition",
-      passed: plan.validation.valid,
+      passed: planRulesPassed,
     },
   ];
 }

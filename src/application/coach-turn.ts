@@ -17,6 +17,8 @@ import type { CatalogFood } from "@/domain/catalog/types";
 import { calculateTargets } from "@/domain/nutrition/calculations";
 import {
   buildPlanValidationExplanation,
+  getExpectedMealIds,
+  getPlanNutritionRanges,
   revalidatePlan,
   validateAndBuildPlan,
 } from "@/domain/plan/validation";
@@ -161,6 +163,10 @@ function contextFor(
     profileVersion: profile.version,
     structuredProfile,
     nutritionTargets: targets,
+    expectedMealIds:
+      structuredProfile.mealPattern === null
+        ? null
+        : getExpectedMealIds(structuredProfile.mealPattern),
     deterministicNutritionRules:
       targets && weightKg !== null
         ? {
@@ -506,7 +512,74 @@ function reviewDraftAttempt(input: {
     })),
     totals: input.plan.validation.totals,
     checks: buildPlanValidationExplanation(input.profile, input.plan),
-    issues: input.issues,
+    issues: input.issues.map((issue) => issue.trim()).filter(Boolean),
+  };
+}
+
+function rangeRepair(
+  actual: number,
+  minimum: number,
+  maximum: number,
+  unit: string,
+) {
+  const action =
+    actual < minimum
+      ? `increase by at least ${(minimum - actual).toFixed(1)} ${unit}`
+      : actual > maximum
+        ? `decrease by at least ${(actual - maximum).toFixed(1)} ${unit}`
+        : "keep within this range";
+  return { actual, minimum, maximum, action };
+}
+
+function draftRepairGuidance(
+  profile: StructuredProfile,
+  plan: DraftProposal["plan"],
+) {
+  const ranges = getPlanNutritionRanges(profile, plan.targetSnapshot);
+  const percentages = plan.validation.macroPercentages;
+  return {
+    requiredMealIdsInOrder:
+      profile.mealPattern === null
+        ? []
+        : getExpectedMealIds(profile.mealPattern),
+    instruction:
+      "Keep the exact meal IDs and order. Make the smallest legal portion or food changes that bring every failed value into range without moving a passed value out of range.",
+    ...(ranges
+      ? {
+          energyKcal: rangeRepair(
+            plan.validation.totals.energyKcal,
+            ranges.energyKcal.minimum,
+            ranges.energyKcal.maximum,
+            "kcal",
+          ),
+          proteinG: rangeRepair(
+            plan.validation.totals.proteinG,
+            ranges.proteinG.minimum,
+            ranges.proteinG.maximum,
+            "g",
+          ),
+          carbohydratePercent: rangeRepair(
+            percentages.carbohydrate,
+            ranges.carbohydratePercent.minimum,
+            ranges.carbohydratePercent.maximum,
+            "percentage points",
+          ),
+          fatPercent: rangeRepair(
+            percentages.fat,
+            ranges.fatPercent.minimum,
+            ranges.fatPercent.maximum,
+            "percentage points",
+          ),
+          fiberG: {
+            actual: plan.validation.totals.fiberG,
+            minimum: ranges.fiberMinimumG,
+            action:
+              plan.validation.totals.fiberG < ranges.fiberMinimumG
+                ? `increase by at least ${(ranges.fiberMinimumG - plan.validation.totals.fiberG).toFixed(1)} g`
+                : "keep at or above the minimum",
+          },
+        }
+      : {}),
   };
 }
 
@@ -1496,7 +1569,10 @@ export async function executeCoachTurn(input: {
             ]
           : []),
         ...plan.validation.issues,
-      ].slice(0, 20);
+      ]
+        .map((issue) => issue.trim())
+        .filter(Boolean)
+        .slice(0, 20);
       console.info("coach_proposal_validated", {
         turnId: input.turnId,
         commandId: input.request.commandId,
@@ -1535,6 +1611,7 @@ export async function executeCoachTurn(input: {
           issues,
           actualTotals: plan.validation.totals,
           requiredTargets: targets,
+          repairGuidance: draftRepairGuidance(draftProfile, plan),
           attemptedDraft: reviewedAttempt,
           failedAttempts: structuredClone(rejectedDraftAttempts),
           afterThirdFailure:

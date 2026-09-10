@@ -183,14 +183,18 @@ export function AgentInteractionPanel({
                     </p>
                   ))}
                 </div>
-                <details className={styles.draftAttemptIssues}>
-                  <summary>All validation messages</summary>
-                  <ul>
-                    {attempt.issues.map((issue) => (
-                      <li key={issue}>{issue}</li>
-                    ))}
-                  </ul>
-                </details>
+                {attempt.issues.filter((issue) => issue.trim()).length > 0 ? (
+                  <details className={styles.draftAttemptIssues}>
+                    <summary>All validation messages</summary>
+                    <ul>
+                      {attempt.issues
+                        .filter((issue) => issue.trim())
+                        .map((issue, issueIndex) => (
+                          <li key={`${issueIndex}-${issue}`}>{issue}</li>
+                        ))}
+                    </ul>
+                  </details>
+                ) : null}
               </details>
             );
           })}
