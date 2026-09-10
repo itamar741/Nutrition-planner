@@ -69,6 +69,17 @@ export type DemoAction =
     }
   | { type: "apply_food_selection"; commandId: string; ids: string[] }
   | {
+      type: "record_weight";
+      commandId: string;
+      measurement: WeightMeasurement;
+    }
+  | {
+      type: "edit_weight";
+      commandId: string;
+      date: string;
+      weightKg: number;
+    }
+  | {
       type: "start_plan";
       command: PendingCommand;
       operation: "draft" | "modification";
@@ -252,6 +263,58 @@ export function demoReducer(
         ],
       };
     }
+    case "record_weight":
+      if (
+        !state.activePlan ||
+        state.weightMeasurements.some(
+          (item) =>
+            item.date === action.measurement.date ||
+            item.commandId === action.commandId,
+        )
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        weightMeasurements: [...state.weightMeasurements, action.measurement],
+        processedCommandIds: [...state.processedCommandIds, action.commandId],
+        messages: [
+          ...state.messages,
+          {
+            id: messageId("assistant", action.commandId),
+            role: "assistant",
+            text: `Recorded ${action.measurement.weightKg} kg for ${action.measurement.date}. Your trend was recalculated.`,
+          },
+        ],
+      };
+    case "edit_weight":
+      if (
+        !state.activePlan ||
+        !state.weightMeasurements.some((item) => item.date === action.date)
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        weightMeasurements: state.weightMeasurements.map((item) =>
+          item.date === action.date
+            ? {
+                ...item,
+                weightKg: action.weightKg,
+                commandId: action.commandId,
+              }
+            : item,
+        ),
+        processedCommandIds: [...state.processedCommandIds, action.commandId],
+        messages: [
+          ...state.messages,
+          {
+            id: messageId("assistant", action.commandId),
+            role: "assistant",
+            text: `Updated ${action.date} to ${action.weightKg} kg. Your trend was recalculated.`,
+          },
+        ],
+      };
     case "start_plan":
       if (state.status === "processing") return state;
       return {

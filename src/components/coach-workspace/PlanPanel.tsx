@@ -108,6 +108,7 @@ export function PlanPanel({
   onApprove,
   onReject,
   catalog = foodCatalog,
+  showActions = true,
 }: {
   draft: DraftProposal | null;
   activePlan: ActivePlan | null;
@@ -116,6 +117,7 @@ export function PlanPanel({
   onApprove: () => void;
   onReject: () => void;
   catalog?: readonly CatalogFood[];
+  showActions?: boolean;
 }) {
   if (draft) {
     return (
@@ -166,24 +168,26 @@ export function PlanPanel({
             approval.
           </p>
         )}
-        <div className={styles.approvalActions}>
-          <button
-            className={styles.primaryAction}
-            disabled={disabled}
-            onClick={onApprove}
-            type="button"
-          >
-            Approve &amp; activate
-          </button>
-          <button
-            className={styles.secondaryAction}
-            disabled={disabled}
-            onClick={onReject}
-            type="button"
-          >
-            Decline Draft
-          </button>
-        </div>
+        {showActions ? (
+          <div className={styles.approvalActions}>
+            <button
+              className={styles.primaryAction}
+              disabled={disabled}
+              onClick={onApprove}
+              type="button"
+            >
+              Approve &amp; activate
+            </button>
+            <button
+              className={styles.secondaryAction}
+              disabled={disabled}
+              onClick={onReject}
+              type="button"
+            >
+              Decline Draft
+            </button>
+          </div>
+        ) : null}
       </article>
     );
   }

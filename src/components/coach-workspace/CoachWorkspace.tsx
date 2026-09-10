@@ -24,11 +24,7 @@ import {
   demoProfileNames,
   existingProfileFoundation,
 } from "@/data/demo-fixtures";
-import {
-  foodCatalog,
-  foodCategoryLabels,
-  foodCategoryOrder,
-} from "@/data/food-catalog";
+import { foodCatalog } from "@/data/food-catalog";
 import { getChecklist, isProfileReady } from "@/domain/profile/onboarding";
 import {
   formatWeightKg,
@@ -66,6 +62,8 @@ import { sendCoachMessage, AgentClientError } from "@/store/agent-client";
 import type { CoachMessageRequest } from "@/domain/agent/types";
 import type { ConversationActivity } from "@/domain/agent/types";
 import { AgentInteractionPanel } from "./AgentInteractionPanel";
+import { CatalogSection } from "./CatalogSection";
+import { FreshActiveDashboard } from "./FreshActiveDashboard";
 import {
   ArnoldCapabilitiesPanel,
   type ArnoldCapabilityId,
@@ -148,40 +146,6 @@ function agentStatusLabel(
   if (status === "creating_draft") return "Creating Draft…";
   if (status === "revising_draft") return "Revising Draft…";
   return "Thinking…";
-}
-
-function CatalogSection({
-  approvedIds,
-  catalog,
-}: {
-  approvedIds: string[];
-  catalog: readonly CatalogFood[];
-}) {
-  const approvedFoods = catalog.filter((food) => approvedIds.includes(food.id));
-  return (
-    <article className={styles.catalogCard}>
-      <span>This demo profile’s food preferences</span>
-      <h3>{approvedFoods.length} approved foods</h3>
-      <p>
-        These are the foods this demo user said they like. Plans can use only
-        this subset, not every food in the catalog.
-      </p>
-      <div className={styles.catalogGroups}>
-        {foodCategoryOrder.map((category) => (
-          <section key={category}>
-            <h4>{foodCategoryLabels[category]}</h4>
-            <ul>
-              {approvedFoods
-                .filter((food) => food.category === category)
-                .map((food) => (
-                  <li key={food.id}>{food.displayName}</li>
-                ))}
-            </ul>
-          </section>
-        ))}
-      </div>
-    </article>
-  );
 }
 
 function ExistingFoundation() {
@@ -1267,6 +1231,37 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
     });
   }
 
+  function recordFreshWeight(weightKg: number) {
+    const date = new Date().toISOString().slice(0, 10);
+    if (
+      stateRef.current.weightMeasurements.some((item) => item.date === date)
+    ) {
+      throw new Error(
+        "Today's weight already exists; select its point to edit it.",
+      );
+    }
+    const commandId = createCommandId();
+    dispatch({
+      type: "record_weight",
+      commandId,
+      measurement: {
+        id: `weight-${commandId}`,
+        date,
+        weightKg,
+        commandId,
+      },
+    });
+  }
+
+  function editFreshWeight(date: string, weightKg: number) {
+    dispatch({
+      type: "edit_weight",
+      commandId: createCommandId(),
+      date,
+      weightKg,
+    });
+  }
+
   const inputEnabled =
     profileId === "new" &&
     state.status === "idle" &&
@@ -1304,6 +1299,26 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
       <div className={styles.workspace}>
         {profileId === "existing" ? (
           <ExistingFoundation />
+        ) : state.activePlan ? (
+          <FreshActiveDashboard
+            activities={activities}
+            agentBusy={agentBusy}
+            agentStatusText={agentStatusLabel(agentStatus)}
+            catalog={catalog}
+            cloudError={cloudError}
+            messageInput={draftMessage}
+            onAgentAction={(input) => void sendFreshAgent(input)}
+            onApprove={handleApprove}
+            onEditWeight={editFreshWeight}
+            onMessageInput={setDraftMessage}
+            onRecordWeight={recordFreshWeight}
+            onReject={handleReject}
+            onReset={() => void handleReset()}
+            onSendMessage={handleSubmit}
+            pendingAgentText={pendingAgentText}
+            state={state}
+            streamingText={streamingText}
+          />
         ) : (
           <>
             <section
@@ -1468,25 +1483,59 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                     <DisabledComposer placeholder="Complete food selection above" />
                   </>
                 ) : state.draft ? (
-                  <form className={styles.composer} onSubmit={handleSubmit}>
-                    <textarea
-                      aria-label="Message to nutrition coach"
-                      disabled={!inputEnabled}
-                      maxLength={1_000}
-                      onKeyDown={handleComposerKeyDown}
-                      onChange={(event) => setDraftMessage(event.target.value)}
-                      placeholder="Try: replace one food, or change one portion…"
-                      rows={2}
-                      value={draftMessage}
-                    />
-                    <button
-                      className={styles.sendButton}
-                      disabled={!inputEnabled || !draftMessage.trim()}
-                      type="submit"
+                  <>
+                    <section
+                      aria-label="Draft approval actions"
+                      className={styles.draftApprovalDock}
                     >
-                      Request change
-                    </button>
-                  </form>
+                      <div>
+                        <strong>Validated Draft ready</strong>
+                        <small>
+                          Review the plan beside the conversation, then approve
+                          or decline it here.
+                        </small>
+                      </div>
+                      <div className={styles.approvalActions}>
+                        <button
+                          className={styles.primaryAction}
+                          disabled={agentBusy}
+                          onClick={handleApprove}
+                          type="button"
+                        >
+                          Approve &amp; activate
+                        </button>
+                        <button
+                          className={styles.secondaryAction}
+                          disabled={agentBusy}
+                          onClick={handleReject}
+                          type="button"
+                        >
+                          Decline Draft
+                        </button>
+                      </div>
+                    </section>
+                    <form className={styles.composer} onSubmit={handleSubmit}>
+                      <textarea
+                        aria-label="Message to nutrition coach"
+                        disabled={!inputEnabled}
+                        maxLength={1_000}
+                        onKeyDown={handleComposerKeyDown}
+                        onChange={(event) =>
+                          setDraftMessage(event.target.value)
+                        }
+                        placeholder="Try: replace one food, or change one portion…"
+                        rows={2}
+                        value={draftMessage}
+                      />
+                      <button
+                        className={styles.sendButton}
+                        disabled={!inputEnabled || !draftMessage.trim()}
+                        type="submit"
+                      >
+                        Request change
+                      </button>
+                    </form>
+                  </>
                 ) : state.activePlan ? (
                   <form className={styles.composer} onSubmit={handleSubmit}>
                     <textarea
@@ -1645,12 +1694,10 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
               ) : null}
               {state.targets ? (
                 <NutritionTransparencyPanel
-                  plan={state.draft?.plan ?? state.activePlan?.plan ?? null}
+                  plan={state.draft?.plan ?? null}
                   profile={state.profile}
                   targetSnapshot={
-                    state.draft?.plan.targetSnapshot ??
-                    state.activePlan?.plan.targetSnapshot ??
-                    state.targets
+                    state.draft?.plan.targetSnapshot ?? state.targets
                   }
                 />
               ) : null}
@@ -1662,6 +1709,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                 onApprove={handleApprove}
                 onReject={handleReject}
                 targets={state.targets}
+                showActions={!state.draft}
               />
             </aside>
           </>

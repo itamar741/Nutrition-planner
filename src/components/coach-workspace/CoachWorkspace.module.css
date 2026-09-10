@@ -1221,6 +1221,31 @@
   gap: 8px;
 }
 
+.draftApprovalDock {
+  display: grid;
+  padding: 14px;
+  border: 1px solid rgba(40, 101, 72, 0.35);
+  border-radius: 14px;
+  background: var(--mint);
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.9fr);
+  gap: 14px;
+  align-items: center;
+}
+
+.draftApprovalDock > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.draftApprovalDock small {
+  color: var(--muted-ink);
+  line-height: 1.35;
+}
+
+.draftApprovalDock .approvalActions {
+  margin-top: 0;
+}
+
 .planEmpty h3,
 .existingCard h3,
 .catalogCard h3 {
@@ -1736,6 +1761,10 @@
 
   .weightChatCard {
     grid-column: auto;
+  }
+
+  .draftApprovalDock {
+    grid-template-columns: 1fr;
   }
 
   .weightActivePlan {
