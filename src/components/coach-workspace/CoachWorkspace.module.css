@@ -90,6 +90,81 @@
   color: var(--muted-ink);
 }
 
+.capabilitiesPanel {
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: #f7f6f0;
+}
+
+.capabilitiesPanel header h2 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.15rem;
+  font-weight: 500;
+}
+
+.capabilityList {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.capabilityList li {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.capabilityList strong,
+.capabilityList p,
+.capabilityList small {
+  display: block;
+}
+
+.capabilityList strong {
+  font-size: 0.78rem;
+}
+
+.capabilityList p,
+.capabilityList small {
+  margin: 3px 0 0;
+  color: var(--muted-ink);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.capabilityList small {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.capabilityList button {
+  flex: 0 0 auto;
+  padding: 6px 8px;
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.capabilityList button:disabled {
+  border-color: var(--border);
+  color: var(--muted-ink);
+  cursor: not-allowed;
+}
+
 .messages {
   display: flex;
   min-height: 0;
@@ -1725,6 +1800,10 @@
   }
 
   .foodOptions {
+    grid-template-columns: 1fr;
+  }
+
+  .capabilityList {
     grid-template-columns: 1fr;
   }
 

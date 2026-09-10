@@ -66,7 +66,49 @@ import { sendCoachMessage, AgentClientError } from "@/store/agent-client";
 import type { CoachMessageRequest } from "@/domain/agent/types";
 import type { ConversationActivity } from "@/domain/agent/types";
 import { AgentInteractionPanel } from "./AgentInteractionPanel";
+import {
+  ArnoldCapabilitiesPanel,
+  type ArnoldCapabilityId,
+  type CapabilityAvailability,
+} from "./ArnoldCapabilitiesPanel";
 import styles from "./CoachWorkspace.module.css";
+
+function capabilityAvailability(input: {
+  profileReady: boolean;
+  hasDraft: boolean;
+  hasActivePlan: boolean;
+  isExisting: boolean;
+}): Record<ArnoldCapabilityId, CapabilityAvailability> {
+  const draftAvailable = input.profileReady && !input.hasDraft;
+  return {
+    draft: {
+      available: draftAvailable,
+      note: input.hasDraft
+        ? "Review or revise the current Draft first."
+        : "Complete onboarding first.",
+    },
+    foods: {
+      available: input.profileReady,
+      note: "Complete onboarding and choose your foods first.",
+    },
+    calculations: {
+      available: input.profileReady,
+      note: "Complete onboarding first.",
+    },
+    weight: {
+      available: input.hasActivePlan || input.isExisting,
+      note: "Available after you approve a plan.",
+    },
+    trend: {
+      available: input.isExisting,
+      note: "Available in the Existing profile.",
+    },
+    goal: {
+      available: input.profileReady,
+      note: "Complete onboarding first.",
+    },
+  };
+}
 
 function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
   if (
@@ -617,6 +659,15 @@ function ExistingFoundation() {
         </article>
         <article className={styles.weightChatCard}>
           <span>Coach conversation</span>
+          <ArnoldCapabilitiesPanel
+            availability={capabilityAvailability({
+              profileReady: true,
+              hasDraft: Boolean(existing.draft),
+              hasActivePlan: true,
+              isExisting: true,
+            })}
+            onSelect={setChatInput}
+          />
           <div className={styles.weightMessages} aria-live="polite">
             {existing.messages.map((message) => (
               <div
@@ -1268,21 +1319,15 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                       ? "Your plan is Active."
                       : "Let’s build your baseline."}
                 </h1>
-                <p>
-                  {state.draft
-                    ? "Ask for one food replacement or portion change, or approve the exact Draft."
-                    : state.activePlan
-                      ? "This exact validated plan is now your approved baseline."
-                      : "I’ll keep what you confirm and ask only for what is still missing."}
-                </p>
-                <button
-                  className={styles.secondaryAction}
-                  disabled={state.status !== "idle" || agentBusy}
-                  onClick={() => setDraftMessage("I want to add ")}
-                  type="button"
-                >
-                  Add a missing food
-                </button>
+                <ArnoldCapabilitiesPanel
+                  availability={capabilityAvailability({
+                    profileReady: isProfileReady(state.profile),
+                    hasDraft: Boolean(state.draft),
+                    hasActivePlan: Boolean(state.activePlan),
+                    isExisting: false,
+                  })}
+                  onSelect={setDraftMessage}
+                />
               </header>
 
               {cloudError ? (
