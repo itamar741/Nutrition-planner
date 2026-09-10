@@ -17,6 +17,7 @@ import type {
   ProfileFactPatch,
   StructuredProfile,
 } from "@/domain/profile/types";
+import type { WeightMeasurement } from "@/domain/weight/trend";
 
 export interface ChatMessage {
   id: string;
@@ -44,6 +45,7 @@ export interface DemoState {
   processedCommandIds: string[];
   error: string | null;
   agentSession: AgentSessionState;
+  weightMeasurements: WeightMeasurement[];
 }
 
 export type DemoAction =
@@ -139,11 +141,24 @@ export function demoReducer(
       };
     case "complete_open":
       if (state.pendingCommand?.id !== action.commandId) return state;
+      const measurements =
+        state.weightMeasurements.length > 0 ||
+        action.profile.currentWeightKg === null
+          ? state.weightMeasurements
+          : [
+              {
+                id: `weight-onboarding-${action.commandId}`,
+                date: new Date().toISOString().slice(0, 10),
+                weightKg: action.profile.currentWeightKg,
+                commandId: action.commandId,
+              },
+            ];
       return {
         ...state,
         profile: action.profile,
         activeTurn: action.activeTurn,
         targets: action.targets,
+        weightMeasurements: measurements,
         status: "idle",
         pendingCommand: null,
         pendingOperation: null,

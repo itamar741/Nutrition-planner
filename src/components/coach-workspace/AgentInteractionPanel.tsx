@@ -3,6 +3,7 @@
 import type {
   AgentInteraction,
   CoachMessageRequest,
+  DraftAttemptReview,
 } from "@/domain/agent/types";
 import type { CatalogFood } from "@/domain/catalog/types";
 import { PlanContents } from "./PlanPanel";
@@ -33,6 +34,51 @@ function Macros({
         : ` · fiber ${values.fiberG.toFixed(1)} g`}
     </p>
   );
+}
+
+function portionsByMeal(attempt: DraftAttemptReview) {
+  const portions = new Map<
+    string,
+    { mealName: string; displayName: string; grams: number }
+  >();
+  for (const meal of attempt.meals) {
+    for (const item of meal.items) {
+      const key = `${meal.id}:${item.catalogFoodId}`;
+      const current = portions.get(key);
+      portions.set(key, {
+        mealName: meal.name,
+        displayName: item.displayName,
+        grams: (current?.grams ?? 0) + item.grams,
+      });
+    }
+  }
+  return portions;
+}
+
+function attemptChanges(
+  attempt: DraftAttemptReview,
+  previous: DraftAttemptReview | undefined,
+) {
+  if (!previous) return [];
+  const before = portionsByMeal(previous);
+  const after = portionsByMeal(attempt);
+  return [...new Set([...before.keys(), ...after.keys()])].flatMap((key) => {
+    const oldPortion = before.get(key);
+    const newPortion = after.get(key);
+    const label = newPortion ?? oldPortion;
+    if (!label || oldPortion?.grams === newPortion?.grams) return [];
+    if (!oldPortion) {
+      return [
+        `Added ${label.displayName} (${newPortion!.grams} g) to ${label.mealName}.`,
+      ];
+    }
+    if (!newPortion) {
+      return [`Removed ${label.displayName} from ${label.mealName}.`];
+    }
+    return [
+      `${label.mealName}: ${label.displayName} ${oldPortion.grams} g → ${newPortion.grams} g.`,
+    ];
+  });
 }
 
 export function AgentInteractionPanel({
@@ -70,6 +116,87 @@ export function AgentInteractionPanel({
           </div>
         ) : null}
       </div>
+    );
+  }
+  if (interaction.type === "draft_failure_review") {
+    return (
+      <section
+        className={`${styles.adjustmentChatProposal} ${styles.draftAttemptReview}`}
+        aria-label="Rejected Draft attempts"
+      >
+        <span>Deterministic Draft validation</span>
+        <h3>{interaction.attempts.length} Draft attempts were rejected</h3>
+        <p>
+          These are the exact proposals Arnold submitted. No Draft was saved and
+          your Active Plan was not changed.
+        </p>
+        <div className={styles.draftAttemptList}>
+          {interaction.attempts.map((attempt, index) => {
+            const changes = attemptChanges(
+              attempt,
+              interaction.attempts[index - 1],
+            );
+            return (
+              <details
+                className={styles.draftAttempt}
+                key={attempt.attempt}
+                open={index === interaction.attempts.length - 1}
+              >
+                <summary>
+                  Attempt {attempt.attempt} ·{" "}
+                  {attempt.totals.energyKcal.toFixed(0)} kcal
+                </summary>
+                <p>{attempt.summary}</p>
+                <Macros values={attempt.totals} />
+                {changes.length > 0 ? (
+                  <div className={styles.draftAttemptChanges}>
+                    <strong>Changes from attempt {attempt.attempt - 1}</strong>
+                    <ul>
+                      {changes.map((change) => (
+                        <li key={change}>{change}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                <div className={styles.draftAttemptMeals}>
+                  {attempt.meals.map((meal) => (
+                    <section key={meal.id}>
+                      <strong>{meal.name}</strong>
+                      <ul>
+                        {meal.items.map((item, itemIndex) => (
+                          <li key={`${item.catalogFoodId}-${itemIndex}`}>
+                            {item.displayName} · {item.grams} g
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  ))}
+                </div>
+                <div className={styles.draftAttemptChecks}>
+                  {attempt.checks.map((check) => (
+                    <p data-passed={check.passed} key={check.key}>
+                      <strong>
+                        {check.passed ? "Passed" : "Failed"}: {check.label}
+                      </strong>
+                      <span>{check.actual}</span>
+                      <small>Required: {check.expected}</small>
+                    </p>
+                  ))}
+                </div>
+                <details className={styles.draftAttemptIssues}>
+                  <summary>All validation messages</summary>
+                  <ul>
+                    {attempt.issues.map((issue) => (
+                      <li key={issue}>{issue}</li>
+                    ))}
+                  </ul>
+                </details>
+              </details>
+            );
+          })}
+        </div>
+        <p className={styles.draftAttemptQuestion}>{interaction.prompt}</p>
+      </section>
     );
   }
   if (interaction.type === "food_candidates") {

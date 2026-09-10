@@ -10,18 +10,24 @@ import { existingReadyProfile } from "@/data/demo-fixtures";
 import type {
   AgentInteraction,
   CoachMessageRequest,
+  DraftAttemptReview,
 } from "@/domain/agent/types";
 import { createCatalogSnapshot } from "@/domain/catalog/snapshot";
 import type { CatalogFood } from "@/domain/catalog/types";
 import { calculateTargets } from "@/domain/nutrition/calculations";
-import { revalidatePlan, validateAndBuildPlan } from "@/domain/plan/validation";
+import {
+  buildPlanValidationExplanation,
+  revalidatePlan,
+  validateAndBuildPlan,
+} from "@/domain/plan/validation";
 import type { DraftCandidate, DraftProposal } from "@/domain/plan/types";
 import { isProfileReady } from "@/domain/profile/onboarding";
 import type { StructuredProfile } from "@/domain/profile/types";
 import { evaluateWeightAdjustmentDecision } from "@/domain/weight/decision";
 import {
   calculateWeightTrend,
-  maintenanceReferenceWeightFromRecentMeasurements,
+  currentPlanWeightFromMeasurements,
+  maintenanceReferenceWeightFromInitialMeasurements,
   normalizeWeightKg,
 } from "@/domain/weight/trend";
 import {
@@ -94,12 +100,36 @@ function approvedIdsOf(state: PersistedDemoState) {
 }
 
 function structuredProfileOf(state: PersistedDemoState): StructuredProfile {
+  const profile =
+    "profile" in state
+      ? state.profile
+      : {
+          ...existingReadyProfile,
+          approvedCatalogFoodIds: state.approvedCatalogFoodIds,
+        };
+  const measurements =
+    "profile" in state ? state.weightMeasurements : state.measurements;
+  const calculatedWeightKg =
+    profile.goal === "maintenance"
+      ? (state.activePlan?.maintenanceReferenceWeightKg ??
+        maintenanceReferenceWeightFromInitialMeasurements(measurements) ??
+        profile.currentWeightKg)
+      : (currentPlanWeightFromMeasurements(measurements) ??
+        profile.currentWeightKg);
+  return { ...profile, currentWeightKg: calculatedWeightKg };
+}
+
+function measurementsOf(state: PersistedDemoState) {
+  return "profile" in state ? state.weightMeasurements : state.measurements;
+}
+
+function withMeasurements(
+  state: PersistedDemoState,
+  measurements: ReturnType<typeof measurementsOf>,
+): PersistedDemoState {
   return "profile" in state
-    ? state.profile
-    : {
-        ...existingReadyProfile,
-        approvedCatalogFoodIds: state.approvedCatalogFoodIds,
-      };
+    ? { ...state, weightMeasurements: measurements }
+    : { ...state, measurements };
 }
 
 function contextFor(
@@ -113,8 +143,7 @@ function contextFor(
   const state = profile.state;
   const structuredProfile = structuredProfileOf(state);
   const approved = approvedCatalog(catalog, approvedIdsOf(state));
-  const targets =
-    "profile" in state ? state.targets : state.activePlan.plan.targetSnapshot;
+  const targets = calculateTargets(structuredProfile);
   const weightKg = structuredProfile.currentWeightKg;
   const proteinMinimumMultiplier =
     structuredProfile.goal === "maintenance" ? 1.4 : 1.6;
@@ -452,6 +481,35 @@ function draftCandidateFromArguments(args: ProposalArguments): DraftCandidate {
   };
 }
 
+function reviewDraftAttempt(input: {
+  attempt: number;
+  candidate: DraftCandidate;
+  plan: DraftProposal["plan"];
+  profile: StructuredProfile;
+  catalog: CatalogFood[];
+  issues: string[];
+}): DraftAttemptReview {
+  const catalogById = new Map(input.catalog.map((food) => [food.id, food]));
+  return {
+    attempt: input.attempt,
+    summary: input.candidate.summary,
+    meals: input.plan.meals.map((meal) => ({
+      id: meal.id,
+      name: meal.name,
+      items: meal.items.map((item) => ({
+        catalogFoodId: item.catalogFoodId,
+        displayName:
+          catalogById.get(item.catalogFoodId)?.displayName ??
+          item.catalogFoodId,
+        grams: item.grams,
+      })),
+    })),
+    totals: input.plan.validation.totals,
+    checks: buildPlanValidationExplanation(input.profile, input.plan),
+    issues: input.issues,
+  };
+}
+
 function plansUsingFood(state: PersistedDemoState, foodId: string) {
   const hasFood = (plan: {
     meals: Array<{ items: Array<{ catalogFoodId: string }> }>;
@@ -511,6 +569,7 @@ function allowedTools(
     "select_food_candidate",
   ];
   if ("profile" in state) {
+    if (state.activePlan) common.push("record_weight", "edit_weight");
     if (isProfileReady(state.profile) && !state.draft && proposalAttempts < 3) {
       common.push("submit_draft_proposal");
     }
@@ -552,6 +611,7 @@ type Workflow = Extract<
 
 function interactionWorkflow(value: AgentInteraction): Workflow {
   if (value.type === "clarification") return value.workflow;
+  if (value.type === "draft_failure_review") return "draft";
   if (
     value.type === "food_candidates" ||
     value.type === "food_approval" ||
@@ -733,6 +793,7 @@ export async function executeCoachTurn(input: {
   let requiredCatalogFoodId =
     state.agentSession.draftIntent?.requiredCatalogFoodId ?? null;
   let proposalAttempts = 0;
+  const rejectedDraftAttempts: DraftAttemptReview[] = [];
   const foodNameMissing = requestsFoodWithoutName(input.request.input);
 
   const activePlanVersion = state.activePlan?.version ?? null;
@@ -799,11 +860,11 @@ export async function executeCoachTurn(input: {
             version: nextVersion,
             activatedAt: new Date().toISOString(),
             maintenanceReferenceWeightKg:
-              "profile" in state
-                ? null
-                : maintenanceReferenceWeightFromRecentMeasurements(
-                    state.measurements,
-                  ),
+              state.activePlan?.maintenanceReferenceWeightKg ??
+              maintenanceReferenceWeightFromInitialMeasurements(
+                measurementsOf(state),
+              ) ??
+              structuredProfileOf(state).currentWeightKg,
             plan,
           },
         };
@@ -847,7 +908,7 @@ export async function executeCoachTurn(input: {
       }
       const adjustment = adjustedTargetsFor(state);
       const reviewedTrend = calculateWeightTrend(state.measurements, {
-        activePlanActivatedAt: state.activePlan.activatedAt,
+        activePlanActivatedAt: state.activePlan?.activatedAt,
       });
       if (adjustment && !state.draft && !currentInteraction) {
         state = setInteraction(
@@ -1015,9 +1076,7 @@ export async function executeCoachTurn(input: {
             version: validatedPlan.version,
             activatedAt: new Date().toISOString(),
             maintenanceReferenceWeightKg:
-              maintenanceReferenceWeightFromRecentMeasurements(
-                state.measurements,
-              ),
+              state.activePlan.maintenanceReferenceWeightKg,
             plan: validatedPlan,
           },
         },
@@ -1252,14 +1311,15 @@ export async function executeCoachTurn(input: {
       return { query: String(args.query), matches };
     }
     if (call.name === "record_weight") {
-      if ("profile" in state)
-        throw new Error("Weight history is available in the Existing demo.");
+      if ("profile" in state && !state.activePlan)
+        throw new Error("Activate your first plan before recording weight.");
       const date = new Date().toISOString().slice(0, 10);
-      if (state.measurements.some((item) => item.date === date))
+      const existingMeasurements = measurementsOf(state);
+      if (existingMeasurements.some((item) => item.date === date))
         throw new Error("Today's weight already exists; edit it instead.");
       const weightKg = normalizeWeightKg(Number(args.weightKg));
       const measurements = [
-        ...state.measurements,
+        ...existingMeasurements,
         {
           id: `weight-${input.request.commandId}`,
           date,
@@ -1268,13 +1328,10 @@ export async function executeCoachTurn(input: {
         },
       ];
       const trend = calculateWeightTrend(measurements, {
-        activePlanActivatedAt: state.activePlan.activatedAt,
+        activePlanActivatedAt: state.activePlan?.activatedAt,
       });
       state = finishNonInteractiveWorkflow(
-        {
-          ...state,
-          measurements,
-        },
+        withMeasurements(state, measurements),
         "weight",
       );
       return {
@@ -1283,25 +1340,23 @@ export async function executeCoachTurn(input: {
       };
     }
     if (call.name === "edit_weight") {
-      if ("profile" in state)
-        throw new Error("Weight history is available in the Existing demo.");
+      if ("profile" in state && !state.activePlan)
+        throw new Error("Activate your first plan before editing weight.");
       const date = String(args.date);
-      if (!state.measurements.some((item) => item.date === date))
+      const existingMeasurements = measurementsOf(state);
+      if (!existingMeasurements.some((item) => item.date === date))
         throw new Error("No weight is recorded for that date.");
       const weightKg = normalizeWeightKg(Number(args.weightKg));
-      const measurements = state.measurements.map((item) =>
+      const measurements = existingMeasurements.map((item) =>
         item.date === date
           ? { ...item, weightKg, commandId: input.request.commandId }
           : item,
       );
       const trend = calculateWeightTrend(measurements, {
-        activePlanActivatedAt: state.activePlan.activatedAt,
+        activePlanActivatedAt: state.activePlan?.activatedAt,
       });
       state = finishNonInteractiveWorkflow(
-        {
-          ...state,
-          measurements,
-        },
+        withMeasurements(state, measurements),
         "weight",
       );
       return {
@@ -1407,10 +1462,7 @@ export async function executeCoachTurn(input: {
       proposalAttempts += 1;
       input.onStatus(state.draft ? "revising_draft" : "creating_draft");
       const draftProfile = structuredProfileOf(state);
-      const targets =
-        "profile" in state
-          ? calculateTargets(state.profile)
-          : state.activePlan.plan.targetSnapshot;
+      const targets = calculateTargets(draftProfile);
       if (!targets) throw new Error("The profile is not ready for a Draft.");
       const candidate = draftCandidateFromArguments(
         call.arguments as ProposalArguments,
@@ -1456,6 +1508,26 @@ export async function executeCoachTurn(input: {
         requiredFoodSatisfied: includesRequiredFood,
       });
       if (issues.length > 0) {
+        const reviewedAttempt = reviewDraftAttempt({
+          attempt: proposalAttempts,
+          candidate,
+          plan,
+          profile: draftProfile,
+          catalog,
+          issues,
+        });
+        rejectedDraftAttempts.push(reviewedAttempt);
+        if (proposalAttempts >= 3) {
+          state = setInteraction(
+            state,
+            interaction(randomUUID(), {
+              type: "draft_failure_review",
+              attempts: structuredClone(rejectedDraftAttempts),
+              prompt:
+                "For the next Draft, should I keep this food structure and use smaller portions, or use a different mix of your approved foods?",
+            }),
+          );
+        }
         return {
           accepted: false,
           attempt: proposalAttempts,
@@ -1463,9 +1535,11 @@ export async function executeCoachTurn(input: {
           issues,
           actualTotals: plan.validation.totals,
           requiredTargets: targets,
+          attemptedDraft: reviewedAttempt,
+          failedAttempts: structuredClone(rejectedDraftAttempts),
           afterThirdFailure:
             proposalAttempts >= 3
-              ? "Ask one focused user question. Do not submit another proposal in this turn."
+              ? "The visible draft_failure_review contains the complete observable attempt history. Briefly direct the user to it and ask its focused question. Do not omit grams, invent reasoning, or submit another proposal in this turn."
               : null,
         };
       }

@@ -1389,6 +1389,107 @@
   font-weight: 800;
 }
 
+.draftAttemptReview {
+  display: grid;
+  gap: 10px;
+}
+
+.draftAttemptList {
+  display: grid;
+  gap: 9px;
+}
+
+.draftAttempt {
+  padding: 11px 12px;
+  border: 1px solid rgba(190, 108, 42, 0.25);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.draftAttempt > summary,
+.draftAttemptIssues > summary {
+  cursor: pointer;
+  color: var(--primary-hover);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.draftAttempt > p,
+.draftAttemptChanges,
+.draftAttemptMeals,
+.draftAttemptChecks,
+.draftAttemptIssues {
+  margin-top: 10px;
+}
+
+.draftAttempt > p {
+  margin-bottom: 0;
+  color: var(--muted-ink);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.draftAttemptChanges strong,
+.draftAttemptMeals strong,
+.draftAttemptChecks strong {
+  font-size: 0.76rem;
+}
+
+.draftAttemptChanges ul,
+.draftAttemptMeals ul,
+.draftAttemptIssues ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.draftAttemptMeals {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.draftAttemptMeals section {
+  padding: 9px;
+  border-radius: 10px;
+  background: #f5f2e9;
+}
+
+.draftAttemptChecks {
+  display: grid;
+  gap: 6px;
+}
+
+.draftAttemptChecks p {
+  display: grid;
+  margin: 0;
+  padding: 8px 9px;
+  border-left: 3px solid var(--error);
+  border-radius: 8px;
+  background: #f8e8e5;
+  font-size: 0.73rem;
+}
+
+.draftAttemptChecks p[data-passed="true"] {
+  border-left-color: var(--primary);
+  background: var(--mint);
+}
+
+.draftAttemptChecks span,
+.draftAttemptChecks small {
+  margin-top: 2px;
+}
+
+.draftAttemptChecks small {
+  color: var(--muted-ink);
+}
+
+.draftAttemptQuestion {
+  margin: 2px 0 0;
+  font-weight: 750;
+}
+
 .weightAssistantMessage {
   background: #f3efe6;
   color: var(--ink);

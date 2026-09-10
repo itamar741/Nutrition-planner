@@ -44,6 +44,25 @@ describe("demo command reducer", () => {
     ).toHaveLength(1);
   });
 
+  it("records the onboarding weight as the immutable Maintenance anchor", () => {
+    const initial = createNewDemoState();
+    const started = demoReducer(initial, {
+      type: "start_open",
+      command: { id: "onboarding-weight", message: "I weigh 74 kg" },
+    });
+    const profile = { ...initial.profile, currentWeightKg: 74 };
+    const completed = demoReducer(started, {
+      type: "complete_open",
+      commandId: "onboarding-weight",
+      profile,
+      activeTurn: initial.activeTurn,
+      acknowledgement: "Noted.",
+      targets: calculateTargets(profile),
+    });
+
+    expect(completed.weightMeasurements).toMatchObject([{ weightKg: 74 }]);
+  });
+
   it("applies the same closed command at most once", () => {
     const initial = {
       ...createNewDemoState(),

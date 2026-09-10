@@ -651,7 +651,10 @@ describe("unified coach orchestration", () => {
           id: meal.id,
           items: meal.items.map((item) => ({
             catalogFoodId: item.catalogFoodId,
-            grams: item.grams,
+            grams:
+              item.catalogFoodId === "chicken-breast-roasted"
+                ? 200
+                : item.grams,
           })),
         })),
       },
@@ -682,7 +685,7 @@ describe("unified coach orchestration", () => {
       basePlanVersion: activeBefore.version,
       plan: {
         version: activeBefore.version + 1,
-        targetSnapshot: activeBefore.plan.targetSnapshot,
+        targetSnapshot: expect.objectContaining({ energyKcal: 2875 }),
         validation: { valid: true },
       },
     });
@@ -713,12 +716,7 @@ describe("unified coach orchestration", () => {
     expect(activated.profile.state.activePlan.version).toBe(2);
     expect(
       activated.profile.state.activePlan.maintenanceReferenceWeightKg,
-    ).toBeCloseTo(
-      activated.profile.state.measurements
-        .slice(-7)
-        .reduce((sum, measurement) => sum + measurement.weightKg, 0) / 7,
-      8,
-    );
+    ).toBe(activated.profile.state.measurements[0].weightKg);
   });
 
   it("forces a complete rebalanced Draft when an approved food is added to an Existing plan", async () => {
@@ -1021,17 +1019,22 @@ describe("unified coach orchestration", () => {
       commandId: "seed-ready-for-invalid-drafts",
       mutation: () => makeReadyState(),
     });
-    const invalid = {
+    const invalid = (grams: number) => ({
       name: "submit_draft_proposal",
       arguments: {
-        summary: "Invalid invented-food Draft.",
-        meals: ["breakfast", "lunch", "dinner"].map((id) => ({
+        summary: `Invalid rice-only Draft at ${grams} grams per meal.`,
+        meals: ["breakfast", "lunch", "snack", "dinner"].map((id) => ({
           id,
-          items: [{ catalogFoodId: "invented-food", grams: 100 }],
+          items: [{ catalogFoodId: "white-rice-cooked", grams }],
         })),
       },
-    };
-    agent.toolSequence = [invalid, invalid, invalid, invalid];
+    });
+    agent.toolSequence = [
+      invalid(500),
+      invalid(450),
+      invalid(400),
+      invalid(350),
+    ];
     agent.responseText =
       "Which approved protein would you most like me to use at lunch?";
     const result = await executeCoachTurn(
@@ -1050,6 +1053,44 @@ describe("unified coach orchestration", () => {
     expect(
       "profile" in result.profile.state ? result.profile.state.draft : null,
     ).toBeNull();
+    const review = result.profile.state.agentSession.pendingInteraction;
+    expect(review).toMatchObject({
+      type: "draft_failure_review",
+      attempts: [
+        {
+          attempt: 1,
+          meals: expect.arrayContaining([
+            expect.objectContaining({
+              name: "Breakfast",
+              items: [
+                expect.objectContaining({
+                  displayName: "White rice",
+                  grams: 500,
+                }),
+              ],
+            }),
+          ]),
+        },
+        { attempt: 2 },
+        { attempt: 3 },
+      ],
+    });
+    if (review?.type !== "draft_failure_review") {
+      throw new Error("Expected a rejected Draft review.");
+    }
+    expect(review.attempts.map((attempt) => attempt.totals.energyKcal)).toEqual(
+      [2600, 2340, 2080],
+    );
+    expect(review.attempts[2].checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "energy", passed: false }),
+        expect.objectContaining({ key: "fiber", passed: false }),
+      ]),
+    );
+    expect(agent.toolResults.at(-1)).toMatchObject({
+      attemptedDraft: { attempt: 3 },
+      failedAttempts: [{ attempt: 1 }, { attempt: 2 }, { attempt: 3 }],
+    });
   });
 
   it("keeps a required-food Draft intent after the third rejected proposal", async () => {

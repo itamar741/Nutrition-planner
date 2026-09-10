@@ -5,9 +5,65 @@ import {
   type FoodSearchCandidate,
 } from "@/domain/catalog/runtime";
 import { catalogFoodSchema } from "@/domain/catalog/schemas";
-import { draftProposalSchema } from "@/domain/plan/schemas";
+import { draftProposalSchema, planMealIdSchema } from "@/domain/plan/schemas";
 import type { CatalogFood } from "@/domain/catalog/types";
 import type { DraftProposal } from "@/domain/plan/types";
+
+const draftAttemptReviewSchema = z
+  .object({
+    attempt: z.number().int().min(1).max(3),
+    summary: z.string().min(1).max(240),
+    meals: z
+      .array(
+        z
+          .object({
+            id: planMealIdSchema,
+            name: z.string().min(1).max(80),
+            items: z
+              .array(
+                z
+                  .object({
+                    catalogFoodId: z.string().min(1).max(100),
+                    displayName: z.string().min(1).max(120),
+                    grams: z.number().int().positive().max(1_000),
+                  })
+                  .strict(),
+              )
+              .min(1)
+              .max(8),
+          })
+          .strict(),
+      )
+      .min(3)
+      .max(4),
+    totals: z
+      .object({
+        energyKcal: z.number().nonnegative(),
+        proteinG: z.number().nonnegative(),
+        carbohydrateG: z.number().nonnegative(),
+        fatG: z.number().nonnegative(),
+        fiberG: z.number().nonnegative(),
+      })
+      .strict(),
+    checks: z
+      .array(
+        z
+          .object({
+            key: z.enum(["energy", "protein", "macros", "fiber", "plan_rules"]),
+            label: z.string().min(1).max(100),
+            actual: z.string().min(1).max(200),
+            expected: z.string().min(1).max(240),
+            passed: z.boolean(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(5),
+    issues: z.array(z.string().min(1).max(500)).min(1).max(20),
+  })
+  .strict();
+
+export type DraftAttemptReview = z.infer<typeof draftAttemptReviewSchema>;
 
 export type AgentInteraction =
   | {
@@ -59,6 +115,12 @@ export type AgentInteraction =
       id: string;
       type: "adjustment_approval";
       draft: DraftProposal;
+    }
+  | {
+      id: string;
+      type: "draft_failure_review";
+      attempts: DraftAttemptReview[];
+      prompt: string;
     };
 
 export const conversationPreferenceSchema = z
@@ -210,6 +272,14 @@ export const agentInteractionSchema = z.discriminatedUnion("type", [
       id: z.string().min(1).max(100),
       type: z.literal("adjustment_approval"),
       draft: draftProposalSchema,
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1).max(100),
+      type: z.literal("draft_failure_review"),
+      attempts: z.array(draftAttemptReviewSchema).min(1).max(3),
+      prompt: z.string().min(1).max(500),
     })
     .strict(),
 ]);

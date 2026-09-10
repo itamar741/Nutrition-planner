@@ -7,7 +7,9 @@ import {
   adjustmentDirection,
   calculateMaintenanceWeightDrift,
   calculateWeightTrend,
+  currentPlanWeightFromMeasurements,
   formatWeightKg,
+  maintenanceReferenceWeightFromInitialMeasurements,
   parseCurrentWeightMessage,
   type WeightMeasurement,
 } from "@/domain/weight/trend";
@@ -53,6 +55,19 @@ describe("weight trend controls", () => {
     });
     expect(trend.evidence).toBe("insufficient");
     expect(trend.evidenceReason).toBe("active_plan_changed");
+  });
+
+  it("anchors Maintenance to the first recorded weight and uses a seven-day average for gain or loss", () => {
+    const history = Array.from({ length: 8 }, (_, index) => ({
+      id: `policy-${index}`,
+      date: `2026-08-${String(index + 1).padStart(2, "0")}`,
+      weightKg: 70 + index,
+      commandId: `policy-command-${index}`,
+    }));
+
+    expect(maintenanceReferenceWeightFromInitialMeasurements(history)).toBe(70);
+    expect(currentPlanWeightFromMeasurements(history)).toBe(74);
+    expect(currentPlanWeightFromMeasurements(history.slice(0, 6))).toBe(75);
   });
 
   it("creates relative seeded history ending yesterday and a preceding Active Plan", () => {

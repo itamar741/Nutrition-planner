@@ -130,6 +130,7 @@ export function makeFoodGridState(): DemoState {
     processedCommandIds: [],
     error: null,
     agentSession: emptyAgentSession(),
+    weightMeasurements: [],
   };
 }
 
@@ -160,5 +161,6 @@ export function makeReadyState(): DemoState {
     processedCommandIds: [],
     error: null,
     agentSession: emptyAgentSession(),
+    weightMeasurements: [],
   };
 }

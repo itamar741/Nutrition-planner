@@ -36,5 +36,17 @@ export const persistedStateSchema = z
     processedCommandIds: z.array(z.string()),
     error: z.string().nullable(),
     agentSession: agentSessionSchema,
+    weightMeasurements: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1),
+            date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+            weightKg: z.number().positive().max(500),
+            commandId: z.string().min(1),
+          })
+          .strict(),
+      )
+      .default([]),
   })
   .strict();

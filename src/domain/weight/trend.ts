@@ -22,7 +22,7 @@ export interface WeightTrend {
 
 const MS_PER_DAY = 86_400_000;
 export const MAINTENANCE_SUSTAINED_DRIFT_KG = 0.7;
-const MAINTENANCE_REFERENCE_SAMPLE_SIZE = 7;
+export const CURRENT_WEIGHT_AVERAGE_SAMPLE_SIZE = 7;
 
 export interface MaintenanceWeightDrift {
   referenceWeightKg: number | null;
@@ -51,7 +51,7 @@ export function maintenanceReferenceWeightFromRecentMeasurements(
 ) {
   return averageWeightKg(
     chronologicalUniqueMeasurements(measurements).slice(
-      -MAINTENANCE_REFERENCE_SAMPLE_SIZE,
+      -CURRENT_WEIGHT_AVERAGE_SAMPLE_SIZE,
     ),
   );
 }
@@ -59,12 +59,23 @@ export function maintenanceReferenceWeightFromRecentMeasurements(
 export function maintenanceReferenceWeightFromInitialMeasurements(
   measurements: WeightMeasurement[],
 ) {
-  return averageWeightKg(
-    chronologicalUniqueMeasurements(measurements).slice(
-      0,
-      MAINTENANCE_REFERENCE_SAMPLE_SIZE,
-    ),
-  );
+  return chronologicalUniqueMeasurements(measurements)[0]?.weightKg ?? null;
+}
+
+/**
+ * The body weight used for a new gaining or loss plan. A full week smooths
+ * day-to-day water fluctuations; until then, the most recent measurement is
+ * the only honest current signal.
+ */
+export function currentPlanWeightFromMeasurements(
+  measurements: WeightMeasurement[],
+) {
+  const ordered = chronologicalUniqueMeasurements(measurements);
+  const recent = ordered.slice(-CURRENT_WEIGHT_AVERAGE_SAMPLE_SIZE);
+  if (recent.length < CURRENT_WEIGHT_AVERAGE_SAMPLE_SIZE) {
+    return ordered.at(-1)?.weightKg ?? null;
+  }
+  return averageWeightKg(recent);
 }
 
 export function calculateMaintenanceWeightDrift(input: {
@@ -72,17 +83,17 @@ export function calculateMaintenanceWeightDrift(input: {
   referenceWeightKg: number | null;
 }): MaintenanceWeightDrift {
   const ordered = chronologicalUniqueMeasurements(input.measurements);
-  const latest = ordered.slice(-MAINTENANCE_REFERENCE_SAMPLE_SIZE);
+  const latest = ordered.slice(-CURRENT_WEIGHT_AVERAGE_SAMPLE_SIZE);
   const preceding = ordered.slice(
-    -MAINTENANCE_REFERENCE_SAMPLE_SIZE * 2,
-    -MAINTENANCE_REFERENCE_SAMPLE_SIZE,
+    -CURRENT_WEIGHT_AVERAGE_SAMPLE_SIZE * 2,
+    -CURRENT_WEIGHT_AVERAGE_SAMPLE_SIZE,
   );
   const latestAverageKg = averageWeightKg(latest);
   const precedingAverageKg = averageWeightKg(preceding);
   if (
     input.referenceWeightKg === null ||
-    latest.length < MAINTENANCE_REFERENCE_SAMPLE_SIZE ||
-    preceding.length < MAINTENANCE_REFERENCE_SAMPLE_SIZE ||
+    latest.length < CURRENT_WEIGHT_AVERAGE_SAMPLE_SIZE ||
+    preceding.length < CURRENT_WEIGHT_AVERAGE_SAMPLE_SIZE ||
     latestAverageKg === null ||
     precedingAverageKg === null
   ) {
