@@ -229,7 +229,15 @@ test("B-02 caps editable and rendered weights at two decimal places", async ({
   });
   await page.goto("/coach/existing");
   const chartPoints = page.locator('circle[role="button"]');
+  await chartPoints.last().hover();
+  await expect(page.getByRole("tooltip")).toContainText(/\d{4}/);
+  await expect(page.getByRole("tooltip")).toContainText(/kg/);
+  await expect(page.getByText("Edit recorded weight")).toHaveCount(0);
   await chartPoints.last().click();
+
+  await expect(
+    page.getByRole("dialog", { name: /Edit weight for/ }),
+  ).toBeVisible();
 
   const replacement = page.getByRole("spinbutton", {
     name: "Replacement weight in kilograms",

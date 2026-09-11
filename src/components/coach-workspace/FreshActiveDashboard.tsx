@@ -5,11 +5,7 @@ import type {
 } from "@/domain/agent/types";
 import type { CatalogFood } from "@/domain/catalog/types";
 import { evaluateWeightAdjustmentDecision } from "@/domain/weight/decision";
-import {
-  formatWeightKg,
-  normalizeWeightKg,
-  type WeightMeasurement,
-} from "@/domain/weight/trend";
+import { normalizeWeightKg } from "@/domain/weight/trend";
 import type { DemoState } from "@/store/demo-reducer";
 import { AgentInteractionPanel } from "./AgentInteractionPanel";
 import { ArnoldCapabilitiesPanel } from "./ArnoldCapabilitiesPanel";
@@ -86,8 +82,6 @@ export function FreshActiveDashboard({
 }) {
   const [weightInput, setWeightInput] = useState("");
   const [weightError, setWeightError] = useState("");
-  const [editing, setEditing] = useState<WeightMeasurement | null>(null);
-  const [editingWeight, setEditingWeight] = useState("");
   const activePlan = state.activePlan;
   const decision = useMemo(
     () =>
@@ -108,26 +102,6 @@ export function FreshActiveDashboard({
       const weightKg = normalizeWeightKg(Number(weightInput));
       onRecordWeight(weightKg);
       setWeightInput("");
-      setWeightError("");
-    } catch (error) {
-      setWeightError(
-        error instanceof Error ? error.message : "Enter a valid weight.",
-      );
-    }
-  }
-
-  function startEditing(measurement: WeightMeasurement) {
-    if (agentBusy) return;
-    setEditing(measurement);
-    setEditingWeight(formatWeightKg(measurement.weightKg));
-  }
-
-  function saveEdit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!editing) return;
-    try {
-      onEditWeight(editing.date, normalizeWeightKg(Number(editingWeight)));
-      setEditing(null);
       setWeightError("");
     } catch (error) {
       setWeightError(
@@ -209,6 +183,7 @@ export function FreshActiveDashboard({
             </button>
           </div>
           <WeightTrendChart
+            disabled={agentBusy}
             footer={
               <form className={styles.recordWeightForm} onSubmit={submitWeight}>
                 <label className={styles.srOnly} htmlFor="fresh-weight">
@@ -236,7 +211,7 @@ export function FreshActiveDashboard({
               </form>
             }
             measurements={state.weightMeasurements}
-            onSelect={startEditing}
+            onEdit={onEditWeight}
             trend={decision.trend}
           />
           {weightError ? (
@@ -388,42 +363,6 @@ export function FreshActiveDashboard({
           </form>
         </article>
       </section>
-      {editing ? (
-        <section
-          className={styles.editWeightPanel}
-          aria-label="Edit weight measurement"
-        >
-          <span>Edit recorded weight</span>
-          <h3>{editing.date}</h3>
-          <form onSubmit={saveEdit}>
-            <input
-              aria-label="Replacement weight in kilograms"
-              disabled={agentBusy}
-              inputMode="decimal"
-              min="1"
-              onChange={(event) => setEditingWeight(event.target.value)}
-              step="0.01"
-              type="number"
-              value={editingWeight}
-            />
-            <button
-              className={styles.primaryAction}
-              disabled={agentBusy}
-              type="submit"
-            >
-              Save replacement
-            </button>
-            <button
-              className={styles.secondaryAction}
-              disabled={agentBusy}
-              onClick={() => setEditing(null)}
-              type="button"
-            >
-              Cancel
-            </button>
-          </form>
-        </section>
-      ) : null}
       <CatalogSection
         approvedIds={state.profile.approvedCatalogFoodIds}
         catalog={catalog}

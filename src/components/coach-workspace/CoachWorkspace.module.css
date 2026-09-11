@@ -927,16 +927,52 @@
   border: 1px solid var(--border);
   border-radius: 12px;
   background: rgba(255, 253, 248, 0.84);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.explanationSteps > details:hover,
+.weightDecisionDetails:hover {
+  border-color: rgba(39, 93, 67, 0.42);
+  box-shadow: 0 8px 18px rgba(39, 93, 67, 0.08);
+  transform: translateY(-1px);
 }
 
 .explanationSteps summary {
   display: grid;
   padding: 11px;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   gap: 9px;
   align-items: center;
   cursor: pointer;
   list-style: none;
+  border-radius: 11px;
+  transition: background-color 160ms ease;
+}
+
+.explanationSteps summary:hover,
+.explanationSteps summary:focus-visible,
+.weightDecisionDetails summary:hover,
+.weightDecisionDetails summary:focus-visible {
+  background: rgba(220, 237, 225, 0.52);
+  outline: none;
+}
+
+.explanationSteps summary::after,
+.weightDecisionDetails summary::after {
+  content: "⌄";
+  display: inline-block;
+  color: var(--primary-hover);
+  font-size: 1rem;
+  line-height: 1;
+  transition: transform 180ms ease;
+}
+
+.explanationSteps details[open] > summary::after,
+.weightDecisionDetails[open] > summary::after {
+  transform: rotate(180deg);
 }
 
 .explanationSteps summary::-webkit-details-marker,
@@ -1145,6 +1181,10 @@
 }
 
 .weightDecisionDetails summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 10px 12px;
   cursor: pointer;
   color: var(--primary-hover);
@@ -1301,8 +1341,7 @@
 }
 
 .weightChartCard,
-.weightChatCard,
-.editWeightPanel {
+.weightChatCard {
   padding: 22px;
   border: 1px solid var(--border);
   border-radius: 20px;
@@ -1321,8 +1360,7 @@
 }
 
 .weightCardHeader span,
-.weightChatCard > span,
-.editWeightPanel > span {
+.weightChatCard > span {
   display: inline-block;
   margin-bottom: 8px;
   color: var(--accent);
@@ -1332,8 +1370,7 @@
   text-transform: uppercase;
 }
 
-.weightCardHeader h2,
-.editWeightPanel h3 {
+.weightCardHeader h2 {
   margin: 0;
   font-family: Georgia, "Times New Roman", serif;
   font-size: 1.6rem;
@@ -1342,6 +1379,11 @@
 
 .chartWrap {
   margin-top: 16px;
+}
+
+.chartCanvas {
+  position: relative;
+  isolation: isolate;
 }
 
 .weightChart {
@@ -1375,16 +1417,108 @@
 }
 
 .chartPoint {
-  cursor: pointer;
   fill: var(--paper);
+  pointer-events: none;
   stroke: var(--primary);
+  stroke-width: 2;
+  transition:
+    fill 140ms ease,
+    r 140ms ease,
+    stroke-width 140ms ease;
+}
+
+.chartPointActive {
+  fill: var(--accent);
+  stroke-width: 3;
+}
+
+.chartPointHitArea {
+  cursor: pointer;
+  fill: transparent;
+  stroke: transparent;
   stroke-width: 2;
 }
 
-.chartPoint:hover,
-.chartPoint:focus-visible {
-  fill: var(--accent);
+.chartPointHitArea:focus-visible {
+  fill: rgba(190, 108, 42, 0.12);
+  stroke: var(--accent);
   outline: none;
+}
+
+.chartPointHitArea[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+.chartTooltip,
+.chartEditor {
+  position: absolute;
+  z-index: 5;
+  top: var(--chart-point-y);
+  left: var(--chart-point-x);
+  width: min(260px, calc(100% - 16px));
+  transform: translate(-50%, calc(-100% - 12px));
+  border: 1px solid rgba(39, 93, 67, 0.3);
+  border-radius: 12px;
+  background: var(--paper);
+  box-shadow: 0 12px 28px rgba(30, 48, 37, 0.18);
+}
+
+.chartOverlayBelow {
+  transform: translate(-50%, 12px);
+}
+
+.chartTooltip {
+  display: grid;
+  width: min(180px, calc(100% - 16px));
+  gap: 2px;
+  padding: 9px 11px;
+  pointer-events: none;
+  color: var(--ink);
+  font-size: 0.76rem;
+}
+
+.chartTooltip span {
+  color: var(--primary-hover);
+  font-weight: 800;
+}
+
+.chartEditor {
+  display: grid;
+  gap: 8px;
+  padding: 13px;
+  color: var(--ink);
+}
+
+.chartEditor > strong {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1rem;
+}
+
+.chartEditor label {
+  color: var(--muted-ink);
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.chartEditor input {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: white;
+  color: var(--ink);
+}
+
+.chartEditor > small {
+  color: #9b2f2f;
+  font-size: 0.7rem;
+}
+
+.chartEditor > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
 
 .chartHint,
@@ -1645,14 +1779,6 @@
   color: white;
 }
 
-.editWeightPanel {
-  display: grid;
-  gap: 10px;
-  margin-top: 20px;
-  border-color: rgba(190, 108, 42, 0.35);
-}
-
-.editWeightPanel form,
 .existingCard form {
   display: flex;
   gap: 8px;
@@ -1660,7 +1786,6 @@
   margin-top: 12px;
 }
 
-.editWeightPanel input,
 .existingCard input {
   width: 100%;
   min-width: 0;
@@ -1881,7 +2006,7 @@
   }
 
   .explanationSteps summary {
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr) auto;
   }
 
   .explanationSteps summary b {
@@ -1893,9 +2018,24 @@
     padding-left: 12px;
   }
 
-  .editWeightPanel form,
   .existingCard form {
     align-items: stretch;
     flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .explanationSteps > details,
+  .weightDecisionDetails,
+  .explanationSteps summary,
+  .explanationSteps summary::after,
+  .weightDecisionDetails summary::after,
+  .chartPoint {
+    transition: none;
+  }
+
+  .explanationSteps > details:hover,
+  .weightDecisionDetails:hover {
+    transform: none;
   }
 }

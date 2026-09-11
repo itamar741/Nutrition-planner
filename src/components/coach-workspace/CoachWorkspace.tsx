@@ -160,9 +160,6 @@ function ExistingFoundation() {
   const cloudQueue = useRef<Promise<void>>(Promise.resolve());
   const [weightInput, setWeightInput] = useState("");
   const [chatInput, setChatInput] = useState("");
-  const [editingMeasurement, setEditingMeasurement] =
-    useState<WeightMeasurement | null>(null);
-  const [editingWeight, setEditingWeight] = useState("");
   const [proposalError, setProposalError] = useState("");
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentStatus, setAgentStatus] = useState<
@@ -411,36 +408,22 @@ function ExistingFoundation() {
       });
     }
   }
-  function startEditing(measurement: WeightMeasurement) {
+  function editExistingWeight(date: string, weightKg: number) {
     if (agentBusy) return;
-    setEditingMeasurement(measurement);
-    setEditingWeight(formatWeightKg(measurement.weightKg));
-  }
-  function saveEditedWeight(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!editingMeasurement || agentBusy) return;
-    try {
-      const weightKg = normalizeWeightKg(Number(editingWeight));
-      const commandId = createCommandId();
-      dispatchExisting({
-        type: "edit_weight",
-        commandId,
-        date: editingMeasurement.date,
-        weightKg,
-        messages: [
-          appendChat(
-            "assistant",
-            `Updated ${editingMeasurement.date} to ${formatWeightKg(weightKg)} kg. Your trend was recalculated.`,
-          ),
-        ],
-      });
-      setEditingMeasurement(null);
-      setProposalError("");
-    } catch (error) {
-      setProposalError(
-        error instanceof Error ? error.message : "Enter a valid weight.",
-      );
-    }
+    const commandId = createCommandId();
+    dispatchExisting({
+      type: "edit_weight",
+      commandId,
+      date,
+      weightKg,
+      messages: [
+        appendChat(
+          "assistant",
+          `Updated ${date} to ${formatWeightKg(weightKg)} kg. Your trend was recalculated.`,
+        ),
+      ],
+    });
+    setProposalError("");
   }
   async function resetExistingDemo() {
     if (agentBusy) return;
@@ -464,7 +447,6 @@ function ExistingFoundation() {
       setCloudError(error instanceof Error ? error.message : "Reset failed.");
       return;
     }
-    setEditingMeasurement(null);
     setProposalError("");
   }
   return (
@@ -559,6 +541,7 @@ function ExistingFoundation() {
             </button>
           </div>
           <WeightTrendChart
+            disabled={agentBusy}
             footer={
               <form
                 className={styles.recordWeightForm}
@@ -589,7 +572,7 @@ function ExistingFoundation() {
               </form>
             }
             measurements={existing.measurements}
-            onSelect={startEditing}
+            onEdit={editExistingWeight}
             trend={trend}
           />
           <WeightDecisionPanel decision={weightDecision} />
@@ -705,42 +688,6 @@ function ExistingFoundation() {
           </form>
         </article>
       </section>
-      {editingMeasurement ? (
-        <section
-          className={styles.editWeightPanel}
-          aria-label="Edit weight measurement"
-        >
-          <span>Edit recorded weight</span>
-          <h3>{editingMeasurement.date}</h3>
-          <form onSubmit={saveEditedWeight}>
-            <input
-              aria-label="Replacement weight in kilograms"
-              disabled={agentBusy}
-              inputMode="decimal"
-              min="1"
-              onChange={(event) => setEditingWeight(event.target.value)}
-              step="0.01"
-              type="number"
-              value={editingWeight}
-            />
-            <button
-              className={styles.primaryAction}
-              disabled={agentBusy}
-              type="submit"
-            >
-              Save replacement
-            </button>
-            <button
-              className={styles.secondaryAction}
-              disabled={agentBusy}
-              onClick={() => setEditingMeasurement(null)}
-              type="button"
-            >
-              Cancel
-            </button>
-          </form>
-        </section>
-      ) : null}
       <CatalogSection
         approvedIds={existing.approvedCatalogFoodIds}
         catalog={catalog}
