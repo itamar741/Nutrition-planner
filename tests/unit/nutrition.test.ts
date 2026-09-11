@@ -3,6 +3,7 @@ import { existingProfileFoundation } from "@/data/demo-fixtures";
 import {
   calculateRawEer,
   calculateTargets,
+  getModerateEquivalentMinutes,
   mapPalCategory,
   roundTo25HalfUp,
 } from "@/domain/nutrition/calculations";
@@ -67,6 +68,17 @@ describe("deterministic nutrition foundation", () => {
     expect(mapPalCategory("mixed_or_on_feet", 150)).toBe("active");
     expect(mapPalCategory("physically_demanding", 0)).toBe("active");
     expect(mapPalCategory("physically_demanding", 300)).toBe("very_active");
+  });
+
+  it("treats no exercise as zero moderate-equivalent minutes", () => {
+    expect(
+      getModerateEquivalentMinutes({
+        exerciseType: "none",
+        frequencyPerWeek: 0,
+        sessionMinutes: 0,
+        intensity: "moderate",
+      }),
+    ).toBe(0);
   });
 
   it("VT-05 creates no targets when a required input or food completion is missing", () => {

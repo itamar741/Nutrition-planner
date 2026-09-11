@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
-import { createNewDemoState } from "@/data/demo-fixtures";
 import type { CatalogFood } from "@/domain/catalog/types";
 import type { FoodSearchCandidate } from "@/domain/catalog/runtime";
 import { installNewCloudProfile } from "./helpers/cloud-profile";
+import { makeReadyState } from "../fixtures/turn-2";
 
 const candidateId = "f00d0000-0000-4000-8000-000000000001";
 const lookupId = "100d0000-0000-4000-8000-000000000001";
@@ -82,14 +82,13 @@ async function installCatalogAgent(
         agentSession: {
           ...state.agentSession,
           pendingInteraction:
-            normalized === "cottage"
+            normalized === "i want to add food"
               ? {
                   id: `clarification-${body.commandId}`,
                   type: "clarification",
                   workflow: "food",
-                  prompt:
-                    "Do you mean cottage cheese, and what fat percentage do you want?",
-                  quickReplies: ["1%", "2%", "5%"],
+                  prompt: "Which basic food would you like to add?",
+                  quickReplies: [],
                 }
               : normalized === "the fifth one"
                 ? {
@@ -200,7 +199,7 @@ async function installCatalogAgent(
 test("Turn 7 selects, rejects, corrects, and approves a bounded USDA food in chat", async ({
   page,
 }) => {
-  const cloud = await installNewCloudProfile(page, createNewDemoState());
+  const cloud = await installNewCloudProfile(page, makeReadyState());
   await installCatalogAgent(page, cloud);
   await page.goto("/coach/new");
 
@@ -228,7 +227,9 @@ test("Turn 7 selects, rejects, corrects, and approves a bounded USDA food in cha
   await page.getByRole("button", { name: "Select this food" }).first().click();
   await page.getByRole("button", { name: "Approve food" }).click();
 
-  await expect(page.getByText("1 approved foods")).toBeVisible();
+  await expect(
+    page.getByText("1 approved foods", { exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Create Draft" }),
   ).toBeVisible();
@@ -237,7 +238,7 @@ test("Turn 7 selects, rejects, corrects, and approves a bounded USDA food in cha
 test("Turn 7 offers AI estimation only after an explicit USDA failure", async ({
   page,
 }) => {
-  const cloud = await installNewCloudProfile(page, createNewDemoState());
+  const cloud = await installNewCloudProfile(page, makeReadyState());
   await installCatalogAgent(page, cloud, true);
   await page.goto("/coach/new");
 
@@ -256,34 +257,35 @@ test("Turn 7 offers AI estimation only after an explicit USDA failure", async ({
   await expect(page.getByText(/code: no_results/)).toBeVisible();
 });
 
-test("Turn 7 persists one combined cottage clarification and understands the next reply", async ({
+test("Turn 8 persists a missing-name clarification and searches the named follow-up", async ({
   page,
 }) => {
-  const cloud = await installNewCloudProfile(page, createNewDemoState());
+  const cloud = await installNewCloudProfile(page, makeReadyState());
   await installCatalogAgent(page, cloud);
   await page.goto("/coach/new");
 
   const input = page.getByRole("textbox", {
     name: "Message to nutrition coach",
   });
-  await input.fill("cottage");
+  await input.fill("I want to add food");
   await page.getByRole("button", { name: "Send" }).click();
   await expect(
-    page.getByText(/Do you mean cottage cheese.*fat percentage/i),
+    page.getByText("Which basic food would you like to add?"),
   ).toBeVisible();
 
   await page.reload();
   await expect(
-    page.getByText(/Do you mean cottage cheese.*fat percentage/i),
+    page.getByText("Which basic food would you like to add?"),
   ).toBeVisible();
-  await page.getByRole("button", { name: "5%" }).click();
+  await input.fill("cottage cheese");
+  await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByLabel("USDA food candidates")).toBeVisible();
 });
 
 test("Turn 7 can select the fifth displayed candidate by text but cannot approve it", async ({
   page,
 }) => {
-  const cloud = await installNewCloudProfile(page, createNewDemoState());
+  const cloud = await installNewCloudProfile(page, makeReadyState());
   await installCatalogAgent(page, cloud);
   await page.goto("/coach/new");
 

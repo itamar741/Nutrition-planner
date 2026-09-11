@@ -5,9 +5,65 @@ import {
   type FoodSearchCandidate,
 } from "@/domain/catalog/runtime";
 import { catalogFoodSchema } from "@/domain/catalog/schemas";
-import { draftProposalSchema } from "@/domain/plan/schemas";
+import { draftProposalSchema, planMealIdSchema } from "@/domain/plan/schemas";
 import type { CatalogFood } from "@/domain/catalog/types";
 import type { DraftProposal } from "@/domain/plan/types";
+
+const draftAttemptReviewSchema = z
+  .object({
+    attempt: z.number().int().min(1).max(3),
+    summary: z.string().min(1).max(240),
+    meals: z
+      .array(
+        z
+          .object({
+            id: planMealIdSchema,
+            name: z.string().min(1).max(80),
+            items: z
+              .array(
+                z
+                  .object({
+                    catalogFoodId: z.string().min(1).max(100),
+                    displayName: z.string().min(1).max(120),
+                    grams: z.number().int().positive().max(1_000),
+                  })
+                  .strict(),
+              )
+              .min(1)
+              .max(8),
+          })
+          .strict(),
+      )
+      .min(3)
+      .max(4),
+    totals: z
+      .object({
+        energyKcal: z.number().nonnegative(),
+        proteinG: z.number().nonnegative(),
+        carbohydrateG: z.number().nonnegative(),
+        fatG: z.number().nonnegative(),
+        fiberG: z.number().nonnegative(),
+      })
+      .strict(),
+    checks: z
+      .array(
+        z
+          .object({
+            key: z.enum(["energy", "protein", "macros", "fiber", "plan_rules"]),
+            label: z.string().min(1).max(100),
+            actual: z.string().min(1).max(200),
+            expected: z.string().min(1).max(240),
+            passed: z.boolean(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(5),
+    issues: z.array(z.string().min(1).max(500)).min(1).max(20),
+  })
+  .strict();
+
+export type DraftAttemptReview = z.infer<typeof draftAttemptReviewSchema>;
 
 export type AgentInteraction =
   | {
@@ -50,20 +106,86 @@ export type AgentInteraction =
     }
   | {
       id: string;
+      type: "adjustment_offer";
+      basePlanVersion: number;
+      direction: "increase" | "decrease";
+      adjustmentKcal: number;
+    }
+  | {
+      id: string;
       type: "adjustment_approval";
       draft: DraftProposal;
+    }
+  | {
+      id: string;
+      type: "draft_failure_review";
+      attempts: DraftAttemptReview[];
+      prompt: string;
     };
+
+export const conversationPreferenceSchema = z
+  .object({
+    id: z.string().min(1).max(100),
+    type: z.enum(["food", "meal_distribution", "meal_timing", "preparation"]),
+    subject: z.string().trim().min(1).max(120),
+    value: z.string().trim().min(1).max(240),
+    supportingMessageId: z.string().min(1).max(200),
+    createdAt: z.string().datetime(),
+  })
+  .strict();
+
+export type ConversationPreference = z.infer<
+  typeof conversationPreferenceSchema
+>;
+
+export const conversationActivitySchema = z
+  .object({
+    id: z.string().min(1).max(200),
+    turnId: z.string().min(1).max(100).nullable(),
+    kind: z.enum([
+      "thinking",
+      "checking_foods",
+      "remembering_preference",
+      "searching_usda",
+      "reading_nutrition",
+      "validating_nutrition",
+      "creating_draft",
+      "checking_plan",
+      "revising_draft",
+      "user_action",
+      "failure",
+    ]),
+    label: z.string().min(1).max(240),
+    status: z.enum(["pending", "completed", "failed"]),
+    createdAt: z.string().datetime(),
+  })
+  .strict();
+
+export type ConversationActivity = z.infer<typeof conversationActivitySchema>;
+
+export const draftIntentSchema = z
+  .object({
+    basePlanVersion: z.number().int().positive().nullable(),
+    requiredCatalogFoodId: z.string().min(1).max(100).nullable(),
+  })
+  .strict();
+
+export type DraftIntent = z.infer<typeof draftIntentSchema>;
 
 export interface AgentSessionState {
   summary: string | null;
+  preferences: ConversationPreference[];
   pendingInteraction: AgentInteraction | null;
   pausedInteraction: AgentInteraction | null;
+  draftIntent: DraftIntent | null;
 }
 
 export const emptyAgentSession = (): AgentSessionState => ({
   summary: null,
+  preferences: [],
   pendingInteraction: null,
   pausedInteraction: null,
+  draftIntent: null,
 });
 
 const foodApprovalCandidateSchema = z
@@ -139,8 +261,25 @@ export const agentInteractionSchema = z.discriminatedUnion("type", [
   z
     .object({
       id: z.string().min(1).max(100),
+      type: z.literal("adjustment_offer"),
+      basePlanVersion: z.number().int().positive(),
+      direction: z.enum(["increase", "decrease"]),
+      adjustmentKcal: z.number().int().min(100).max(200),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1).max(100),
       type: z.literal("adjustment_approval"),
       draft: draftProposalSchema,
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1).max(100),
+      type: z.literal("draft_failure_review"),
+      attempts: z.array(draftAttemptReviewSchema).min(1).max(3),
+      prompt: z.string().min(1).max(500),
     })
     .strict(),
 ]);
@@ -148,8 +287,10 @@ export const agentInteractionSchema = z.discriminatedUnion("type", [
 export const agentSessionSchema = z
   .object({
     summary: z.string().max(4_000).nullable(),
+    preferences: z.array(conversationPreferenceSchema).max(100).default([]),
     pendingInteraction: agentInteractionSchema.nullable(),
     pausedInteraction: agentInteractionSchema.nullable(),
+    draftIntent: draftIntentSchema.nullable().default(null),
   })
   .strict();
 
@@ -170,6 +311,8 @@ export const coachMessageRequestSchema = z
           type: z.literal("interaction"),
           interactionId: z.string().min(1).max(100),
           action: z.enum([
+            "review_trend",
+            "generate_adjustment",
             "select_candidate",
             "approve_food",
             "reject_food",
@@ -193,9 +336,24 @@ export const coachMessageRequestSchema = z
 export type CoachMessageRequest = z.infer<typeof coachMessageRequestSchema>;
 
 export type AgentStreamEvent =
-  | { type: "status"; value: "thinking" | "searching" | "validating" }
+  | {
+      type: "status";
+      value:
+        | "thinking"
+        | "searching"
+        | "validating"
+        | "checking_foods"
+        | "remembering"
+        | "creating_draft"
+        | "revising_draft";
+    }
   | { type: "text_delta"; value: string }
-  | { type: "state"; profile: unknown; catalogFood?: CatalogFood }
+  | {
+      type: "state";
+      profile: unknown;
+      activities?: ConversationActivity[];
+      catalogFood?: CatalogFood;
+    }
   | {
       type: "error";
       message: string;

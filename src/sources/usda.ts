@@ -36,14 +36,6 @@ export class UsdaUnavailableError extends Error {
   }
 }
 
-const flatNutrientSchema = z
-  .object({
-    nutrientId: z.number().int().positive(),
-    unitName: z.string().optional(),
-    value: z.number().nonnegative(),
-  })
-  .passthrough();
-
 const searchFoodSchema = z
   .object({
     fdcId: z.number().int().positive(),
@@ -93,6 +85,13 @@ const detailResponseSchema = z
   .passthrough();
 
 type SearchFood = z.infer<typeof searchFoodSchema>;
+
+export type UsdaSearchSummary = {
+  fdcId: number;
+  title: string;
+  description: string;
+  dataType: "Foundation" | "SR Legacy";
+};
 
 const DISALLOWED_CATEGORY_PATTERN =
   /restaurant|fast foods?|meals?, entrees?|mixed dishes?|soups?, sauces?|prepared meals?/i;
@@ -190,7 +189,7 @@ export function parseUsdaSearchResponse(value: unknown): SearchFood[] {
   const results: SearchFood[] = [];
   const seen = new Set<number>();
   for (const value of response.data.foods) {
-    if (results.length >= 10) break;
+    if (results.length >= 50) break;
     const food = searchFoodSchema.safeParse(value);
     if (
       !food.success ||
@@ -216,6 +215,7 @@ export function buildUsdaSearchQuery(input: FoodLookupToolArguments) {
     /\bjasmine rice\b/gi,
     "white long-grain rice",
   );
+  if (!input.preparation) return sourceVocabulary;
   const preparationAlreadyPresent = new RegExp(
     `\\b${input.preparation}\\b`,
     "i",
@@ -225,25 +225,13 @@ export function buildUsdaSearchQuery(input: FoodLookupToolArguments) {
     : `${sourceVocabulary} ${input.preparation}`;
 }
 
-function nutrientFromFlat(
-  values: unknown[] | undefined,
-  ids: readonly number[],
-  expectedUnit: "KCAL" | "G",
-) {
-  const nutrients = (values ?? [])
-    .map((value) => flatNutrientSchema.safeParse(value))
-    .filter((value) => value.success)
-    .map((value) => value.data);
-  const entry = ids
-    .map((id) =>
-      nutrients.find(
-        (candidate) =>
-          candidate.nutrientId === id &&
-          candidate.unitName?.toUpperCase() === expectedUnit,
-      ),
-    )
-    .find(Boolean);
-  return entry ? { id: entry.nutrientId, amount: entry.value } : null;
+function toSearchSummary(food: SearchFood): UsdaSearchSummary {
+  return {
+    fdcId: food.fdcId,
+    title: food.description.slice(0, 200),
+    description: candidateDescription(food),
+    dataType: food.dataType,
+  };
 }
 
 function nutrientFromDetail(
@@ -374,25 +362,7 @@ export function parseUsdaFoodDetail(value: unknown) {
   return record;
 }
 
-function parseSearchSummary(food: SearchFood) {
-  return normalizedRecord({
-    fdcId: food.fdcId,
-    title: food.description,
-    dataType: food.dataType,
-    release: food.publishedDate,
-    nutrients: {
-      energy: nutrientFromFlat(food.foodNutrients, ENERGY_NUTRIENT_IDS, "KCAL"),
-      protein: nutrientFromFlat(food.foodNutrients, [1003], "G"),
-      fat: nutrientFromFlat(food.foodNutrients, [1004], "G"),
-      carbohydrate: nutrientFromFlat(food.foodNutrients, [1005], "G"),
-      fiber: nutrientFromFlat(food.foodNutrients, [1079], "G"),
-    },
-    portion: { label: "100 g", grams: 100 },
-    verification: "search_summary",
-  });
-}
-
-export async function searchUsdaFoods(
+export async function searchUsdaFoodSummaries(
   input: FoodLookupToolArguments,
   options?: {
     onStage?: (
@@ -400,7 +370,7 @@ export async function searchUsdaFoods(
       details?: Record<string, unknown>,
     ) => void;
   },
-): Promise<FoodSearchCandidate[]> {
+): Promise<UsdaSearchSummary[]> {
   options?.onStage?.("search_started");
   const searchJson = await usdaRequest(
     "/fdc/v1/foods/search",
@@ -410,17 +380,37 @@ export async function searchUsdaFoods(
       body: JSON.stringify({
         query: buildUsdaSearchQuery(input),
         dataType: [...ALLOWED_DATA_TYPES],
-        pageSize: 10,
+        pageSize: 50,
         pageNumber: 1,
       }),
     },
     "search",
   );
-  const summaries = parseUsdaSearchResponse(searchJson);
+  const summaries = parseUsdaSearchResponse(searchJson).map(toSearchSummary);
   options?.onStage?.("search_completed", { count: summaries.length });
 
+  return summaries;
+}
+
+export async function resolveUsdaFoodCandidates(
+  summaries: UsdaSearchSummary[],
+  options?: {
+    onStage?: (
+      stage: UsdaLookupStage,
+      details?: Record<string, unknown>,
+    ) => void;
+  },
+): Promise<FoodSearchCandidate[]> {
+  if (summaries.length === 0 || summaries.length > 5) {
+    throw new UsdaUnavailableError(
+      "The selected USDA candidates were invalid.",
+      "malformed_source",
+      "normalization",
+    );
+  }
+
   options?.onStage?.("bulk_started", { count: summaries.length });
-  let details: unknown[] = [];
+  let details: unknown[];
   try {
     const bulkJson = await usdaRequest(
       "/fdc/v1/foods",
@@ -443,9 +433,10 @@ export async function searchUsdaFoods(
   } catch (error) {
     options?.onStage?.("bulk_completed", {
       count: 0,
-      fallback: "search_summary",
+      fallback: "none",
       code: error instanceof UsdaUnavailableError ? error.code : "unknown",
     });
+    throw error;
   }
 
   const detailById = new Map<number, ReturnType<typeof parseUsdaFoodDetail>>();
@@ -461,7 +452,7 @@ export async function searchUsdaFoods(
   const retrievedAt = new Date().toISOString();
   const candidates: FoodSearchCandidate[] = [];
   for (const summary of summaries) {
-    const record = detailById.get(summary.fdcId) ?? parseSearchSummary(summary);
+    const record = detailById.get(summary.fdcId);
     if (!record) {
       options?.onStage?.("candidate_filtered", {
         fdcId: summary.fdcId,
@@ -473,7 +464,7 @@ export async function searchUsdaFoods(
       id: randomUUID(),
       fdcId: summary.fdcId,
       title: record.title,
-      description: candidateDescription(summary),
+      description: summary.description,
       dataType: summary.dataType,
       verification: record.verification,
       release: record.release,
@@ -503,6 +494,19 @@ export async function searchUsdaFoods(
     );
   }
   return candidates;
+}
+
+export async function searchUsdaFoods(
+  input: FoodLookupToolArguments,
+  options?: {
+    onStage?: (
+      stage: UsdaLookupStage,
+      details?: Record<string, unknown>,
+    ) => void;
+  },
+): Promise<FoodSearchCandidate[]> {
+  const summaries = await searchUsdaFoodSummaries(input, options);
+  return resolveUsdaFoodCandidates(summaries.slice(0, 5), options);
 }
 
 export function validateNutritionPlausibility(food: EstimatedFood) {

@@ -44,6 +44,69 @@ describe("demo command reducer", () => {
     ).toHaveLength(1);
   });
 
+  it("records the onboarding weight as the immutable Maintenance anchor", () => {
+    const initial = createNewDemoState();
+    const started = demoReducer(initial, {
+      type: "start_open",
+      command: { id: "onboarding-weight", message: "I weigh 74 kg" },
+    });
+    const profile = { ...initial.profile, currentWeightKg: 74 };
+    const completed = demoReducer(started, {
+      type: "complete_open",
+      commandId: "onboarding-weight",
+      profile,
+      activeTurn: initial.activeTurn,
+      acknowledgement: "Noted.",
+      targets: calculateTargets(profile),
+    });
+
+    expect(completed.weightMeasurements).toMatchObject([{ weightKg: 74 }]);
+  });
+
+  it("records and corrects weight from the Fresh active dashboard", () => {
+    const profile = makeReadyProfile();
+    const draft = makeValidDraft("fresh-weight-dashboard");
+    const active = demoReducer(
+      {
+        ...createNewDemoState(),
+        profile,
+        targets: calculateTargets(profile),
+        draft,
+      },
+      {
+        type: "activate_draft",
+        commandId: "activate-fresh-weight",
+        proposalId: draft.id,
+        activatedAt: "2026-09-10T08:00:00.000Z",
+      },
+    );
+    const recorded = demoReducer(active, {
+      type: "record_weight",
+      commandId: "record-fresh-weight",
+      measurement: {
+        id: "fresh-weight-1",
+        date: "2026-09-11",
+        weightKg: 80.4,
+        commandId: "record-fresh-weight",
+      },
+    });
+    const edited = demoReducer(recorded, {
+      type: "edit_weight",
+      commandId: "edit-fresh-weight",
+      date: "2026-09-11",
+      weightKg: 80.2,
+    });
+    const deleted = demoReducer(edited, {
+      type: "delete_weight",
+      commandId: "delete-fresh-weight",
+      date: "2026-09-11",
+    });
+
+    expect(recorded.weightMeasurements.at(-1)?.weightKg).toBe(80.4);
+    expect(edited.weightMeasurements.at(-1)?.weightKg).toBe(80.2);
+    expect(deleted.weightMeasurements).toHaveLength(0);
+  });
+
   it("applies the same closed command at most once", () => {
     const initial = {
       ...createNewDemoState(),

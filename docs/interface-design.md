@@ -21,7 +21,7 @@ This document specifies behavior and ordering rather than colors, typography, or
 5. When food preferences are required, insert the Food Grid as a dedicated interactive step in the conversation and disable text input.
 6. Select approved foods across the five categories and submit the completed selection.
 7. Return to the conversation and collect any remaining required information.
-8. Calculate targets, generate a Draft Meal Plan, and render it in the plan area while keeping the conversation visible.
+8. Calculate targets, then introduce Arnold in the conversation. Arnold asks before generating a Draft Meal Plan and renders the resulting Draft in the plan area while keeping the conversation visible.
 9. Let the user request a supported modification; show processing feedback and then render the changed Draft.
 10. Present an explicit approval choice. Approval promotes the Draft to Active; declining or requesting another change leaves the Draft unactivated.
 11. A missing basic food can be requested inside the main coach conversation in Hebrew or English. After approval, the coach asks whether to include it; only a second confirmation creates a new validated Draft.
@@ -35,12 +35,23 @@ The system does not enable Draft generation when required information or food se
 3. Validate the value. If valid, record it and update the visualization before adjustment reasoning begins.
 4. Calculate the trend and sufficient-evidence result deterministically.
 5. If evidence is insufficient, explain that the Active Plan remains unchanged.
-6. If evidence is sufficient, show the calculated trend summary and an AI adjustment proposal as a Draft change.
+6. Once per browser/profile session, Arnold reviews the calculated trend summary. If evidence supports an adjustment, Arnold offers the visible **Generate AI proposal** action; pressing it creates an adjustment Draft.
 7. Ask for explicit approval using a proposal-local Approve button. Typed approval language has no effect.
 8. Approval updates and renders the Active Plan. Rejection preserves the current plan.
 9. Rejecting an adjustment asks what the user disliked and accepts one bounded follow-up before presenting another Draft proposal.
+10. A supported conversational menu change or approved-food continuation creates a complete ordinary Draft at the current Active Plan targets. Including a newly approved food rebalances other approved portions or foods as needed rather than appending it unchanged; the Draft visibly lists the changed amounts. The current Active Plan remains visible until the Draft's own approval button is used.
 
 An invalid weight value is not added to the chart. The conversation explains what is wrong and requests a corrected value.
+
+### Nutrition Decision Explanation
+
+After targets are ready, the current workspace shows **How your nutrition plan works** without navigating away from the active conversation or plan. Its closed summary shows the energy estimate, goal adjustment, and current target. Its keyboard-accessible disclosures show the personal inputs, activity-score mapping, substituted EER equation, goal rule and rounding, macro and fiber formulas, and named research sources.
+
+When a Draft or Active Plan is present, the explanation adds a validation section with actual energy, protein, macro distribution, and fiber values against their deterministic ranges, plus the combined catalog, practical-portion, meal-pattern, and composition result. If a previously approved weight adjustment changed the Active target, the initial goal target, approved delta, and current target remain distinct.
+
+The Existing weight chart is followed by **The decision behind the chart**. It shows qualifying measurement count and span, the regression-derived weekly rate only when evidence is sufficient, the goal band, applicable Maintenance reference and seven-measurement averages, and one conclusion: more data required, keep the Active Plan, or a bounded adjustment is available. Availability never implies activation; the current approval controls remain authoritative.
+
+All explanatory surfaces accept ordinary supported profile, target, plan, and weight inputs. They do not branch on a demo profile identifier, invoke the model, persist disclosure state, or collect engagement analytics.
 
 ## Information Hierarchy
 
@@ -62,9 +73,10 @@ A runtime-food approval card places the source label, identity, preparation, opt
 The coaching product uses these bounded interaction primitives:
 
 - **Chat message:** displays coach or user text.
+- **Activity event:** a persisted, small blue-dot status such as **Thinking**, **Checking your foods and plans**, **Remembering your preference**, **Creating Draft**, or **Checking plan safety**. It is not a normal chat message.
 - **Chat message with quick replies:** presents a closed question with predefined choices inside the conversation.
 - **Food Grid:** presents selectable predefined catalog foods during the dedicated preference step.
-- **Catalog candidate list:** presents the first one to five nutrition-complete USDA Foundation Foods or SR Legacy records in USDA relevance order. Each card shows the four required macros per 100 g and requires one user selection.
+- **Catalog candidate list:** presents one to five nutrition-complete USDA Foundation Foods or SR Legacy records ranked for the requested food by a bounded model operation. Each card shows the four required macros per 100 g and requires one user selection.
 - **Catalog approval card:** presents normalized source data with Approve and Reject actions.
 - **Persisted interaction card:** clarification choices, candidate lists, food review, Draft review, and adjustment review are transcript-adjacent state and survive reloads.
 
@@ -80,6 +92,8 @@ The coaching product uses these bounded interaction primitives:
 - A selected quick reply becomes a normal user message in the transcript so the conversation remains legible.
 - The next set of controls is rendered only from a validated, narrow response type; the AI cannot request arbitrary widgets or actions.
 - Text such as “approve it” is conversational only. Food insertion and every Active Plan transition require the visible button attached to the current interaction.
+- A clear text ordinal such as “the fifth one” may select a currently displayed catalog candidate, but never approves it.
+- A clear explicit preference may be saved by Arnold and shown as a persisted activity event. A saved preference is not an instruction and cannot alter protected state.
 - A rejected catalog candidate returns to a text correction prompt; it does not end the conversation.
 - If the source is unavailable, **Use an AI estimate** appears only as an explicit opt-in action.
 - A source failure includes a friendly explanation and optional technical details containing only the safe stage, failure code, and lookup identifier.
@@ -87,9 +101,12 @@ The coaching product uses these bounded interaction primitives:
 ### Plan and Adjustment Rules
 
 - Draft generation, modification, activation, and adjustment approval are distinct actions.
+- Fresh and Existing use the same ordinary Draft skill. Existing ordinary Drafts retain the current Active Plan target snapshot; only a deterministic trend adjustment may change those targets.
 - A conversational request may change only a Draft.
+- An approved-food continuation builds a full replacement Draft. It includes the required food at a practical portion and rebalances the Draft against the Active Plan where needed; it never silently appends that food to unchanged meals.
 - Activating or replacing an Active Plan always requires a dedicated approval action.
 - A weight message triggers deterministic value validation and trend processing; AI prose cannot write directly to weight history.
+- For Maintenance, the trend review also checks a non-user-editable Active Plan baseline against two consecutive seven-measurement averages. A persistent 0.70 kg deviation may make a bounded adjustment available even when the short-term percentage band is not crossed; it is not a target-weight workflow.
 - Unknown foods enter only the bounded central-catalog workflow. They are never searched by a model browser, guessed silently, or written before approval.
 
 ## Feedback Design
@@ -109,7 +126,7 @@ Feedback must make the current state, accepted action, and next available action
 
 ### Loading and Slow States
 
-- While a message, plan, or adjustment is processing, stream assistant text and show an in-conversation **Thinking**, **Searching USDA**, or **Validating** status.
+- While a message, plan, or adjustment is processing, persist the submitted user message, stream Arnold text, and show a relevant activity event such as **Thinking**, **Searching USDA**, **Validating**, **Creating Draft**, or **Revising Draft**.
 - Disable text input, quick replies, Food Grid controls, and approval controls until the operation resolves.
 - Plan generation and modification use specific messages such as **Building your draft plan…** rather than a generic spinner with no context.
 - USDA search and detail loading use distinct messages so a slow API request is visible.

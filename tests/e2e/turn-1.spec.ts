@@ -1,5 +1,5 @@
 import { expect, test, type Route } from "@playwright/test";
-import { createNewDemoState } from "@/data/demo-fixtures";
+import { createNewDemoState, existingReadyProfile } from "@/data/demo-fixtures";
 import { calculateTargets } from "@/domain/nutrition/calculations";
 import { getNextTurn } from "@/domain/profile/onboarding";
 import type { StructuredProfile } from "@/domain/profile/types";
@@ -23,38 +23,18 @@ const profileAfterBasics: StructuredProfile = {
   approvedCatalogFoodIds: [],
 };
 
-async function fulfillBasics(
-  route: Route,
-  cloud: Awaited<ReturnType<typeof installNewCloudProfile>>,
-) {
+async function fulfillBasics(route: Route) {
   const requestBody = route.request().postDataJSON() as { commandId: string };
-  const current = cloud.current();
-  const state = {
-    ...current,
-    profile: profileAfterBasics,
-    activeTurn: getNextTurn(profileAfterBasics),
-    targets: calculateTargets(profileAfterBasics),
-    messages: [
-      ...current.messages,
-      {
-        id: `user-${requestBody.commandId}`,
-        role: "user" as const,
-        text: "I am a 30 year old man, 180 cm and 80 kg.",
-      },
-      {
-        id: `assistant-${requestBody.commandId}`,
-        role: "assistant" as const,
-        text: "I captured those four details.",
-      },
-    ],
-  };
-  const profile = cloud.update(state);
   await route.fulfill({
     status: 200,
     contentType: "application/json",
     body: JSON.stringify({
       ok: true,
-      profile,
+      commandId: requestBody.commandId,
+      profile: profileAfterBasics,
+      activeTurn: getNextTurn(profileAfterBasics),
+      targets: calculateTargets(profileAfterBasics),
+      acknowledgement: "I captured those four details.",
     }),
   });
 }
@@ -80,10 +60,8 @@ test("SC-01 entry exposes exactly the two demo profiles", async ({ page }) => {
 test("UI-01/UI-02/AI-01 moves from one open answer to locked quick replies", async ({
   page,
 }) => {
-  const cloud = await installNewCloudProfile(page, createNewDemoState());
-  await page.route("**/api/coach/message", (route) =>
-    fulfillBasics(route, cloud),
-  );
+  await installNewCloudProfile(page, createNewDemoState());
+  await page.route("**/api/coach/onboarding", (route) => fulfillBasics(route));
   await page.goto("/coach/new");
 
   const input = page.getByRole("textbox", {
@@ -115,10 +93,10 @@ test("UI-01/UI-02/AI-01 moves from one open answer to locked quick replies", asy
 test("UI-05/UI-06 preserves the answer, locks controls, and shows slow feedback", async ({
   page,
 }) => {
-  const cloud = await installNewCloudProfile(page, createNewDemoState());
-  await page.route("**/api/coach/message", async (route) => {
+  await installNewCloudProfile(page, createNewDemoState());
+  await page.route("**/api/coach/onboarding", async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 2_000));
-    await fulfillBasics(route, cloud);
+    await fulfillBasics(route);
   });
   await page.goto("/coach/new");
 
@@ -132,16 +110,16 @@ test("UI-05/UI-06 preserves the answer, locks controls, and shows slow feedback"
   await expect(page.locator('[data-role="user"]')).toContainText(
     "I am a 30 year old man",
   );
-  await expect(page.getByRole("status")).toContainText("Thinking");
+  await expect(page.getByRole("status")).toContainText("Reviewing");
   await expect(page.getByLabel("Quick replies")).toBeVisible();
 });
 
 test("UI-09 retry preserves state and does not duplicate the submitted action", async ({
   page,
 }) => {
-  const cloud = await installNewCloudProfile(page, createNewDemoState());
+  await installNewCloudProfile(page, createNewDemoState());
   let calls = 0;
-  await page.route("**/api/coach/message", async (route) => {
+  await page.route("**/api/coach/onboarding", async (route) => {
     calls += 1;
     if (calls === 1) {
       const requestBody = route.request().postDataJSON() as {
@@ -160,7 +138,7 @@ test("UI-09 retry preserves state and does not duplicate the submitted action", 
       });
       return;
     }
-    await fulfillBasics(route, cloud);
+    await fulfillBasics(route);
   });
   await page.goto("/coach/new");
 
@@ -191,5 +169,38 @@ test("the Existing Demo Profile stays a fixed prepared foundation in Turn 1", as
     page.getByRole("heading", { name: "Maintenance" }),
   ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Low active" })).toBeVisible();
+  await expect(
+    page.getByRole("article", { name: "How your nutrition plan works" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("article", {
+      name: "Why your Active Plan stays or changes",
+    }),
+  ).toBeVisible();
   await expect(page.getByRole("link", { name: /Profiles/ })).toBeVisible();
+});
+
+test("completed Fresh targets reveal the personal calculation before a plan exists", async ({
+  page,
+}) => {
+  const profile = { ...existingReadyProfile, goal: "muscle_gain" as const };
+  const state = {
+    ...createNewDemoState(),
+    profile,
+    targets: calculateTargets(profile),
+    activeTurn: getNextTurn(profile),
+  };
+  await installNewCloudProfile(page, state);
+  await page.goto("/coach/new");
+
+  const explanation = page.getByRole("article", {
+    name: "How your nutrition plan works",
+  });
+  await expect(explanation).toBeVisible();
+  await expect(explanation).toContainText("3,250 kcal");
+  await explanation.getByText("Estimated daily energy needs").click();
+  await expect(explanation).toContainText("2945.77 kcal/day");
+  await expect(
+    explanation.getByRole("link", { name: /Energy, 2023/ }),
+  ).toHaveAttribute("href", "https://www.ncbi.nlm.nih.gov/books/NBK591034/");
 });

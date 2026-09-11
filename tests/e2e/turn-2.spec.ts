@@ -76,6 +76,7 @@ async function installTurn2Agent(
           schemaVersion: 1,
           version: (state.activePlan?.version ?? 0) + 1,
           activatedAt: new Date().toISOString(),
+          maintenanceReferenceWeightKg: null,
           plan: state.draft.plan,
         },
         draft: null,
@@ -231,6 +232,31 @@ test("Draft failure and retry preserve state and avoid duplicate actions", async
   ).toBeVisible();
   await expect(
     page.locator('[data-role="user"]', { hasText: "Generate my Draft" }),
+  ).toHaveCount(1);
+});
+
+test("Enter sends Fresh chat and Shift+Enter keeps a newline", async ({
+  page,
+}) => {
+  const cloud = await startWithState(page, makeReadyState());
+  await installTurn2Agent(page, cloud);
+
+  const input = page.getByRole("textbox", {
+    name: "Message to nutrition coach",
+  });
+  await input.fill("Please create my Draft");
+  await input.press("Shift+Enter");
+  await input.type("Meal Plan");
+  await expect(input).toHaveValue("Please create my Draft\nMeal Plan");
+  await input.press("Enter");
+
+  await expect(
+    page.getByText("Draft Meal Plan", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.locator('[data-role="user"]', {
+      hasText: "Please create my Draft\nMeal Plan",
+    }),
   ).toHaveCount(1);
 });
 

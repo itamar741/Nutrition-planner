@@ -120,6 +120,12 @@ export const activePlanSchema = z
     schemaVersion: z.literal(1),
     version: z.number().int().positive(),
     activatedAt: z.string().datetime(),
+    maintenanceReferenceWeightKg: z
+      .number()
+      .positive()
+      .max(500)
+      .nullable()
+      .default(null),
     plan: mealPlanSchema,
   })
   .strict();

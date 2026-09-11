@@ -37,7 +37,9 @@ export async function prepareAiEstimate(input: {
     );
   }
   const context = z
-    .object({ preparation: z.enum(["cooked", "raw", "packaged"]).optional() })
+    .object({
+      preparation: z.enum(["cooked", "raw", "packaged"]).nullable().optional(),
+    })
     .passthrough()
     .parse(lookup.context);
   const preparation = context.preparation ?? "cooked";
@@ -129,7 +131,7 @@ export async function prepareFoodCandidate(input: {
   });
   const estimate = validateNutritionPlausibility({
     displayName: cached.title,
-    preparation: cached.toolArguments.preparation,
+    preparation: cached.toolArguments.preparation ?? "as listed by USDA",
     category: classification.category,
     mealClassification: classification.mealClassification,
     displayPortionLabel: cached.displayPortion.label,

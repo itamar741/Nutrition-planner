@@ -3,7 +3,10 @@ import { calculateTargets } from "@/domain/nutrition/calculations";
 import { validateAndBuildPlan } from "@/domain/plan/validation";
 import type { ActivePlan, DraftCandidate } from "@/domain/plan/types";
 import type { DemoProfileId, StructuredProfile } from "@/domain/profile/types";
-import type { WeightMeasurement } from "@/domain/weight/trend";
+import {
+  maintenanceReferenceWeightFromInitialMeasurements,
+  type WeightMeasurement,
+} from "@/domain/weight/trend";
 import type { DemoState } from "@/store/demo-reducer";
 import type { ExistingDemoState } from "@/store/existing-demo-store";
 import { emptyAgentSession } from "@/domain/agent/types";
@@ -12,6 +15,8 @@ export const demoProfileNames: Record<DemoProfileId, string> = {
   new: "New Demo Profile",
   existing: "Existing Demo Profile",
 };
+
+export const EXISTING_INITIAL_WEIGHT_KG = 75.18;
 
 export const emptyProfile: StructuredProfile = {
   schemaVersion: 1,
@@ -36,6 +41,8 @@ export const existingProfileFoundation: StructuredProfile = {
   age: 30,
   equationSex: "male",
   heightCm: 180,
+  // Legacy Active Plan snapshot was created at 80 kg. New calculations use
+  // the recorded-history policy in coach-turn instead of this fixture value.
   currentWeightKg: 80,
   goal: "maintenance",
   dailyRoutine: "mostly_seated",
@@ -91,16 +98,77 @@ export const existingReadyProfile: StructuredProfile = {
 export function createExistingWeightHistory(
   now = new Date(),
 ): WeightMeasurement[] {
+  const seedWeightsKg = [
+    EXISTING_INITIAL_WEIGHT_KG,
+    75.24,
+    75.21,
+    75.27,
+    75.19,
+    75.23,
+    75.26,
+    75.2,
+    75.25,
+    75.17,
+    75.18,
+    75.24,
+    75.21,
+    75.27,
+    75.19,
+    75.23,
+    75.26,
+    75.2,
+    75.25,
+    75.17,
+    75.18,
+    75.24,
+    75.21,
+    75.27,
+    75.01,
+    75.06,
+    75.1,
+    75.12,
+    75.1,
+    75.14,
+    75.14,
+    75.26,
+    75.28,
+    75.21,
+    75.28,
+    75.33,
+    75.37,
+    75.39,
+    75.37,
+    75.41,
+    75.41,
+    75.53,
+    75.55,
+    75.48,
+    75.55,
+    75.6,
+    75.65,
+    75.66,
+    75.64,
+    75.68,
+    75.68,
+    75.8,
+    75.82,
+    75.75,
+    75.78,
+    75.85,
+    75.91,
+    75.96,
+    76,
+  ] as const;
   const todayStart = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
   );
-  return Array.from({ length: 59 }, (_, index) => {
+  return seedWeightsKg.map((weightKg, index) => {
     const date = new Date(todayStart);
-    date.setUTCDate(todayStart.getUTCDate() - (59 - index));
+    date.setUTCDate(date.getUTCDate() - (seedWeightsKg.length - index));
     return {
       id: `existing-seed-${index + 1}`,
       date: date.toISOString().slice(0, 10),
-      weightKg: 80 + index * 0.0571428571,
+      weightKg,
       commandId: `existing-seed-command-${index + 1}`,
     };
   });
@@ -122,7 +190,7 @@ const existingCandidate: DraftCandidate = {
       items: [
         {
           catalogFoodId: "chicken-breast-roasted",
-          grams: 250,
+          grams: 200,
           alternatives: [],
         },
         { catalogFoodId: "white-rice-cooked", grams: 350, alternatives: [] },
@@ -150,11 +218,15 @@ const existingCandidate: DraftCandidate = {
 };
 
 export function createExistingActivePlan(now = new Date()): ActivePlan {
-  const targets = calculateTargets(existingReadyProfile);
+  const calculationProfile = {
+    ...existingReadyProfile,
+    currentWeightKg: EXISTING_INITIAL_WEIGHT_KG,
+  };
+  const targets = calculateTargets(calculationProfile);
   if (!targets) throw new Error("Existing fixture targets are incomplete");
   const plan = validateAndBuildPlan({
     candidate: existingCandidate,
-    profile: existingReadyProfile,
+    profile: calculationProfile,
     targets,
     planId: "existing-active-plan",
     version: 1,
@@ -164,14 +236,19 @@ export function createExistingActivePlan(now = new Date()): ActivePlan {
     schemaVersion: 1,
     version: 1,
     activatedAt: new Date(now.getTime() - 61 * 86_400_000).toISOString(),
+    maintenanceReferenceWeightKg:
+      maintenanceReferenceWeightFromInitialMeasurements(
+        createExistingWeightHistory(now),
+      ),
     plan,
   };
 }
 
 export function createExistingDemoState(now = new Date()): ExistingDemoState {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     activePlan: createExistingActivePlan(now),
+    draft: null,
     measurements: createExistingWeightHistory(now),
     messages: [
       {
@@ -208,5 +285,6 @@ export function createNewDemoState(): DemoState {
     processedCommandIds: [],
     error: null,
     agentSession: emptyAgentSession(),
+    weightMeasurements: [],
   };
 }

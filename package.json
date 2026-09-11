@@ -7,7 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "start:render": "npm run db:migrate && next start",
+    "start:render": "next start",
     "db:migrate": "node scripts/migrate.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

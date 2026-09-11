@@ -1,6 +1,6 @@
 # Verification Plan v0.2
 
-Status: Active verification plan. Turns 6–7 add cached USDA candidates and unified-agent memory, concurrency, streaming, approval, security-review, and merge-readiness controls; credentialed Render staging remains pending.
+Status: Active verification plan. Turn 8 adds Arnold role/content conversation, durable timeline persistence, bounded skills, model-created Draft proposals, and reset-scoped preferences; credentialed Render staging remains pending.
 
 ## Purpose
 
@@ -56,7 +56,7 @@ These tests are written from the specifications and nutrition documents, not inf
 - **VT-07a:** An existing central-catalog food is offered as **Add to my foods** without an external lookup. The action adds it only to the requesting PostgreSQL profile aggregate and is idempotent.
 - **VT-07b:** A source result with missing fiber stores fiber as unknown and does not contribute to the plan's fiber total.
 - **VT-08:** A meal that combines a `meat` and `dairy` classification fails validation; a neutral or single-classification meal can pass.
-- **VT-09:** Each displayed food alternative independently passes the applicable daily energy tolerance, protein range, age-appropriate AMDR ranges, fiber minimum, catalog, and meal-composition checks.
+- **VT-09:** Each Draft follows a supported three-meal, three-meals-plus-snack, or four-meal pattern and passes the applicable daily energy tolerance, protein range, age-appropriate AMDR ranges, fiber minimum, catalog, and meal-composition checks without food alternatives.
 - **VT-10:** A plan outside ±5% of goal energy, below fiber minimum, outside macro ranges, or outside goal protein range cannot become Active.
 
 ### Draft and Active Plan Controls
@@ -65,6 +65,8 @@ These tests are written from the specifications and nutrition documents, not inf
 - **VT-12:** Approving the exact current valid Draft promotes it to Active once.
 - **VT-13:** Rejecting a Draft, retrying a failed approval, or submitting the same approval command twice does not duplicate or alter state.
 - **VT-14:** Approval of a stale Draft or adjustment proposal whose base Active Plan version no longer matches is rejected.
+- **VT-14g:** An Existing food-continuation Draft must include the approved food at a valid portion and rebalance the Active Plan. A proposal that only appends the food while leaving every other Active Plan amount unchanged is rejected; a valid Draft renders the changed amounts before approval.
+- **VT-14h:** A Maintenance Active Plan retains a deterministic measurement-derived reference. With sufficient evidence, two non-overlapping seven-measurement averages both at least 0.70 kg above it permit only a decrease; both at least 0.70 kg below it permit only an increase; one short-lived block does not permit an adjustment.
 
 ### Cloud Persistence Controls
 
@@ -96,6 +98,7 @@ Generate 35 daily points from `weight(day) = 80 + (slope_kg_per_day × day)` and
 - **VT-26 — Muscle Gain fast:** slope `+0.0857142857 kg/day` produces an approximately `+0.75%/week` trend and permits only a decrease.
 - **VT-27:** Every allowed adjustment is exactly 5% of current Active Plan energy, rounded half-up to 25 kcal and clamped to 100–200 kcal. The AI receives that exact bound and cannot substitute another value.
 - **VT-28:** After an approved adjustment, the evidence gate resets until a new qualifying unchanged-plan window exists.
+- **VT-29 — Explanation parity:** For every supported goal and the age-18/adult equation boundary, the displayed activity mapping, substituted EER result, goal adjustment, rounded target, macro values, validation ranges, evidence result, goal band, adjustment direction, and adjustment magnitude exactly match the shared deterministic domain result. A presentation component rendered with another valid profile requires no demo-specific branch.
 
 ## Gate 3 — Structured AI Contract Tests
 
@@ -111,14 +114,18 @@ Run these controls with mocked or recorded model responses. Do not rely on varia
 - **AI-08:** A model timeout or transport failure preserves confirmed state and returns a retryable failure without duplicate effects.
 - **AI-09:** Food-addition routing accepts only its closed action union. User text and parsed source fields that attempt to override instructions, invoke tools, provide URLs, or request database writes are treated as data and cannot create an action outside that union.
 - **AI-10:** An AI-estimate candidate is visibly and structurally labelled `AI estimate · USDA not verified`; it has no verified-source URL and cannot be stored without explicit approval.
-- **AI-11:** The food tool accepts only a normalized English query and closed preparation enum. Hebrew and English user text, injected URLs, SQL, tool names, or database instructions cannot add arguments or actions.
+- **AI-11:** The food tool accepts only a normalized English query. Hebrew and English user text, injected URLs, SQL, tool names, or database instructions cannot add arguments or actions. A named food starts the bounded search before any variant clarification.
 - **AI-12:** USDA response bodies are never supplied to the model. The model may return only the closed category and meal classification for the selected title; it cannot create or change nutrition values.
 - **AI-13:** USDA search candidates are bulk-validated and cached before display. Selection reads the cached nutrition and performs no second USDA request.
-- **AI-14:** `cottage` produces one combined clarification for cottage cheese and fat percentage; the next reply is interpreted with the persisted pending interaction and transcript.
+- **AI-14:** A food-addition request without a food name produces one persisted clarification. A named food starts the bounded search, and a focused clarification is allowed only when the source ranking finds no genuine match.
 - **AI-15:** Text may select a currently displayed ordinal candidate but text cannot approve a food, Draft, or adjustment. Only the current visible button can cross an approval boundary.
 - **AI-16:** Every model turn receives authoritative profile context and either the complete transcript or the validated digest plus latest 20 messages. Summary text cannot override structured state.
 - **AI-17:** User text and USDA fields attempting prompt injection cannot add a URL, SQL, browser, database, or unknown tool action.
 - **AI-18:** Disconnect, repeated command, stale version, concurrent tab, and a pending turn older than 90 seconds resolve without duplicate messages or mutations.
+- **AI-19:** The model receives chronological role/content messages, including `cottage` → combined clarification → `yes, 3%`; clear explicit preferences are stored as bounded data and never interpreted as instructions.
+- **AI-20:** Arnold may make at most four sequential skill calls, cannot call skills in parallel, retries a rejected Draft at most three times, and asks a focused question rather than using a hidden deterministic plan fallback.
+- **AI-21:** `inspect_food_availability` reports central-catalog, profile-approved, Draft, and Active Plan facts; `remove_approved_food` cannot modify Active Plan.
+- **AI-22:** Fresh and Existing use the same ordinary Draft skill. An Existing Draft retains the current Active Plan targets, survives reload, and cannot activate from text or a stale button. A confirmed food continuation forces the complete Draft skill before prose, includes that food, and requires rebalance rather than an uncompensated append.
 
 Evidence: input fixture, expected contract result, actual validator result, and unchanged-state assertion for every rejected response.
 
@@ -137,10 +144,12 @@ Use browser-level tests where feasible and manual acceptance scripts for visual 
 - **UI-09:** A failed Draft, trend, proposal, or approval operation leaves confirmed state visible and never labels a failed proposal as Active.
 - **UI-10:** Draft, proposal, and Active labels are visible and unambiguous before and after every approval or rejection.
 - **UI-11:** A missing-food request shows one clear sequence: clarification when required, explicit candidate choices when multiple results exist, source-labelled review, and Approve/Reject controls.
+- **AI-21:** A USDA source pool may contain up to 50 permitted summaries; the ranking model receives only sanitized identity metadata, returns one to five in-pool IDs or a focused clarification, and never supplies nutrition values or approvals.
 - **UI-12:** An existing central-catalog match shows **Add to my foods** and never starts a USDA lookup.
 - **UI-13:** Queued, slow, blocked, zero-result, malformed-source, and fallback states preserve the confirmed profile and plan while explaining the next available action.
-- **UI-14:** Assistant text streams beside explicit Thinking, Searching USDA, and Validating status events. Persisted clarification, candidate, approval, Draft, and adjustment controls survive reload.
+- **UI-14:** User and Arnold messages persist before/during/after streaming and survive reload. Small persisted activity events show Thinking, Searching USDA, Validating, Remembering preference, Creating Draft, and Checking plan safety without appearing as normal chat messages.
 - **UI-15:** English input receives English output and Hebrew input receives Hebrew output, except internal normalized USDA queries that are never displayed as user messages.
+- **UI-16:** The nutrition decision summary remains hidden until targets exist, then exposes keyboard-accessible personal calculation, source, and plan-validation details in the current workspace. The weight decision surface never renders a zero trend as evaluated when evidence is insufficient and never describes an available adjustment as already Active.
 
 Evidence: automated trace where available, plus a screenshot or short manual pass/fail note for each visual control.
 
@@ -153,16 +162,17 @@ Evidence: automated trace where available, plus a screenshot or short manual pas
 3. Verify the next question is only for missing information.
 4. Complete an open question and a closed quick-reply question, including the turn-lock control.
 5. Complete the five Food Grid categories.
-6. Generate a valid, catalog-backed Draft within the selected goal's nutrition limits.
-7. Request one supported Draft modification and verify the Active Plan remains unchanged.
-8. Approve the Draft and verify the exact validated Draft becomes Active.
+6. Open the target explanation and verify its personal EER, goal rule, macro formulas, and source links against the deterministic fixture.
+7. Generate a valid, catalog-backed Draft within the selected goal's nutrition limits and verify its visible validation checks.
+8. Request one supported Draft modification and verify the Active Plan remains unchanged.
+9. Approve the Draft and verify the exact validated Draft becomes Active.
 
 ### Demo B — Existing Demo Profile
 
 1. Start from the committed Existing Demo Profile fixture with an Active Plan and approximately two months of seeded weights.
 2. Verify the plan and weight visualization load before any new message.
 3. Enter a valid new weight and verify one new plotted point.
-4. Verify the deterministic trend facts, evidence result, and goal-band classification against the fixture.
+4. Verify the visible deterministic trend facts, evidence result, goal band, decision reason, and research explanation against the fixture.
 5. Run an insufficient-evidence control and verify no caloric proposal appears.
 6. Run a sufficient-evidence control, verify a bounded Draft proposal, and verify the Active Plan has not changed.
 7. Reject once and verify no change; rerun and approve once, then verify the validated proposal becomes Active.
@@ -172,7 +182,7 @@ Evidence: one checklist per demo, linked screenshots, fixture version, and a hum
 ### Runtime Catalog Demonstration
 
 1. Request a food already in the central catalog and verify the **Add to my foods** path without a source request.
-2. Request one missing basic food in the main coach conversation; answer any material preparation clarification and choose one explicit USDA result.
+2. Request one missing basic food in the main coach conversation and choose one explicit USDA result. Confirm that a supplied food name is searched before any focused no-match clarification.
 3. Verify the source, retrieved time, per-100 g values, optional serving information, and the approval requirement before persistence.
 4. Approve once; verify one central catalog record and current-profile approval. Retry once and verify no duplicate record.
 5. Request a plan change using the newly approved food and verify that it creates only a Draft.

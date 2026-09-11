@@ -25,9 +25,23 @@ Display every editable or read-only weight value with at most two digits after t
 
 Status: pending external deployment credentials.
 
-The cloud application, Blueprint, migrations, access gate, repository, and bounded USDA workflow require final credentialed staging before deployment acceptance:
+The cloud application, Blueprint, migrations, access gate, durable Arnold conversation, and bounded USDA workflow require final credentialed staging before deployment acceptance:
 
 - create the Render Blueprint resources;
 - supply the server-only OpenAI, USDA FoodData Central, and demo-access secrets;
-- complete the cooked-food, tomato, pasta, controlled-failure, reset, persistence, and cross-profile checks in `docs/deployment.md`; and
+- complete the conversation continuity, named-food first-search, bounded-skill, visible-approval, concurrent-turn, controlled-failure, reset, persistence, and cross-profile checks in `docs/deployment.md`; and
 - record the deployed URL, commit SHA, and evidence without recording secrets.
+
+## B-04 — Visible nutrition decision journey
+
+Status: implemented locally on 2026-09-07; verification and deployed acceptance remain required.
+
+The product must make its deterministic nutrition work visible without overwhelming a beginner. Once targets exist, both demo journeys show a progressively disclosed explanation from profile inputs through the current nutrition decision.
+
+- Show the personal activity mapping, raw EER estimate, goal adjustment, controlled rounding, daily macro targets, and research sources.
+- When a Draft or Active Plan exists, show its actual values against the same deterministic energy, protein, AMDR, fiber, catalog, portion, meal-pattern, and composition checks that gate activation.
+- For a profile with weight history, show the evidence count and span, calculated weekly rate, goal band, Maintenance drift evidence when applicable, and the exact reason a plan stays unchanged or a bounded adjustment becomes available.
+- Generate explanations from shared domain rules rather than duplicating formulas or thresholds in the interface.
+- Keep the presentation reusable for any valid supported profile. Presentation components must not depend on a demo profile identifier or fixture.
+
+This item adds contextual education and transparency only. It does not add analytics, a general knowledge library, accounts, additional profile types, clinical guidance, or another AI call.

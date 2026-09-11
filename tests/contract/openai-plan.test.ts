@@ -161,7 +161,7 @@ describe("strict Draft model boundary", () => {
     expect(creator).toHaveBeenCalledTimes(2);
     expect(draft.basePlanVersion).toBe(activePlan.version);
     expect(draft.plan.validation.valid).toBe(true);
-    expect(draft.plan.targetSnapshot.energyKcal).toBe(2_800);
+    expect(draft.plan.targetSnapshot.energyKcal).toBe(2_725);
   });
 
   it("B-01 passes decline feedback into a bounded adjustment request", async () => {

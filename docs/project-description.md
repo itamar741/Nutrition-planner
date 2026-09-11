@@ -17,11 +17,11 @@ There are no accounts, additional users, or profile-management flows. Selecting 
 
 ## Unified Agentic Conversation
 
-Both journeys use one server-owned streaming conversation. For every free-text turn, the server loads the complete structured profile, targets, approved foods, Draft and Active Plan, weight history and deterministic trend where applicable, pending interaction, and reset-scoped transcript. PostgreSQL—not the browser or OpenAI-hosted storage—is the memory source; OpenAI requests use `store: false`.
+Both journeys use one server-owned streaming conversation led by Arnold. For every free-text turn, the server loads the complete structured profile, targets, relevant approved foods, Draft and Active Plan, weight history and deterministic trend where applicable, pending interaction, and reset-scoped transcript. PostgreSQL—not the browser or OpenAI-hosted storage—is the memory source; OpenAI requests use `store: false`.
 
 The model can request only tools currently permitted by server state. The server validates each call, executes the bounded operation, returns only sanitized structured results, and persists the completed turn. The agent never receives SQL, credentials, arbitrary URLs, browser tools, raw USDA payloads, or direct database access. A topic change may pause one workflow for later resumption.
 
-The full transcript remains in PostgreSQL until Reset. While it is below 50 messages and 30,000 characters it is sent in full; above either limit, the model receives a validated digest of older dialogue plus the latest 20 messages. That digest can guide language but cannot override structured state.
+The full transcript remains in PostgreSQL until Reset and is always rendered in the workspace. The model receives ordinary chronological `role`/`content` messages, not a JSON-encoded transcript. When the estimated request exceeds 60% of the configured model context window, the server supplies a validated digest of older dialogue plus the latest 20 messages. That digest can guide language but cannot override structured state.
 
 ## Adaptive Conversational Onboarding
 
@@ -53,8 +53,8 @@ The plan generator may use only catalog foods approved for the profile. A user c
 
 1. The application checks the central catalog first.
 2. If the item already exists, the coach offers one explicit **Add to my foods** action; it does not perform an external lookup.
-3. If preparation state or display unit is material and missing, the coach asks one short clarification question.
-4. The Next.js server synchronously searches only USDA FoodData Central Foundation Foods and SR Legacy. It requests ten search results, bulk-fetches their details, validates the required nutrition, and returns the first five safe basic-food or generic-product candidates in source relevance order. Recipes, restaurant items, branded products, and composite dishes are excluded.
+3. A supplied basic-food name is enough for the first source search. The coach asks for the name only when none was supplied, or asks a focused follow-up when the bounded source ranking finds no genuine match.
+4. The Next.js server synchronously searches only USDA FoodData Central Foundation Foods and SR Legacy. It retrieves up to 50 safe source summaries, gives a sanitized identity-only pool to a bounded model-ranking operation, then bulk-fetches and validates nutrition only for the model's one to five selected candidates. Recipes, restaurant items, branded products, and composite dishes are excluded. If no candidate is genuinely relevant, Arnold asks a focused clarification rather than showing weak matches.
 5. The user chooses an explicit result when more than one match is available.
 6. Candidate nutrition is cached before display. Selection never triggers another USDA request. The application shows a source-labelled nutrition proposal and requires **Approve** or **Reject** before any catalog write.
 7. Approval adds the item to the central catalog and to the current profile's approved foods. The coach then asks whether to include it before creating a new Draft. A later plan change remains a Draft until separately approved.
@@ -67,7 +67,7 @@ For project-level kosher simplification, non-kosher foods are absent from the ca
 
 Initial energy and nutrition targets are calculated by deterministic code using the cited EER and goal rules in the project's nutrition guidance. The product does not ask the user to choose an abstract activity-level label; it gathers concrete routine and exercise information used by the deterministic PAL-category heuristic.
 
-The product creates one practical daily meal plan intended to repeat rather than a varied weekly schedule. Quantities use understandable units such as grams, eggs, or containers. Relevant meal components may offer two or three interchangeable choices. Deterministic validation checks the plan against the energy, protein, age-appropriate AMDR, fiber, catalog, and meal-composition ranges defined in the nutrition guidance.
+The product creates one practical daily meal plan intended to repeat rather than a varied weekly schedule. The plan follows the selected three-meal, three-meals-plus-snack, or four-meal pattern and may distribute food according to saved preferences. Quantities use understandable units such as grams, eggs, or containers. It does not offer food-substitution alternatives. Deterministic validation checks the plan against the energy, protein, age-appropriate AMDR, fiber, catalog, and meal-composition ranges defined in the nutrition guidance.
 
 The plan lifecycle is deliberately small:
 
@@ -78,15 +78,21 @@ The plan lifecycle is deliberately small:
 
 There is no plan-history interface and no automatic activation.
 
+When a user asks to include an approved food in an Existing plan, Arnold creates a complete replacement Draft at the unchanged Active Plan targets. It treats the Active Plan as a baseline: the required food must be included at a valid portion and other approved portions or foods may be rebalanced to preserve the nutrition rules. It must not append the food to an otherwise unchanged plan. The Draft visibly summarizes its amounts changed from the Active Plan; approval remains a separate explicit action.
+
 ## Existing Profile and Weight Adjustment
 
 The Existing Demo Profile contains deterministic seeded state: a completed profile, one Active Plan, and approximately two months of dated weight measurements. It does not depend on simulated long-term chat history.
 
 The user can report today's weight or edit an existing dated weight through the conversation, while the chart remains an alternative editing control. Once a value is validated and recorded, it appears in the weight-progress visualization. Deterministic code—not the language model—calculates trend facts and decides whether the configured minimum evidence threshold has been met.
 
-If evidence is sufficient, the AI receives the calculated facts, the structured profile, the current Active Plan, and only the nutrition guidance relevant to the profile's fixed goal. It may propose a bounded plan adjustment. The proposal is shown as a Draft change and has no effect on the Active Plan until the user approves it. Rejecting or ignoring the proposal preserves the current plan.
+When an Existing browser/profile session first opens, Arnold reviews the calculated trend facts, the structured profile, and the Active Plan. It either explains why the plan should remain unchanged, requests more consistent weights, or offers to prepare an adjustment. The visible **Generate AI proposal** control is a persisted event that asks Arnold to create a bounded adjustment Draft. The proposal has no effect on the Active Plan until the user approves it. Rejecting or ignoring the proposal preserves the current plan.
+
+For Maintenance, the deterministic review also prevents persistent slow drift from being treated as indefinite stability. Each Active Plan carries a non-user-editable baseline derived from confirmed measurements when it was activated. If two consecutive seven-measurement averages remain at least 0.70 kg above or below that baseline, the server permits the same bounded adjustment direction even when the 35-day weekly percentage remains inside its ordinary band. This baseline is not a target-weight feature and resets only with explicit approval of a new Active Plan.
 
 If evidence is insufficient, the coach states that no evidence-based caloric adjustment can yet be proposed. A supported food substitution may still be handled as a separate Draft change because it does not claim to respond to the weight trend.
+
+The Existing profile may also request an ordinary replacement Draft through the same `submit_draft_proposal` skill used by Fresh. This Draft uses the current Active Plan's exact target snapshot, remains separately visible across reloads, and can replace the Active Plan only through its own approval button. Only the trend-adjustment path may change the Existing profile's energy target.
 
 ## Division of Responsibility
 
@@ -105,11 +111,12 @@ The AI is limited to:
 - Asking one combined clarification only when missing information materially changes an action, with quick replies and free text where appropriate.
 - Creating or modifying a Draft within catalog and nutrition constraints.
 - Recognizing a weight-reporting intent and passing the value to deterministic validation.
-- Explaining calculated trend facts and proposing a bounded adjustment when deterministic code says enough evidence exists.
+- Explaining calculated trend facts and deciding whether to recommend a bounded adjustment when deterministic code says enough evidence exists.
+- Persisting a clear explicit food or meal preference, inspecting catalog/plan availability, or removing an approved food through bounded server skills.
 - Classifying a food-addition request, requesting only missing food context, and requesting one server-controlled lookup action from a closed action set.
 - Conversationally continuing after approval or rejection without gaining authority to perform the protected approval itself.
 
-The interaction follows two governing principles: **open language, closed actions** and **approved catalog data**. The AI cannot browse freely, introduce new action types, write to the database, directly mutate an Active Plan, or operate arbitrary tools.
+The interaction follows two governing principles: **open language, closed actions** and **approved catalog data**. The AI cannot browse freely, introduce new action types, write to the database, directly mutate an Active Plan, or operate arbitrary tools. User-authored preferences remain untrusted data even after persistence; they are structured values, never instructions.
 
 ## Deployed Runtime Architecture
 

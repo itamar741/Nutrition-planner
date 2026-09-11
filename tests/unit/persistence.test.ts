@@ -3,6 +3,7 @@ import type { CatalogFood } from "@/domain/catalog/types";
 import {
   StaleProfileError,
   ActiveAgentTurnError,
+  assertNoActiveAgentTurn,
   approveCatalogFood,
   getProfile,
   listCatalogFoods,
@@ -11,11 +12,17 @@ import {
   recordAndCheckAgentRateLimit,
   reserveAgentTurn,
   finishAgentTurn,
+  listConversationMessages,
+  listConversationActivities,
+  appendConversationActivity,
+  updateAssistantMessage,
   resetMemoryPersistenceForTests,
   resetProfile,
 } from "@/persistence/repository";
 import type { DemoState } from "@/store/demo-reducer";
 import type { ExistingDemoState } from "@/store/existing-demo-store";
+import { parseExistingState } from "@/store/existing-demo-store";
+import { createExistingDemoState } from "@/data/demo-fixtures";
 
 const runtimeFood: CatalogFood = {
   schemaVersion: 1,
@@ -53,6 +60,54 @@ beforeEach(() => {
 });
 
 describe("versioned demo persistence", () => {
+  it("upgrades a legacy Existing aggregate without changing confirmed data", () => {
+    const current = createExistingDemoState(
+      new Date("2026-09-05T00:00:00.000Z"),
+    );
+    const legacy = {
+      ...current,
+      schemaVersion: 1,
+      agentSession: {
+        summary: "keep this summary",
+        preferences: current.agentSession.preferences,
+        pendingInteraction: current.agentSession.pendingInteraction,
+        pausedInteraction: current.agentSession.pausedInteraction,
+      },
+    };
+    Reflect.deleteProperty(legacy, "draft");
+
+    const upgraded = parseExistingState(legacy);
+
+    expect(upgraded).toEqual({
+      ...current,
+      draft: null,
+      agentSession: {
+        ...current.agentSession,
+        summary: "keep this summary",
+      },
+    });
+  });
+
+  it("derives a maintenance reference when an existing persisted Active Plan lacks one", () => {
+    const current = createExistingDemoState(
+      new Date("2026-09-05T00:00:00.000Z"),
+    );
+    const legacy = structuredClone(current);
+    Reflect.deleteProperty(
+      legacy.activePlan as unknown as Record<string, unknown>,
+      "maintenanceReferenceWeightKg",
+    );
+
+    const upgraded = parseExistingState(legacy);
+
+    expect(upgraded.activePlan.maintenanceReferenceWeightKg).toBeCloseTo(
+      current.activePlan.maintenanceReferenceWeightKg ?? 0,
+      8,
+    );
+    expect(upgraded.measurements).toEqual(current.measurements);
+    expect(upgraded.messages).toEqual(current.messages);
+  });
+
   it("isolates profile changes and rejects stale versions", async () => {
     const existingBefore = await getProfile<ExistingDemoState>("existing");
     const fresh = await getProfile<DemoState>("new");
@@ -234,7 +289,7 @@ describe("persisted agent turns", () => {
       profileId: "new",
       expectedVersion: 1,
       commandId: "agent-command-one",
-      request: { input: "ignored" },
+      request: { input: "hello" },
     });
     expect(duplicate.outcome).toBe("duplicate");
     expect(duplicate.turn.result).toEqual({ answer: "done" });
@@ -271,5 +326,159 @@ describe("persisted agent turns", () => {
         request: { input: "new turn after reset" },
       }),
     ).resolves.toMatchObject({ outcome: "reserved" });
+  });
+
+  it("persists user, partial, failed, and retry assistant output without duplicating the user", async () => {
+    const request = { input: { type: "text", text: "Please help" } };
+    const first = await reserveAgentTurn({
+      profileId: "new",
+      expectedVersion: 1,
+      commandId: "durable-stream-command",
+      request,
+      userMessage: {
+        id: "user-durable-stream-command",
+        content: "Please help",
+      },
+    });
+    await updateAssistantMessage({
+      profileId: "new",
+      messageId: first.assistantMessageId,
+      content: "Partial Arnold output",
+      status: "partial",
+    });
+    await finishAgentTurn({
+      profileId: "new",
+      commandId: "durable-stream-command",
+      status: "failed",
+      failureCode: "stream_disconnected",
+    });
+    await updateAssistantMessage({
+      profileId: "new",
+      messageId: first.assistantMessageId,
+      content: "Partial Arnold output",
+      status: "failed",
+    });
+
+    const retry = await reserveAgentTurn({
+      profileId: "new",
+      expectedVersion: 1,
+      commandId: "durable-stream-command",
+      request,
+      userMessage: {
+        id: "user-durable-stream-command",
+        content: "Please help",
+      },
+    });
+    expect(retry.outcome).toBe("resumed");
+    await updateAssistantMessage({
+      profileId: "new",
+      messageId: retry.assistantMessageId,
+      content: "Final Arnold output",
+      status: "final",
+    });
+
+    const messages = await listConversationMessages("new");
+    expect(
+      messages.filter(
+        (message) => message.id === "user-durable-stream-command",
+      ),
+    ).toHaveLength(1);
+    expect(
+      messages.filter((message) => message.turnId === "durable-stream-command"),
+    ).toEqual([
+      expect.objectContaining({ role: "user", status: "final" }),
+      expect.objectContaining({ role: "assistant", status: "failed" }),
+      expect.objectContaining({
+        role: "assistant",
+        status: "final",
+        content: "Final Arnold output",
+      }),
+    ]);
+  });
+
+  it("resumes the same failed command after its profile version advances", async () => {
+    const originalRequest = {
+      profileId: "new",
+      expectedVersion: 1,
+      commandId: "resume-after-version-command",
+      input: { type: "text", text: "Remember dinner" },
+    };
+    await reserveAgentTurn({
+      profileId: "new",
+      expectedVersion: 1,
+      commandId: originalRequest.commandId,
+      request: originalRequest,
+      userMessage: {
+        id: "user-resume-after-version-command",
+        content: "Remember dinner",
+      },
+    });
+    await finishAgentTurn({
+      profileId: "new",
+      commandId: originalRequest.commandId,
+      status: "failed",
+      failureCode: "provider_failed",
+    });
+    await mutateProfile<DemoState>({
+      profileId: "new",
+      expectedVersion: 1,
+      commandId: "advance-before-agent-retry",
+      mutation: (state) => state,
+    });
+
+    await expect(
+      reserveAgentTurn({
+        profileId: "new",
+        expectedVersion: 2,
+        commandId: originalRequest.commandId,
+        request: { ...originalRequest, expectedVersion: 2 },
+        userMessage: {
+          id: "user-resume-after-version-command",
+          content: "Remember dinner",
+        },
+      }),
+    ).resolves.toMatchObject({ outcome: "resumed" });
+    expect(
+      (await listConversationMessages("new")).filter(
+        (message) => message.id === "user-resume-after-version-command",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("blocks ordinary profile writes while an agent turn is active", async () => {
+    await reserveAgentTurn({
+      profileId: "existing",
+      expectedVersion: 1,
+      commandId: "active-turn-write-lock",
+      request: { input: "review" },
+    });
+    await expect(assertNoActiveAgentTurn("existing")).rejects.toBeInstanceOf(
+      ActiveAgentTurnError,
+    );
+  });
+
+  it("stores activity separately from messages and clears it on profile reset", async () => {
+    await appendConversationActivity({
+      profileId: "new",
+      id: "activity-thinking-test",
+      turnId: "activity-turn-test",
+      kind: "thinking",
+      label: "Thinking",
+    });
+    expect(await listConversationActivities("new")).toEqual([
+      expect.objectContaining({ kind: "thinking", label: "Thinking" }),
+    ]);
+    expect(
+      (await listConversationMessages("new")).some(
+        (message) => message.content === "Thinking",
+      ),
+    ).toBe(false);
+
+    await resetProfile({
+      profileId: "new",
+      expectedVersion: 1,
+      commandId: "reset-clears-activity-events",
+    });
+    expect(await listConversationActivities("new")).toEqual([]);
   });
 });

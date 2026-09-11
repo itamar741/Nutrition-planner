@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  FormEvent,
+  KeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   onboardingFailureSchema,
   onboardingSuccessSchema,
@@ -17,20 +24,14 @@ import {
   demoProfileNames,
   existingProfileFoundation,
 } from "@/data/demo-fixtures";
+import { foodCatalog } from "@/data/food-catalog";
+import { getChecklist, isProfileReady } from "@/domain/profile/onboarding";
 import {
-  foodCatalog,
-  foodCategoryLabels,
-  foodCategoryOrder,
-} from "@/data/food-catalog";
-import { roundTo25HalfUp } from "@/domain/nutrition/calculations";
-import { getChecklist } from "@/domain/profile/onboarding";
-import {
-  adjustmentDirection,
-  calculateWeightTrend,
   formatWeightKg,
   normalizeWeightKg,
   type WeightMeasurement,
 } from "@/domain/weight/trend";
+import { evaluateWeightAdjustmentDecision } from "@/domain/weight/decision";
 import type { DemoProfileId, QuickReplyOption } from "@/domain/profile/types";
 import {
   CloudStateError,
@@ -53,10 +54,72 @@ import { createCatalogSnapshot } from "@/domain/catalog/snapshot";
 import { FoodGrid } from "./FoodGrid";
 import { PlanContents, PlanPanel } from "./PlanPanel";
 import { WeightTrendChart } from "./WeightTrendChart";
+import {
+  NutritionTransparencyPanel,
+  WeightDecisionPanel,
+} from "./NutritionTransparencyPanel";
 import { sendCoachMessage, AgentClientError } from "@/store/agent-client";
 import type { CoachMessageRequest } from "@/domain/agent/types";
+import type { ConversationActivity } from "@/domain/agent/types";
 import { AgentInteractionPanel } from "./AgentInteractionPanel";
+import { CatalogSection } from "./CatalogSection";
+import { FreshActiveDashboard } from "./FreshActiveDashboard";
+import {
+  ArnoldCapabilitiesPanel,
+  type ArnoldCapabilityId,
+  type CapabilityAvailability,
+} from "./ArnoldCapabilitiesPanel";
 import styles from "./CoachWorkspace.module.css";
+
+function capabilityAvailability(input: {
+  profileReady: boolean;
+  hasDraft: boolean;
+  hasActivePlan: boolean;
+  isExisting: boolean;
+}): Record<ArnoldCapabilityId, CapabilityAvailability> {
+  const draftAvailable = input.profileReady && !input.hasDraft;
+  return {
+    draft: {
+      available: draftAvailable,
+      note: input.hasDraft
+        ? "Review or revise the current Draft first."
+        : "Complete onboarding first.",
+    },
+    foods: {
+      available: input.profileReady,
+      note: "Complete onboarding and choose your foods first.",
+    },
+    calculations: {
+      available: input.profileReady,
+      note: "Complete onboarding first.",
+    },
+    weight: {
+      available: input.hasActivePlan || input.isExisting,
+      note: "Available after you approve a plan.",
+    },
+    trend: {
+      available: input.isExisting,
+      note: "Available in the Existing profile.",
+    },
+    goal: {
+      available: input.profileReady,
+      note: "Complete onboarding first.",
+    },
+  };
+}
+
+function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+  if (
+    event.key !== "Enter" ||
+    event.shiftKey ||
+    event.nativeEvent.isComposing ||
+    event.currentTarget.disabled
+  ) {
+    return;
+  }
+  event.preventDefault();
+  event.currentTarget.form?.requestSubmit();
+}
 
 function createCommandId() {
   return (
@@ -65,38 +128,24 @@ function createCommandId() {
   );
 }
 
-function CatalogSection({
-  approvedIds,
-  catalog,
-}: {
-  approvedIds: string[];
-  catalog: readonly CatalogFood[];
-}) {
-  const approvedFoods = catalog.filter((food) => approvedIds.includes(food.id));
-  return (
-    <article className={styles.catalogCard}>
-      <span>This demo profile’s food preferences</span>
-      <h3>{approvedFoods.length} approved foods</h3>
-      <p>
-        These are the foods this demo user said they like. Plans can use only
-        this subset, not every food in the catalog.
-      </p>
-      <div className={styles.catalogGroups}>
-        {foodCategoryOrder.map((category) => (
-          <section key={category}>
-            <h4>{foodCategoryLabels[category]}</h4>
-            <ul>
-              {approvedFoods
-                .filter((food) => food.category === category)
-                .map((food) => (
-                  <li key={food.id}>{food.displayName}</li>
-                ))}
-            </ul>
-          </section>
-        ))}
-      </div>
-    </article>
-  );
+function agentStatusLabel(
+  status:
+    | "thinking"
+    | "searching"
+    | "validating"
+    | "checking_foods"
+    | "remembering"
+    | "creating_draft"
+    | "revising_draft"
+    | null,
+) {
+  if (status === "searching") return "Searching USDA…";
+  if (status === "validating") return "Validating nutrition…";
+  if (status === "checking_foods") return "Checking your foods and plans…";
+  if (status === "remembering") return "Remembering your preference…";
+  if (status === "creating_draft") return "Creating Draft…";
+  if (status === "revising_draft") return "Revising Draft…";
+  return "Thinking…";
 }
 
 function ExistingFoundation() {
@@ -105,18 +154,23 @@ function ExistingFoundation() {
     createExistingDemoState,
   );
   const [catalog, setCatalog] = useState<CatalogFood[]>([...foodCatalog]);
+  const [activities, setActivities] = useState<ConversationActivity[]>([]);
   const [cloudError, setCloudError] = useState("");
   const cloudVersion = useRef(1);
   const cloudQueue = useRef<Promise<void>>(Promise.resolve());
   const [weightInput, setWeightInput] = useState("");
   const [chatInput, setChatInput] = useState("");
-  const [editingMeasurement, setEditingMeasurement] =
-    useState<WeightMeasurement | null>(null);
-  const [editingWeight, setEditingWeight] = useState("");
   const [proposalError, setProposalError] = useState("");
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentStatus, setAgentStatus] = useState<
-    "thinking" | "searching" | "validating" | null
+    | "thinking"
+    | "searching"
+    | "validating"
+    | "checking_foods"
+    | "remembering"
+    | "creating_draft"
+    | "revising_draft"
+    | null
   >(null);
   const [streamingText, setStreamingText] = useState("");
   const [pendingAgentText, setPendingAgentText] = useState("");
@@ -124,9 +178,10 @@ function ExistingFoundation() {
     string,
     string
   > | null>(null);
-  const [lastAgentInput, setLastAgentInput] = useState<
-    CoachMessageRequest["input"] | null
-  >(null);
+  const [lastAgentRequest, setLastAgentRequest] = useState<{
+    input: CoachMessageRequest["input"];
+    commandId: string;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -135,7 +190,20 @@ function ExistingFoundation() {
         if (cancelled) return;
         cloudVersion.current = result.profile.version;
         setExisting(result.profile.state);
+        setActivities(result.profile.activityEvents ?? []);
         if (result.catalog.length > 0) setCatalog(result.catalog);
+        const reviewKey = "arnold-trend-review:existing";
+        if (!window.sessionStorage.getItem(reviewKey)) {
+          window.sessionStorage.setItem(reviewKey, "started");
+          void sendExistingAgent(
+            {
+              type: "interaction",
+              interactionId: `existing-session-review-v${result.profile.state.activePlan.version}`,
+              action: "review_trend",
+            },
+            createCommandId(),
+          );
+        }
       })
       .catch((error) => {
         if (!cancelled) {
@@ -149,6 +217,8 @@ function ExistingFoundation() {
     return () => {
       cancelled = true;
     };
+    // The opening review is intentionally bound to the first hydration only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function dispatchExisting(action: ExistingDemoAction) {
@@ -178,27 +248,25 @@ function ExistingFoundation() {
     });
   }
 
-  const trend = useMemo(
+  const weightDecision = useMemo(
     () =>
-      calculateWeightTrend(existing.measurements, {
-        activePlanActivatedAt: existing.activePlan.activatedAt,
+      evaluateWeightAdjustmentDecision({
+        goal: profile.goal ?? "maintenance",
+        measurements: existing.measurements,
+        activePlan: existing.activePlan,
       }),
-    [existing.activePlan.activatedAt, existing.measurements],
+    [existing.activePlan, existing.measurements, profile.goal],
   );
-  const direction =
-    trend.evidence === "sufficient"
-      ? adjustmentDirection(profile.goal ?? "maintenance", trend.weeklyPercent)
-      : null;
-  const adjustmentKcal = roundTo25HalfUp(
-    existing.activePlan.plan.validation.totals.energyKcal * 0.05,
-  );
-
+  const trend = weightDecision.trend;
   function appendChat(role: "assistant" | "user", text: string) {
     return { id: `${role}-${createCommandId()}`, role, text };
   }
-  async function sendExistingAgent(agentInput: CoachMessageRequest["input"]) {
+  async function sendExistingAgent(
+    agentInput: CoachMessageRequest["input"],
+    commandId = createCommandId(),
+  ) {
     if (agentBusy) return;
-    setLastAgentInput(agentInput);
+    setLastAgentRequest({ input: agentInput, commandId });
     setAgentBusy(true);
     setStreamingText("");
     setPendingAgentText(
@@ -208,8 +276,8 @@ function ExistingFoundation() {
     );
     setCloudError("");
     setAgentDiagnostics(null);
-    const commandId = createCommandId();
     try {
+      await cloudQueue.current;
       const result = await sendCoachMessage({
         request: {
           profileId: "existing",
@@ -222,6 +290,7 @@ function ExistingFoundation() {
       });
       cloudVersion.current = result.profile.version;
       setExisting(result.profile.state as ExistingDemoState);
+      setActivities(result.profile.activityEvents ?? []);
       if (result.catalogFood) {
         setCatalog((current) => [
           ...current.filter((food) => food.id !== result.catalogFood!.id),
@@ -238,6 +307,16 @@ function ExistingFoundation() {
       }
       if (error instanceof AgentClientError)
         setAgentDiagnostics(error.diagnostics ?? null);
+      try {
+        const latest = await loadCloudProfile<ExistingDemoState>("existing");
+        cloudVersion.current = latest.profile.version;
+        setExisting(latest.profile.state);
+        setActivities(latest.profile.activityEvents ?? []);
+      } catch {
+        // Keep the last confirmed render when reload is also unavailable.
+      }
+      setPendingAgentText("");
+      setStreamingText("");
       setCloudError(
         error instanceof Error
           ? error.message
@@ -247,6 +326,23 @@ function ExistingFoundation() {
       setAgentBusy(false);
       setAgentStatus(null);
     }
+  }
+  function approveExistingDraft() {
+    if (!existing.draft || agentBusy) return;
+    void sendExistingAgent({
+      type: "interaction",
+      interactionId: existing.draft.id,
+      action: "approve_draft",
+    });
+  }
+
+  function rejectExistingDraft() {
+    if (!existing.draft || agentBusy) return;
+    void sendExistingAgent({
+      type: "interaction",
+      interactionId: existing.draft.id,
+      action: "reject_draft",
+    });
   }
   function saveTodayWeight(weightKg: number, source: "chat" | "form") {
     const date = new Date().toISOString().slice(0, 10);
@@ -295,6 +391,7 @@ function ExistingFoundation() {
   }
   function submitWeightForm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (agentBusy) return;
     try {
       saveTodayWeight(normalizeWeightKg(Number(weightInput)), "form");
       setWeightInput("");
@@ -312,37 +409,41 @@ function ExistingFoundation() {
       });
     }
   }
-  function startEditing(measurement: WeightMeasurement) {
-    setEditingMeasurement(measurement);
-    setEditingWeight(formatWeightKg(measurement.weightKg));
+  function editExistingWeight(date: string, weightKg: number) {
+    if (agentBusy) return;
+    const commandId = createCommandId();
+    dispatchExisting({
+      type: "edit_weight",
+      commandId,
+      date,
+      weightKg,
+      messages: [
+        appendChat(
+          "assistant",
+          `Updated ${date} to ${formatWeightKg(weightKg)} kg. Your trend was recalculated.`,
+        ),
+      ],
+    });
+    setProposalError("");
   }
-  function saveEditedWeight(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!editingMeasurement) return;
-    try {
-      const weightKg = normalizeWeightKg(Number(editingWeight));
-      const commandId = createCommandId();
-      dispatchExisting({
-        type: "edit_weight",
-        commandId,
-        date: editingMeasurement.date,
-        weightKg,
-        messages: [
-          appendChat(
-            "assistant",
-            `Updated ${editingMeasurement.date} to ${formatWeightKg(weightKg)} kg. Your trend was recalculated.`,
-          ),
-        ],
-      });
-      setEditingMeasurement(null);
-      setProposalError("");
-    } catch (error) {
-      setProposalError(
-        error instanceof Error ? error.message : "Enter a valid weight.",
-      );
-    }
+  function deleteExistingWeight(date: string) {
+    if (agentBusy) return;
+    const commandId = createCommandId();
+    dispatchExisting({
+      type: "delete_weight",
+      commandId,
+      date,
+      messages: [
+        appendChat(
+          "assistant",
+          `Deleted the weight recorded for ${date}. Your trend was recalculated.`,
+        ),
+      ],
+    });
+    setProposalError("");
   }
   async function resetExistingDemo() {
+    if (agentBusy) return;
     if (!window.confirm("Reset only the Existing demo to its seeded state?")) {
       return;
     }
@@ -363,7 +464,6 @@ function ExistingFoundation() {
       setCloudError(error instanceof Error ? error.message : "Reset failed.");
       return;
     }
-    setEditingMeasurement(null);
     setProposalError("");
   }
   return (
@@ -387,11 +487,16 @@ function ExistingFoundation() {
               </p>
             </details>
           ) : null}
-          {lastAgentInput ? (
+          {lastAgentRequest ? (
             <button
               className={styles.retryButton}
               disabled={agentBusy}
-              onClick={() => void sendExistingAgent(lastAgentInput)}
+              onClick={() =>
+                void sendExistingAgent(
+                  lastAgentRequest.input,
+                  lastAgentRequest.commandId,
+                )
+              }
               type="button"
             >
               Retry
@@ -400,6 +505,17 @@ function ExistingFoundation() {
         </div>
       ) : null}
       <div className={styles.existingGrid}>
+        {existing.draft ? (
+          <PlanPanel
+            activePlan={existing.activePlan}
+            catalog={catalog}
+            disabled={agentBusy}
+            draft={existing.draft}
+            onApprove={approveExistingDraft}
+            onReject={rejectExistingDraft}
+            targets={existing.activePlan.plan.targetSnapshot}
+          />
+        ) : null}
         <article className={styles.existingCard}>
           <span>Profile</span>
           <h3>
@@ -420,6 +536,11 @@ function ExistingFoundation() {
           </p>
         </article>
       </div>
+      <NutritionTransparencyPanel
+        plan={existing.activePlan.plan}
+        profile={profile}
+        targetSnapshot={existing.activePlan.plan.targetSnapshot}
+      />
       <section className={styles.weightWorkspace} aria-label="Weight tracking">
         <article className={styles.weightChartCard}>
           <div className={styles.weightCardHeader}>
@@ -429,6 +550,7 @@ function ExistingFoundation() {
             </div>
             <button
               className={styles.resetButton}
+              disabled={agentBusy}
               onClick={resetExistingDemo}
               type="button"
             >
@@ -436,177 +558,46 @@ function ExistingFoundation() {
             </button>
           </div>
           <WeightTrendChart
-            measurements={existing.measurements}
-            onSelect={startEditing}
-            trend={trend}
-          />
-          <div className={styles.trendStats}>
-            <span>
-              <strong>{trend.weeklyKg.toFixed(2)} kg</strong>
-              weekly change
-            </span>
-            <span>
-              <strong>{trend.weeklyPercent.toFixed(2)}%</strong>
-              weekly percentage
-            </span>
-            <span>
-              <strong>
-                {trend.evidence === "sufficient"
-                  ? "Evidence ready"
-                  : "More data needed"}
-              </strong>
-              {trend.evidence === "sufficient"
-                ? "Trend can be evaluated"
-                : trend.evidenceReason === "active_plan_changed"
-                  ? "The Active Plan changed in this window"
-                  : "28 measurements across 28 days are required"}
-            </span>
-          </div>
-        </article>
-        <article className={styles.existingCard}>
-          <span>Record today’s weight</span>
-          <form onSubmit={submitWeightForm}>
-            <input
-              aria-label="Weight in kilograms"
-              inputMode="decimal"
-              min="1"
-              onChange={(event) => setWeightInput(event.target.value)}
-              placeholder="kg"
-              step="0.01"
-              type="number"
-              value={weightInput}
-            />
-            <button className={styles.primaryAction} type="submit">
-              Save today
-            </button>
-          </form>
-          <p>To correct an earlier day, select its point on the chart.</p>
-        </article>
-        <article className={styles.weightChatCard}>
-          <span>Coach conversation</span>
-          <div className={styles.weightMessages} aria-live="polite">
-            {existing.messages.map((message) => (
-              <div
-                className={
-                  message.role === "assistant"
-                    ? styles.weightAssistantMessage
-                    : styles.weightUserMessage
-                }
-                key={message.id}
+            disabled={agentBusy}
+            footer={
+              <form
+                className={styles.recordWeightForm}
+                onSubmit={submitWeightForm}
               >
-                {message.text}
-              </div>
-            ))}
-            {pendingAgentText ? (
-              <div className={styles.weightUserMessage}>{pendingAgentText}</div>
-            ) : null}
-            {direction && !existing.agentSession.pendingInteraction ? (
-              <div className={styles.weightAssistantMessage}>
-                <p>
-                  Your deterministic trend supports a bounded {direction} of{" "}
-                  {adjustmentKcal} kcal/day.
-                </p>
+                <label className={styles.srOnly} htmlFor="record-weight">
+                  Weight in kilograms
+                </label>
+                <input
+                  aria-label="Weight in kilograms"
+                  disabled={agentBusy}
+                  id="record-weight"
+                  inputMode="decimal"
+                  min="1"
+                  onChange={(event) => setWeightInput(event.target.value)}
+                  placeholder="kg"
+                  step="0.01"
+                  type="number"
+                  value={weightInput}
+                />
                 <button
                   className={styles.primaryAction}
                   disabled={agentBusy}
-                  onClick={() =>
-                    void sendExistingAgent({
-                      type: "text",
-                      text: "Review my deterministic weight trend and propose a safe adjustment if it is supported.",
-                    })
-                  }
-                  type="button"
+                  type="submit"
                 >
-                  {agentBusy
-                    ? "Creating validated proposal…"
-                    : "Generate AI proposal"}
+                  Save today
                 </button>
-              </div>
-            ) : null}
-            {proposalError ? (
-              <p className={styles.errorBox} role="alert">
-                {proposalError}
-              </p>
-            ) : null}
-            {existing.agentSession.pendingInteraction ? (
-              <AgentInteractionPanel
-                catalog={catalog}
-                disabled={agentBusy}
-                interaction={existing.agentSession.pendingInteraction}
-                onAction={(value) => void sendExistingAgent(value)}
-                onQuickReply={(text) =>
-                  void sendExistingAgent({ type: "text", text })
-                }
-              />
-            ) : null}
-            {streamingText ? (
-              <div className={styles.weightAssistantMessage}>
-                {streamingText}
-              </div>
-            ) : null}
-            {agentBusy ? (
-              <div className={styles.processing} role="status">
-                <span className={styles.pulse} />
-                {agentStatus === "searching"
-                  ? "Searching USDA…"
-                  : agentStatus === "validating"
-                    ? "Validating…"
-                    : "Thinking…"}
-              </div>
-            ) : null}
-          </div>
-          <form className={styles.composer} onSubmit={submitWeightChat}>
-            <textarea
-              aria-label="Message to nutrition coach"
-              disabled={agentBusy}
-              maxLength={1_000}
-              onChange={(event) => setChatInput(event.target.value)}
-              placeholder="Add a food, record a weight, or ask about your plan"
-              rows={2}
-              value={chatInput}
-            />
-            <button
-              className={styles.sendButton}
-              disabled={!chatInput.trim() || agentBusy}
-              type="submit"
-            >
-              Send
-            </button>
-          </form>
+              </form>
+            }
+            measurements={existing.measurements}
+            onDelete={deleteExistingWeight}
+            onEdit={editExistingWeight}
+            trend={trend}
+          />
+          <WeightDecisionPanel decision={weightDecision} />
         </article>
-      </section>
-      {editingMeasurement ? (
-        <section
-          className={styles.editWeightPanel}
-          aria-label="Edit weight measurement"
+        <article
+          className={`${styles.existingCard} ${styles.weightActivePlan}`}
         >
-          <span>Edit recorded weight</span>
-          <h3>{editingMeasurement.date}</h3>
-          <form onSubmit={saveEditedWeight}>
-            <input
-              aria-label="Replacement weight in kilograms"
-              inputMode="decimal"
-              min="1"
-              onChange={(event) => setEditingWeight(event.target.value)}
-              step="0.01"
-              type="number"
-              value={editingWeight}
-            />
-            <button className={styles.primaryAction} type="submit">
-              Save replacement
-            </button>
-            <button
-              className={styles.secondaryAction}
-              onClick={() => setEditingMeasurement(null)}
-              type="button"
-            >
-              Cancel
-            </button>
-          </form>
-        </section>
-      ) : null}
-      <div className={styles.existingGrid}>
-        <article className={styles.existingCard}>
           <span>Active Plan</span>
           <h3>
             {existing.activePlan.plan.validation.totals.energyKcal.toFixed(0)}{" "}
@@ -631,7 +622,90 @@ function ExistingFoundation() {
             />
           </details>
         </article>
-      </div>
+        <article className={styles.weightChatCard}>
+          <span>Coach conversation</span>
+          <ArnoldCapabilitiesPanel
+            availability={capabilityAvailability({
+              profileReady: true,
+              hasDraft: Boolean(existing.draft),
+              hasActivePlan: true,
+              isExisting: true,
+            })}
+            onSelect={setChatInput}
+          />
+          <div className={styles.weightMessages} aria-live="polite">
+            {existing.messages.map((message) => (
+              <div
+                className={
+                  message.role === "assistant"
+                    ? styles.weightAssistantMessage
+                    : styles.weightUserMessage
+                }
+                key={message.id}
+              >
+                {message.text}
+              </div>
+            ))}
+            {pendingAgentText ? (
+              <div className={styles.weightUserMessage}>{pendingAgentText}</div>
+            ) : null}
+            {activities
+              .filter((activity) => activity.status === "pending")
+              .map((activity) => (
+                <div className={styles.processing} key={activity.id}>
+                  <span className={styles.pulse} aria-hidden="true" />
+                  {activity.label}
+                </div>
+              ))}
+            {proposalError ? (
+              <p className={styles.errorBox} role="alert">
+                {proposalError}
+              </p>
+            ) : null}
+            {existing.agentSession.pendingInteraction ? (
+              <AgentInteractionPanel
+                catalog={catalog}
+                disabled={agentBusy}
+                interaction={existing.agentSession.pendingInteraction}
+                onAction={(value) => void sendExistingAgent(value)}
+                onQuickReply={(text) =>
+                  void sendExistingAgent({ type: "text", text })
+                }
+              />
+            ) : null}
+            {streamingText ? (
+              <div className={styles.weightAssistantMessage}>
+                {streamingText}
+              </div>
+            ) : null}
+            {agentBusy ? (
+              <div className={styles.processing} role="status">
+                <span className={styles.pulse} />
+                {agentStatusLabel(agentStatus)}
+              </div>
+            ) : null}
+          </div>
+          <form className={styles.composer} onSubmit={submitWeightChat}>
+            <textarea
+              aria-label="Message to nutrition coach"
+              disabled={agentBusy}
+              maxLength={1_000}
+              onKeyDown={handleComposerKeyDown}
+              onChange={(event) => setChatInput(event.target.value)}
+              placeholder="Add a food, record a weight, or ask about your plan"
+              rows={2}
+              value={chatInput}
+            />
+            <button
+              className={styles.sendButton}
+              disabled={!chatInput.trim() || agentBusy}
+              type="submit"
+            >
+              Send
+            </button>
+          </form>
+        </article>
+      </section>
       <CatalogSection
         approvedIds={existing.approvedCatalogFoodIds}
         catalog={catalog}
@@ -660,6 +734,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
   const [state, setState] = useState(createNewDemoState);
   const stateRef = useRef(state);
   const [catalog, setCatalog] = useState<CatalogFood[]>([...foodCatalog]);
+  const [activities, setActivities] = useState<ConversationActivity[]>([]);
   const [cloudError, setCloudError] = useState("");
   const cloudVersion = useRef(1);
   const cloudQueue = useRef<Promise<void>>(Promise.resolve());
@@ -668,7 +743,14 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
   const [isSlow, setIsSlow] = useState(false);
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentStatus, setAgentStatus] = useState<
-    "thinking" | "searching" | "validating" | null
+    | "thinking"
+    | "searching"
+    | "validating"
+    | "checking_foods"
+    | "remembering"
+    | "creating_draft"
+    | "revising_draft"
+    | null
   >(null);
   const [streamingText, setStreamingText] = useState("");
   const [pendingAgentText, setPendingAgentText] = useState("");
@@ -676,9 +758,10 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
     string,
     string
   > | null>(null);
-  const [lastAgentInput, setLastAgentInput] = useState<
-    CoachMessageRequest["input"] | null
-  >(null);
+  const [lastAgentRequest, setLastAgentRequest] = useState<{
+    input: CoachMessageRequest["input"];
+    commandId: string;
+  } | null>(null);
   const turnLock = useRef(false);
   const messagesEnd = useRef<HTMLDivElement>(null);
 
@@ -691,6 +774,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
         cloudVersion.current = result.profile.version;
         stateRef.current = result.profile.state;
         setState(result.profile.state);
+        setActivities(result.profile.activityEvents ?? []);
         if (result.catalog.length > 0) setCatalog(result.catalog);
       })
       .catch((error) => {
@@ -753,9 +837,12 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
     });
   }
 
-  async function sendFreshAgent(agentInput: CoachMessageRequest["input"]) {
+  async function sendFreshAgent(
+    agentInput: CoachMessageRequest["input"],
+    commandId = createCommandId(),
+  ) {
     if (agentBusy) return;
-    setLastAgentInput(agentInput);
+    setLastAgentRequest({ input: agentInput, commandId });
     setAgentBusy(true);
     setStreamingText("");
     setPendingAgentText(
@@ -766,11 +853,12 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
     setCloudError("");
     setAgentDiagnostics(null);
     try {
+      await cloudQueue.current;
       const result = await sendCoachMessage({
         request: {
           profileId: "new",
           expectedVersion: cloudVersion.current,
-          commandId: createCommandId(),
+          commandId,
           input: agentInput,
         },
         onStatus: setAgentStatus,
@@ -782,6 +870,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
       setState(
         result.profile.state as import("@/store/demo-reducer").DemoState,
       );
+      setActivities(result.profile.activityEvents ?? []);
       if (result.catalogFood) {
         setCatalog((current) => [
           ...current.filter((food) => food.id !== result.catalogFood!.id),
@@ -802,6 +891,20 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
       }
       if (error instanceof AgentClientError)
         setAgentDiagnostics(error.diagnostics ?? null);
+      try {
+        const latest =
+          await loadCloudProfile<import("@/store/demo-reducer").DemoState>(
+            "new",
+          );
+        cloudVersion.current = latest.profile.version;
+        stateRef.current = latest.profile.state;
+        setState(latest.profile.state);
+        setActivities(latest.profile.activityEvents ?? []);
+      } catch {
+        // Keep the last confirmed render when reload is also unavailable.
+      }
+      setPendingAgentText("");
+      setStreamingText("");
       setCloudError(
         error instanceof Error
           ? error.message
@@ -982,6 +1085,10 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
     event.preventDefault();
     const message = draftMessage.trim();
     if (!message) return;
+    if (!isProfileReady(stateRef.current.profile)) {
+      void sendOpenCommand({ id: createCommandId(), message });
+      return;
+    }
     void sendFreshAgent({ type: "text", text: message });
   }
 
@@ -1037,6 +1144,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
   }
 
   async function handleReset() {
+    if (agentBusy) return;
     if (
       !window.confirm("Reset only the Fresh demo to its empty starting state?")
     ) {
@@ -1089,6 +1197,45 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
     });
   }
 
+  function recordFreshWeight(weightKg: number) {
+    const date = new Date().toISOString().slice(0, 10);
+    if (
+      stateRef.current.weightMeasurements.some((item) => item.date === date)
+    ) {
+      throw new Error(
+        "Today's weight already exists; select its point to edit it.",
+      );
+    }
+    const commandId = createCommandId();
+    dispatch({
+      type: "record_weight",
+      commandId,
+      measurement: {
+        id: `weight-${commandId}`,
+        date,
+        weightKg,
+        commandId,
+      },
+    });
+  }
+
+  function editFreshWeight(date: string, weightKg: number) {
+    dispatch({
+      type: "edit_weight",
+      commandId: createCommandId(),
+      date,
+      weightKg,
+    });
+  }
+
+  function deleteFreshWeight(date: string) {
+    dispatch({
+      type: "delete_weight",
+      commandId: createCommandId(),
+      date,
+    });
+  }
+
   const inputEnabled =
     profileId === "new" &&
     state.status === "idle" &&
@@ -1126,6 +1273,27 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
       <div className={styles.workspace}>
         {profileId === "existing" ? (
           <ExistingFoundation />
+        ) : state.activePlan ? (
+          <FreshActiveDashboard
+            activities={activities}
+            agentBusy={agentBusy}
+            agentStatusText={agentStatusLabel(agentStatus)}
+            catalog={catalog}
+            cloudError={cloudError}
+            messageInput={draftMessage}
+            onAgentAction={(input) => void sendFreshAgent(input)}
+            onApprove={handleApprove}
+            onDeleteWeight={deleteFreshWeight}
+            onEditWeight={editFreshWeight}
+            onMessageInput={setDraftMessage}
+            onRecordWeight={recordFreshWeight}
+            onReject={handleReject}
+            onReset={() => void handleReset()}
+            onSendMessage={handleSubmit}
+            pendingAgentText={pendingAgentText}
+            state={state}
+            streamingText={streamingText}
+          />
         ) : (
           <>
             <section
@@ -1141,21 +1309,15 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                       ? "Your plan is Active."
                       : "Let’s build your baseline."}
                 </h1>
-                <p>
-                  {state.draft
-                    ? "Ask for one food replacement or portion change, or approve the exact Draft."
-                    : state.activePlan
-                      ? "This exact validated plan is now your approved baseline."
-                      : "I’ll keep what you confirm and ask only for what is still missing."}
-                </p>
-                <button
-                  className={styles.secondaryAction}
-                  disabled={state.status !== "idle" || agentBusy}
-                  onClick={() => setDraftMessage("I want to add ")}
-                  type="button"
-                >
-                  Add a missing food
-                </button>
+                <ArnoldCapabilitiesPanel
+                  availability={capabilityAvailability({
+                    profileReady: isProfileReady(state.profile),
+                    hasDraft: Boolean(state.draft),
+                    hasActivePlan: Boolean(state.activePlan),
+                    isExisting: false,
+                  })}
+                  onSelect={setDraftMessage}
+                />
               </header>
 
               {cloudError ? (
@@ -1171,11 +1333,16 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                       </p>
                     </details>
                   ) : null}
-                  {lastAgentInput ? (
+                  {lastAgentRequest ? (
                     <button
                       className={styles.retryButton}
                       disabled={agentBusy}
-                      onClick={() => void sendFreshAgent(lastAgentInput)}
+                      onClick={() =>
+                        void sendFreshAgent(
+                          lastAgentRequest.input,
+                          lastAgentRequest.commandId,
+                        )
+                      }
                       type="button"
                     >
                       Retry
@@ -1223,6 +1390,14 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                     }
                   />
                 ) : null}
+                {activities
+                  .filter((activity) => activity.status === "pending")
+                  .map((activity) => (
+                    <div className={styles.processing} key={activity.id}>
+                      <span className={styles.pulse} aria-hidden="true" />
+                      {activity.label}
+                    </div>
+                  ))}
                 {streamingText ? (
                   <div
                     className={`${styles.message} ${styles.assistantMessage}`}
@@ -1233,11 +1408,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                 {agentBusy ? (
                   <div className={styles.processing} role="status">
                     <span className={styles.pulse} aria-hidden="true" />
-                    {agentStatus === "searching"
-                      ? "Searching USDA…"
-                      : agentStatus === "validating"
-                        ? "Validating…"
-                        : "Thinking…"}
+                    {agentStatusLabel(agentStatus)}
                   </div>
                 ) : null}
                 <div ref={messagesEnd} />
@@ -1287,30 +1458,66 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                     <DisabledComposer placeholder="Complete food selection above" />
                   </>
                 ) : state.draft ? (
-                  <form className={styles.composer} onSubmit={handleSubmit}>
-                    <textarea
-                      aria-label="Message to nutrition coach"
-                      disabled={!inputEnabled}
-                      maxLength={1_000}
-                      onChange={(event) => setDraftMessage(event.target.value)}
-                      placeholder="Try: replace one food, or change one portion…"
-                      rows={2}
-                      value={draftMessage}
-                    />
-                    <button
-                      className={styles.sendButton}
-                      disabled={!inputEnabled || !draftMessage.trim()}
-                      type="submit"
+                  <>
+                    <section
+                      aria-label="Draft approval actions"
+                      className={styles.draftApprovalDock}
                     >
-                      Request change
-                    </button>
-                  </form>
+                      <div>
+                        <strong>Validated Draft ready</strong>
+                        <small>
+                          Review the plan beside the conversation, then approve
+                          or decline it here.
+                        </small>
+                      </div>
+                      <div className={styles.approvalActions}>
+                        <button
+                          className={styles.primaryAction}
+                          disabled={agentBusy}
+                          onClick={handleApprove}
+                          type="button"
+                        >
+                          Approve &amp; activate
+                        </button>
+                        <button
+                          className={styles.secondaryAction}
+                          disabled={agentBusy}
+                          onClick={handleReject}
+                          type="button"
+                        >
+                          Decline Draft
+                        </button>
+                      </div>
+                    </section>
+                    <form className={styles.composer} onSubmit={handleSubmit}>
+                      <textarea
+                        aria-label="Message to nutrition coach"
+                        disabled={!inputEnabled}
+                        maxLength={1_000}
+                        onKeyDown={handleComposerKeyDown}
+                        onChange={(event) =>
+                          setDraftMessage(event.target.value)
+                        }
+                        placeholder="Try: replace one food, or change one portion…"
+                        rows={2}
+                        value={draftMessage}
+                      />
+                      <button
+                        className={styles.sendButton}
+                        disabled={!inputEnabled || !draftMessage.trim()}
+                        type="submit"
+                      >
+                        Request change
+                      </button>
+                    </form>
+                  </>
                 ) : state.activePlan ? (
                   <form className={styles.composer} onSubmit={handleSubmit}>
                     <textarea
                       aria-label="Message to nutrition coach"
                       disabled={!inputEnabled}
                       maxLength={1_000}
+                      onKeyDown={handleComposerKeyDown}
                       onChange={(event) => setDraftMessage(event.target.value)}
                       placeholder="Ask about your plan, record feedback, or add a food…"
                       rows={2}
@@ -1352,6 +1559,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                         className={styles.feedbackInput}
                         disabled={state.status !== "idle"}
                         maxLength={1_000}
+                        onKeyDown={handleComposerKeyDown}
                         onChange={(event) =>
                           setDraftMessage(event.target.value)
                         }
@@ -1367,7 +1575,9 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                     >
                       {draftWasDeclined
                         ? "Generate revised Draft"
-                        : "Generate Draft"}
+                        : draftMessage.trim()
+                          ? "Send"
+                          : "Generate Draft"}
                     </button>
                   </form>
                 ) : (
@@ -1376,6 +1586,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                       aria-label="Message to nutrition coach"
                       disabled={!inputEnabled}
                       maxLength={1_000}
+                      onKeyDown={handleComposerKeyDown}
                       onChange={(event) => setDraftMessage(event.target.value)}
                       placeholder={
                         inputEnabled
@@ -1405,6 +1616,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                 </div>
                 <button
                   className={styles.resetButton}
+                  disabled={agentBusy}
                   onClick={handleReset}
                   type="button"
                 >
@@ -1455,14 +1667,24 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                   </p>
                 </details>
               ) : null}
+              {state.targets ? (
+                <NutritionTransparencyPanel
+                  plan={state.draft?.plan ?? null}
+                  profile={state.profile}
+                  targetSnapshot={
+                    state.draft?.plan.targetSnapshot ?? state.targets
+                  }
+                />
+              ) : null}
               <PlanPanel
                 activePlan={state.activePlan}
                 catalog={catalog}
-                disabled={state.status !== "idle"}
+                disabled={state.status !== "idle" || agentBusy}
                 draft={state.draft}
                 onApprove={handleApprove}
                 onReject={handleReject}
                 targets={state.targets}
+                showActions={!state.draft}
               />
             </aside>
           </>

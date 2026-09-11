@@ -93,44 +93,8 @@ function installCloudFetch(
           }),
         };
       }
-      if (url === "/api/coach/message") {
-        const legacy = await onboarding();
-        const body = (await legacy.json()) as {
-          profile?: DemoState["profile"];
-          activeTurn?: DemoState["activeTurn"];
-          targets?: DemoState["targets"];
-          acknowledgement?: string;
-        };
-        if (body.profile && body.activeTurn) {
-          state = {
-            ...state,
-            profile: body.profile,
-            activeTurn: body.activeTurn,
-            targets: body.targets ?? null,
-            messages: [
-              ...state.messages,
-              {
-                id: "user-agent",
-                role: "user",
-                text: "I am a 30 year old man, 180 cm and 80 kg.",
-              },
-              {
-                id: "assistant-agent",
-                role: "assistant",
-                text: body.acknowledgement ?? "Saved.",
-              },
-            ],
-          };
-          version += 1;
-        }
-        return {
-          ok: legacy.ok,
-          headers: { get: () => "application/json" },
-          json: async () => ({
-            ok: true,
-            profile: { profileId: "new", version, state },
-          }),
-        };
+      if (url === "/api/coach/onboarding") {
+        return onboarding();
       }
       throw new Error(`Unexpected request: ${url}`);
     }),
@@ -188,7 +152,9 @@ describe("CoachWorkspace", () => {
     expect(document.querySelector('[data-role="user"]')).toHaveTextContent(
       "I am 30.",
     );
-    expect(screen.getByRole("status")).toHaveTextContent("Thinking");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Reviewing your details",
+    );
     expect(input).toBeDisabled();
 
     await act(async () => {

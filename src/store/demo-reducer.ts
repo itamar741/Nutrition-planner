@@ -17,6 +17,7 @@ import type {
   ProfileFactPatch,
   StructuredProfile,
 } from "@/domain/profile/types";
+import type { WeightMeasurement } from "@/domain/weight/trend";
 
 export interface ChatMessage {
   id: string;
@@ -44,6 +45,7 @@ export interface DemoState {
   processedCommandIds: string[];
   error: string | null;
   agentSession: AgentSessionState;
+  weightMeasurements: WeightMeasurement[];
 }
 
 export type DemoAction =
@@ -66,6 +68,18 @@ export type DemoAction =
       patch: ProfileFactPatch;
     }
   | { type: "apply_food_selection"; commandId: string; ids: string[] }
+  | {
+      type: "record_weight";
+      commandId: string;
+      measurement: WeightMeasurement;
+    }
+  | {
+      type: "edit_weight";
+      commandId: string;
+      date: string;
+      weightKg: number;
+    }
+  | { type: "delete_weight"; commandId: string; date: string }
   | {
       type: "start_plan";
       command: PendingCommand;
@@ -139,11 +153,24 @@ export function demoReducer(
       };
     case "complete_open":
       if (state.pendingCommand?.id !== action.commandId) return state;
+      const measurements =
+        state.weightMeasurements.length > 0 ||
+        action.profile.currentWeightKg === null
+          ? state.weightMeasurements
+          : [
+              {
+                id: `weight-onboarding-${action.commandId}`,
+                date: new Date().toISOString().slice(0, 10),
+                weightKg: action.profile.currentWeightKg,
+                commandId: action.commandId,
+              },
+            ];
       return {
         ...state,
         profile: action.profile,
         activeTurn: action.activeTurn,
         targets: action.targets,
+        weightMeasurements: measurements,
         status: "idle",
         pendingCommand: null,
         pendingOperation: null,
@@ -232,11 +259,85 @@ export function demoReducer(
           {
             id: messageId("assistant", action.commandId),
             role: "assistant",
-            text: "Your food preferences are complete. Your targets are ready; generate a Draft when you are ready.",
+            text: "Your food preferences and deterministic targets are ready. I’m Arnold, your planning coach. When you’re ready, ask me to create a Draft from your approved foods.",
           },
         ],
       };
     }
+    case "record_weight":
+      if (
+        !state.activePlan ||
+        state.weightMeasurements.some(
+          (item) =>
+            item.date === action.measurement.date ||
+            item.commandId === action.commandId,
+        )
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        weightMeasurements: [...state.weightMeasurements, action.measurement],
+        processedCommandIds: [...state.processedCommandIds, action.commandId],
+        messages: [
+          ...state.messages,
+          {
+            id: messageId("assistant", action.commandId),
+            role: "assistant",
+            text: `Recorded ${action.measurement.weightKg} kg for ${action.measurement.date}. Your trend was recalculated.`,
+          },
+        ],
+      };
+    case "edit_weight":
+      if (
+        !state.activePlan ||
+        !state.weightMeasurements.some((item) => item.date === action.date)
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        weightMeasurements: state.weightMeasurements.map((item) =>
+          item.date === action.date
+            ? {
+                ...item,
+                weightKg: action.weightKg,
+                commandId: action.commandId,
+              }
+            : item,
+        ),
+        processedCommandIds: [...state.processedCommandIds, action.commandId],
+        messages: [
+          ...state.messages,
+          {
+            id: messageId("assistant", action.commandId),
+            role: "assistant",
+            text: `Updated ${action.date} to ${action.weightKg} kg. Your trend was recalculated.`,
+          },
+        ],
+      };
+    case "delete_weight":
+      if (
+        !state.activePlan ||
+        !state.weightMeasurements.some((item) => item.date === action.date)
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        weightMeasurements: state.weightMeasurements.filter(
+          (item) => item.date !== action.date,
+        ),
+        processedCommandIds: [...state.processedCommandIds, action.commandId],
+        messages: [
+          ...state.messages,
+          {
+            id: messageId("assistant", action.commandId),
+            role: "assistant",
+            text: `Deleted the weight recorded for ${action.date}. Your trend was recalculated.`,
+          },
+        ],
+      };
     case "start_plan":
       if (state.status === "processing") return state;
       return {
@@ -391,6 +492,7 @@ export function demoReducer(
         schemaVersion: 1,
         version: (state.activePlan?.version ?? 0) + 1,
         activatedAt: action.activatedAt,
+        maintenanceReferenceWeightKg: null,
         plan,
       };
       return {

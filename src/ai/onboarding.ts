@@ -36,7 +36,7 @@ function instructionsFor(allowedKeys: ProfileFactKey[], repairIssue?: string) {
     "Use null for anything not explicitly supported by the user's message.",
     "Do not infer medical facts, browse, recommend food, or add fields.",
     "For equationSex, map only an explicit male/man or female/woman statement.",
-    "For exercise, use only resistance, cardio, or mixed and moderate or vigorous.",
+    "For exercise, use none, resistance, cardio, or mixed and moderate or vigorous. For none, set exerciseType to none, exerciseFrequencyPerWeek and exerciseSessionMinutes to 0, and exerciseIntensity to moderate as an ignored placeholder.",
     "Keep acknowledgement calm, factual, under 180 characters, and do not ask the next question.",
     repairIssue
       ? `Your previous result was invalid. Correct this: ${repairIssue}`
@@ -44,6 +44,18 @@ function instructionsFor(allowedKeys: ProfileFactKey[], repairIssue?: string) {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function isNoExerciseMessage(message: string) {
+  const normalized = message.trim();
+  return (
+    /^(?:[-–—•]\s*)?(?:no|none|zero)\s+(?:exercise|workouts?)\.?$/iu.test(
+      normalized,
+    ) ||
+    /^(?:[-–—•]\s*)?(?:אין|בלי)\s+(?:פעילות גופנית|ספורט|אימונים?)\.?$/u.test(
+      normalized,
+    )
+  );
 }
 
 async function defaultResponseCreator(input: {
@@ -87,6 +99,26 @@ export async function extractOnboardingFacts(
   createResponse: ResponseCreator = defaultResponseCreator,
 ): Promise<{ patch: ProfileFactPatch; acknowledgement: string }> {
   const allowedKeys = getMissingFactKeys(request.profile);
+  const exerciseKeys: ProfileFactKey[] = [
+    "exerciseType",
+    "exerciseFrequencyPerWeek",
+    "exerciseSessionMinutes",
+    "exerciseIntensity",
+  ];
+  if (
+    isNoExerciseMessage(request.message) &&
+    exerciseKeys.every((key) => allowedKeys.includes(key))
+  ) {
+    return {
+      patch: {
+        exerciseType: "none",
+        exerciseFrequencyPerWeek: 0,
+        exerciseSessionMinutes: 0,
+        exerciseIntensity: "moderate",
+      },
+      acknowledgement: "Noted: no exercise.",
+    };
+  }
   let repairIssue: string | undefined;
 
   for (let attempt = 0; attempt < 2; attempt += 1) {

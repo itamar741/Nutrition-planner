@@ -216,9 +216,17 @@ The Maintenance success band is a project operational tolerance of **-0.25% to +
 - Above +0.25%/week: permit a decrease proposal.
 - Below -0.25%/week: permit an increase proposal.
 
+### Maintenance Sustained-Drift Guard
+
+The rate band catches a short-term trend but must not treat a small persistent drift as indefinite maintenance. Each Active Plan therefore stores a non-user-editable maintenance reference: the average of the seven latest confirmed measurements when that plan is activated. The seeded Existing plan uses its first seven post-activation measurements as the reference.
+
+For a sufficient-evidence window, the application separately calculates the average of the newest seven confirmed measurements and the non-overlapping seven immediately before them. A bounded adjustment is also permitted when both averages are at least **0.70 kg** above the stored reference, or both are at least **0.70 kg** below it. The former permits a decrease and the latter permits an increase.
+
+This is an operational persistence guard, not a user-selected target weight. It prevents a sustained slow drift from remaining inside the weekly percentage band forever. A newly approved Active Plan establishes a new reference; no adjustment is applied automatically.
+
 ## 5. Shared Bounded Adjustment Rule
 
-When sufficient evidence exists and the trend is outside the goal band, deterministic code—not the AI—sets the allowed direction and energy magnitude:
+When sufficient evidence exists and the trend is outside the goal band or the Maintenance sustained-drift guard is met, deterministic code—not the AI—sets the allowed direction and energy magnitude:
 
 ```text
 raw_adjustment_kcal = 0.05 × active_plan_energy_kcal
