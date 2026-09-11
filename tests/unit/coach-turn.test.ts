@@ -272,6 +272,10 @@ describe("unified coach orchestration", () => {
     expect(agent.toolResults.at(-1)).toMatchObject({
       deleted: { date: today, weightKg: 76 },
     });
+    expect(agent.requiredFirstTools.at(-1)).toBe("delete_weight");
+    expect(deleted.assistantText).toBe(
+      "Deleted the 76 kg measurement for today.",
+    );
 
     const historicalDate = createExistingDemoState().measurements[0].date;
     agent.tool = {
@@ -430,6 +434,34 @@ describe("unified coach orchestration", () => {
     expect(shortDateResult.assistantText).not.toContain(
       "Your trend was recalculated.Updated",
     );
+
+    agent.tool = {
+      name: "delete_weight",
+      arguments: { date: "2000-01-01" },
+    };
+    agent.responseText = "Deleted the weight for yesterday.";
+    const deleteRequest = turnInput(
+      "existing",
+      shortDateResult.profile.version,
+      "agent-delete-yesterday",
+      "remove yesterday weight",
+    );
+    const deleteResult = await executeCoachTurn(deleteRequest);
+    if (!("measurements" in deleteResult.profile.state))
+      throw new Error("Expected Existing state.");
+    expect(agent.requiredFirstTools.at(-1)).toBe("delete_weight");
+    expect(
+      deleteResult.profile.state.measurements.some(
+        (measurement) => measurement.date === yesterday,
+      ),
+    ).toBe(false);
+    expect(agent.toolResults.at(-1)).toMatchObject({
+      deleted: { date: yesterday, weightKg: 76 },
+    });
+    expect(deleteResult.assistantText).toBe(
+      `Deleted the 76 kg measurement for ${yesterday}.`,
+    );
+    expect(deleteRequest.onText).toHaveBeenCalledTimes(1);
   });
 
   it("does not treat typed approval language as an Active Plan approval", async () => {

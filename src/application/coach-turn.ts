@@ -405,6 +405,7 @@ function dateBefore(currentDate: string, days: number) {
 }
 
 function historicalDateFromText(text: string, currentDate: string) {
+  if (/\btoday\b/iu.test(text)) return currentDate;
   if (/\byesterday\b/iu.test(text)) return dateBefore(currentDate, 1);
   const iso = text.match(/\b(\d{4}-\d{2}-\d{2})\b/u)?.[1];
   if (iso && !Number.isNaN(Date.parse(`${iso}T12:00:00Z`))) return iso;
@@ -422,6 +423,28 @@ function historicalDateFromText(text: string, currentDate: string) {
     return null;
   }
   return candidate.toISOString().slice(0, 10);
+}
+
+function resolveWeightDelete(
+  input: CoachMessageRequest["input"],
+  conversation: Array<{ role: "assistant" | "user"; content: string }>,
+  currentDate: string,
+) {
+  if (
+    input.type !== "text" ||
+    !/\b(?:delete|remove|erase)\b/iu.test(input.text)
+  ) {
+    return null;
+  }
+  const explicitDate = historicalDateFromText(input.text, currentDate);
+  if (explicitDate) return explicitDate;
+  if (!/\b(?:it|weight|measurement|entry)\b/iu.test(input.text)) return null;
+  for (const message of [...conversation].reverse().slice(0, 12)) {
+    if (message.role !== "user") continue;
+    const date = historicalDateFromText(message.content, currentDate);
+    if (date) return date;
+  }
+  return null;
 }
 
 function weightFromText(text: string) {
@@ -982,6 +1005,7 @@ export async function executeCoachTurn(input: {
   const turnCurrentDate = new Date().toISOString().slice(0, 10);
   let resolvedHistoricalWeightUpsert: ResolvedHistoricalWeightUpsert | null =
     null;
+  let resolvedWeightDelete: string | null = null;
   let weightConfirmation: string | null = null;
   const rejectedDraftAttempts: DraftAttemptReview[] = [];
   const foodNameMissing = requestsFoodWithoutName(input.request.input);
@@ -1583,7 +1607,7 @@ export async function executeCoachTurn(input: {
     if (call.name === "delete_weight") {
       if ("profile" in state && !state.activePlan)
         throw new Error("Activate your first plan before deleting weight.");
-      const date = String(args.date);
+      const date = resolvedWeightDelete ?? String(args.date);
       const existingMeasurements = measurementsOf(state);
       const deleted = existingMeasurements.filter((item) => item.date === date);
       if (deleted.length === 0)
@@ -2039,6 +2063,11 @@ export async function executeCoachTurn(input: {
     conversation.messages,
     turnCurrentDate,
   );
+  resolvedWeightDelete = resolveWeightDelete(
+    input.request.input,
+    conversation.messages,
+    turnCurrentDate,
+  );
   let finalAgentText = "";
   const result = await runCoachAgent({
     getSystemPrompt: () =>
@@ -2072,17 +2101,19 @@ export async function executeCoachTurn(input: {
                 conversation.messages,
               ))
           ? "record_weight"
-          : !("profile" in state && !state.activePlan) &&
-              resolvedHistoricalWeightUpsert
-            ? "edit_weight"
-            : shouldForceDraftProposal()
-              ? "submit_draft_proposal"
-              : requiresImmediateFoodSearch(
-                    input.request.input,
-                    currentInteraction,
-                  )
-                ? "search_foods"
-                : null,
+          : !("profile" in state && !state.activePlan) && resolvedWeightDelete
+            ? "delete_weight"
+            : !("profile" in state && !state.activePlan) &&
+                resolvedHistoricalWeightUpsert
+              ? "edit_weight"
+              : shouldForceDraftProposal()
+                ? "submit_draft_proposal"
+                : requiresImmediateFoodSearch(
+                      input.request.input,
+                      currentInteraction,
+                    )
+                  ? "search_foods"
+                  : null,
     getRequiredTool: (sequence) =>
       sequence > 1 && shouldForceDraftProposal()
         ? "submit_draft_proposal"

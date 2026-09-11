@@ -23,7 +23,8 @@ describe("Arnold system prompt", () => {
     expect(prompt).toContain("okay edit it for me");
     expect(prompt).toContain("'so add it'");
     expect(prompt).toContain("creates a missing historical measurement");
-    expect(prompt).toContain("Use delete_weight");
+    expect(prompt).toContain("Always call delete_weight");
+    expect(prompt).toContain("contextual 'delete it'");
     expect(prompt).toContain("PROTECTED APPROVALS");
     expect(prompt).toContain("DRAFT REPAIR");
     expect(prompt).toContain("follow its repairGuidance exactly");
