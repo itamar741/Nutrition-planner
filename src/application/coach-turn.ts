@@ -143,6 +143,8 @@ function contextFor(
   requiredCatalogFoodId: string | null,
 ) {
   const state = profile.state;
+  const currentDate = new Date().toISOString().slice(0, 10);
+  const weightMeasurements = measurementsOf(state);
   const structuredProfile = structuredProfileOf(state);
   const approved = approvedCatalog(catalog, approvedIdsOf(state));
   const targets = calculateTargets(structuredProfile);
@@ -158,7 +160,12 @@ function contextFor(
             interactionId: currentInput.interactionId,
           }
         : null,
-    currentDate: new Date().toISOString().slice(0, 10),
+    currentDate,
+    weightHistory: {
+      todayMeasurement:
+        weightMeasurements.find((item) => item.date === currentDate) ?? null,
+      measurements: weightMeasurements,
+    },
     profileId: profile.profileId,
     profileVersion: profile.version,
     structuredProfile,
@@ -352,6 +359,37 @@ function requestsDraftProposal(input: CoachMessageRequest["input"]) {
       text,
     )
   );
+}
+
+function requestsTodayWeightUpsert(input: CoachMessageRequest["input"]) {
+  if (input.type !== "text") return false;
+  const text = input.text.trim();
+  const number = "\\d{1,3}(?:[.,]\\d{1,2})?";
+  return new RegExp(
+    `(?:\\bi\\s+weigh\\s+${number}(?:\\s*kg)?(?:\\s+today)?\\b|\\btoday(?:'s|s)?\\s+weight\\s+(?:is\\s+)?${number}(?:\\s*kg)?\\b|^${number}\\s*kg\\s+today$)`,
+    "iu",
+  ).test(text);
+}
+
+function requestsContextualTodayWeightUpsert(
+  input: CoachMessageRequest["input"],
+  conversation: Array<{ role: "assistant" | "user"; content: string }>,
+) {
+  if (
+    input.type !== "text" ||
+    !/\b(?:edit|update|replace|change)\b[\s\S]{0,40}\b(?:it|today|weight)\b/iu.test(
+      input.text,
+    )
+  ) {
+    return false;
+  }
+  return conversation
+    .slice(-8)
+    .some(
+      (message) =>
+        message.role === "user" &&
+        requestsTodayWeightUpsert({ type: "text", text: message.content }),
+    );
 }
 
 function requiresImmediateDraftProposal(
@@ -642,12 +680,13 @@ function allowedTools(
     "select_food_candidate",
   ];
   if ("profile" in state) {
-    if (state.activePlan) common.push("record_weight", "edit_weight");
+    if (state.activePlan)
+      common.push("record_weight", "edit_weight", "delete_weight");
     if (isProfileReady(state.profile) && !state.draft && proposalAttempts < 3) {
       common.push("submit_draft_proposal");
     }
   } else {
-    common.push("record_weight", "edit_weight");
+    common.push("record_weight", "edit_weight", "delete_weight");
     const pending = state.agentSession.pendingInteraction;
     const adjustmentRequested =
       input.type === "interaction" && input.action === "generate_adjustment";
@@ -1388,18 +1427,23 @@ export async function executeCoachTurn(input: {
         throw new Error("Activate your first plan before recording weight.");
       const date = new Date().toISOString().slice(0, 10);
       const existingMeasurements = measurementsOf(state);
-      if (existingMeasurements.some((item) => item.date === date))
-        throw new Error("Today's weight already exists; edit it instead.");
       const weightKg = normalizeWeightKg(Number(args.weightKg));
+      const existingForDate = existingMeasurements.filter(
+        (item) => item.date === date,
+      );
+      const previous = existingForDate.at(-1) ?? null;
+      const measurement = previous
+        ? { ...previous, weightKg, commandId: input.request.commandId }
+        : {
+            id: `weight-${input.request.commandId}`,
+            date,
+            weightKg,
+            commandId: input.request.commandId,
+          };
       const measurements = [
-        ...existingMeasurements,
-        {
-          id: `weight-${input.request.commandId}`,
-          date,
-          weightKg,
-          commandId: input.request.commandId,
-        },
-      ];
+        ...existingMeasurements.filter((item) => item.date !== date),
+        measurement,
+      ].sort((a, b) => a.date.localeCompare(b.date));
       const trend = calculateWeightTrend(measurements, {
         activePlanActivatedAt: state.activePlan?.activatedAt,
       });
@@ -1408,7 +1452,9 @@ export async function executeCoachTurn(input: {
         "weight",
       );
       return {
-        recorded: { date, weightKg },
+        operation: previous ? "updated" : "created",
+        previousWeightKg: previous?.weightKg ?? null,
+        measurement: { date, weightKg },
         trend,
       };
     }
@@ -1434,6 +1480,32 @@ export async function executeCoachTurn(input: {
       );
       return {
         updated: { date, weightKg },
+        trend,
+      };
+    }
+    if (call.name === "delete_weight") {
+      if ("profile" in state && !state.activePlan)
+        throw new Error("Activate your first plan before deleting weight.");
+      const date = String(args.date);
+      const existingMeasurements = measurementsOf(state);
+      const deleted = existingMeasurements.filter((item) => item.date === date);
+      if (deleted.length === 0)
+        throw new Error("No weight is recorded for that date.");
+      const measurements = existingMeasurements.filter(
+        (item) => item.date !== date,
+      );
+      const trend = calculateWeightTrend(measurements, {
+        activePlanActivatedAt: state.activePlan?.activatedAt,
+      });
+      state = finishNonInteractiveWorkflow(
+        withMeasurements(state, measurements),
+        "weight",
+      );
+      return {
+        deleted: {
+          date,
+          weightKg: deleted.at(-1)?.weightKg,
+        },
         trend,
       };
     }
@@ -1889,11 +1961,21 @@ export async function executeCoachTurn(input: {
       input.request.input.type === "interaction" &&
       input.request.input.action === "generate_adjustment"
         ? "submit_adjustment_proposal"
-        : shouldForceDraftProposal()
-          ? "submit_draft_proposal"
-          : requiresImmediateFoodSearch(input.request.input, currentInteraction)
-            ? "search_foods"
-            : null,
+        : !("profile" in state && !state.activePlan) &&
+            (requestsTodayWeightUpsert(input.request.input) ||
+              requestsContextualTodayWeightUpsert(
+                input.request.input,
+                conversation.messages,
+              ))
+          ? "record_weight"
+          : shouldForceDraftProposal()
+            ? "submit_draft_proposal"
+            : requiresImmediateFoodSearch(
+                  input.request.input,
+                  currentInteraction,
+                )
+              ? "search_foods"
+              : null,
     getRequiredTool: (sequence) =>
       sequence > 1 && shouldForceDraftProposal()
         ? "submit_draft_proposal"

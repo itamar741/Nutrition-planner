@@ -155,7 +155,7 @@ describe("unified coach orchestration", () => {
     delete process.env.OPENAI_CONTEXT_WINDOW;
   });
 
-  it("records today's weight and edits a historical weight through bounded tools", async () => {
+  it("upserts today's weight, deletes it, and edits a historical weight through bounded tools", async () => {
     const initial = await getProfile("existing");
     agent.tool = { name: "record_weight", arguments: { weightKg: 80.25 } };
     const recorded = await executeCoachTurn(
@@ -175,6 +175,104 @@ describe("unified coach orchestration", () => {
         : null,
     ).toBe(80.25);
 
+    agent.tool = { name: "record_weight", arguments: { weightKg: 68.3 } };
+    const updated = await executeCoachTurn(
+      turnInput(
+        "existing",
+        recorded.profile.version,
+        "agent-weight-current-update",
+        "I weigh 68.3 kg today",
+      ),
+    );
+    if (!("measurements" in updated.profile.state))
+      throw new Error("Expected Existing state.");
+    expect(
+      updated.profile.state.measurements.filter((item) => item.date === today),
+    ).toHaveLength(1);
+    expect(
+      updated.profile.state.measurements.find((item) => item.date === today)
+        ?.weightKg,
+    ).toBe(68.3);
+    expect(agent.toolResults.at(-1)).toMatchObject({
+      operation: "updated",
+      previousWeightKg: 80.25,
+      measurement: { date: today, weightKg: 68.3 },
+    });
+    expect(agent.requiredFirstTools.at(-1)).toBe("record_weight");
+
+    agent.tool = { name: "record_weight", arguments: { weightKg: 76 } };
+    const updatedAgain = await executeCoachTurn(
+      turnInput(
+        "existing",
+        updated.profile.version,
+        "agent-weight-current-update-again",
+        "todays weight is 76",
+      ),
+    );
+    if (!("measurements" in updatedAgain.profile.state))
+      throw new Error("Expected Existing state.");
+    expect(
+      updatedAgain.profile.state.measurements.filter(
+        (item) => item.date === today,
+      ),
+    ).toHaveLength(1);
+    expect(agent.toolResults.at(-1)).toMatchObject({
+      operation: "updated",
+      previousWeightKg: 68.3,
+      measurement: { date: today, weightKg: 76 },
+    });
+    expect(agent.requiredFirstTools.at(-1)).toBe("record_weight");
+
+    const contextualSeed = await mutateProfile({
+      profileId: "existing",
+      expectedVersion: updatedAgain.profile.version,
+      commandId: "seed-contextual-weight-request",
+      mutation: (state) => ({
+        ...state,
+        messages: [
+          ...state.messages,
+          {
+            id: "contextual-weight-user",
+            role: "user" as const,
+            text: "todays weight is 76",
+          },
+          {
+            id: "contextual-weight-assistant",
+            role: "assistant" as const,
+            text: "Today's weight already exists; edit it instead.",
+          },
+        ],
+      }),
+    });
+    agent.tool = { name: "record_weight", arguments: { weightKg: 76 } };
+    const contextuallyUpdated = await executeCoachTurn(
+      turnInput(
+        "existing",
+        contextualSeed.version,
+        "agent-weight-contextual-update",
+        "okay edit it for me",
+      ),
+    );
+    expect(agent.requiredFirstTools.at(-1)).toBe("record_weight");
+
+    agent.tool = { name: "delete_weight", arguments: { date: today } };
+    const deleted = await executeCoachTurn(
+      turnInput(
+        "existing",
+        contextuallyUpdated.profile.version,
+        "agent-weight-current-delete",
+        "Delete today's weight",
+      ),
+    );
+    if (!("measurements" in deleted.profile.state))
+      throw new Error("Expected Existing state.");
+    expect(
+      deleted.profile.state.measurements.some((item) => item.date === today),
+    ).toBe(false);
+    expect(agent.toolResults.at(-1)).toMatchObject({
+      deleted: { date: today, weightKg: 76 },
+    });
+
     const historicalDate = createExistingDemoState().measurements[0].date;
     agent.tool = {
       name: "edit_weight",
@@ -183,7 +281,7 @@ describe("unified coach orchestration", () => {
     const edited = await executeCoachTurn(
       turnInput(
         "existing",
-        recorded.profile.version,
+        deleted.profile.version,
         "agent-weight-history",
         `Change ${historicalDate} to 81.09 kg`,
       ),
@@ -195,6 +293,51 @@ describe("unified coach orchestration", () => {
           )?.weightKg
         : null,
     ).toBe(81.09);
+  });
+
+  it("gives Fresh Arnold the complete weight history and today's measurement", async () => {
+    const initial = await getProfile("new");
+    const ready = makeReadyState();
+    const draft = makeValidDraft("fresh-weight-context");
+    const today = new Date().toISOString().slice(0, 10);
+    const seeded = await mutateProfile({
+      profileId: "new",
+      expectedVersion: initial.version,
+      commandId: "seed-fresh-weight-context",
+      mutation: () => ({
+        ...ready,
+        activePlan: {
+          schemaVersion: 1,
+          version: 1,
+          activatedAt: "2026-08-01T08:00:00.000Z",
+          maintenanceReferenceWeightKg: ready.profile.currentWeightKg,
+          plan: draft.plan,
+        },
+        weightMeasurements: [
+          {
+            id: "fresh-today-weight",
+            date: today,
+            weightKg: 69.1,
+            commandId: "seed-fresh-weight-context",
+          },
+        ],
+      }),
+    });
+
+    agent.tool = null;
+    await executeCoachTurn(
+      turnInput(
+        "new",
+        seeded.version,
+        "inspect-fresh-weight-context",
+        "What is today's recorded weight?",
+      ),
+    );
+
+    const prompt = agent.systemPrompts.at(-1) ?? "";
+    expect(prompt).toContain('"weightHistory"');
+    expect(prompt).toContain('"todayMeasurement"');
+    expect(prompt).toContain('"weightKg":69.1');
   });
 
   it("does not treat typed approval language as an Active Plan approval", async () => {

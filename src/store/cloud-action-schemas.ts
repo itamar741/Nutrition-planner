@@ -80,6 +80,13 @@ export const newDemoCloudActionSchema = z.discriminatedUnion("type", [
     .strict(),
   z
     .object({
+      type: z.literal("delete_weight"),
+      commandId: commandIdSchema,
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    })
+    .strict(),
+  z
+    .object({
       type: z.literal("start_plan"),
       command: commandSchema,
       operation: z.enum(["draft", "modification"]),
@@ -163,6 +170,14 @@ export const existingDemoCloudActionSchema = z.discriminatedUnion("type", [
       commandId: commandIdSchema,
       date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       weightKg: z.number().positive().max(500),
+      messages: z.array(chatMessageSchema).max(3),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("delete_weight"),
+      commandId: commandIdSchema,
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       messages: z.array(chatMessageSchema).max(3),
     })
     .strict(),

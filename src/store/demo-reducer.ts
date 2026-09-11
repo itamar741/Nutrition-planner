@@ -79,6 +79,7 @@ export type DemoAction =
       date: string;
       weightKg: number;
     }
+  | { type: "delete_weight"; commandId: string; date: string }
   | {
       type: "start_plan";
       command: PendingCommand;
@@ -312,6 +313,28 @@ export function demoReducer(
             id: messageId("assistant", action.commandId),
             role: "assistant",
             text: `Updated ${action.date} to ${action.weightKg} kg. Your trend was recalculated.`,
+          },
+        ],
+      };
+    case "delete_weight":
+      if (
+        !state.activePlan ||
+        !state.weightMeasurements.some((item) => item.date === action.date)
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        weightMeasurements: state.weightMeasurements.filter(
+          (item) => item.date !== action.date,
+        ),
+        processedCommandIds: [...state.processedCommandIds, action.commandId],
+        messages: [
+          ...state.messages,
+          {
+            id: messageId("assistant", action.commandId),
+            role: "assistant",
+            text: `Deleted the weight recorded for ${action.date}. Your trend was recalculated.`,
           },
         ],
       };

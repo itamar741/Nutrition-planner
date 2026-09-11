@@ -61,6 +61,7 @@ export function FreshActiveDashboard({
   onReject,
   onRecordWeight,
   onEditWeight,
+  onDeleteWeight,
 }: {
   state: DemoState;
   catalog: CatalogFood[];
@@ -79,6 +80,7 @@ export function FreshActiveDashboard({
   onReject: () => void;
   onRecordWeight: (weightKg: number) => void;
   onEditWeight: (date: string, weightKg: number) => void;
+  onDeleteWeight: (date: string) => void;
 }) {
   const [weightInput, setWeightInput] = useState("");
   const [weightError, setWeightError] = useState("");
@@ -211,6 +213,7 @@ export function FreshActiveDashboard({
               </form>
             }
             measurements={state.weightMeasurements}
+            onDelete={onDeleteWeight}
             onEdit={onEditWeight}
             trend={decision.trend}
           />

@@ -30,15 +30,16 @@ const trend: WeightTrend = {
   evidenceReason: "not_enough_measurements",
 };
 
-function renderChart(onEdit = vi.fn()) {
+function renderChart(onEdit = vi.fn(), onDelete = vi.fn()) {
   render(
     <WeightTrendChart
       measurements={measurements}
+      onDelete={onDelete}
       onEdit={onEdit}
       trend={trend}
     />,
   );
-  return onEdit;
+  return { onDelete, onEdit };
 }
 
 describe("WeightTrendChart", () => {
@@ -59,7 +60,7 @@ describe("WeightTrendChart", () => {
 
   it("edits from the point popover and closes without saving on Escape", async () => {
     const user = userEvent.setup();
-    const onEdit = renderChart();
+    const { onEdit } = renderChart();
     const point = screen.getByRole("button", {
       name: "Edit 10 September 2026, 79.8 kilograms",
     });
@@ -96,5 +97,19 @@ describe("WeightTrendChart", () => {
     expect(
       screen.getByRole("dialog", { name: "Edit weight for 2 August 2026" }),
     ).toBeVisible();
+  });
+
+  it("deletes immediately from the point editor", async () => {
+    const user = userEvent.setup();
+    const { onDelete } = renderChart();
+    await user.click(
+      screen.getByRole("button", {
+        name: "Edit 2 August 2026, 80.25 kilograms",
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    expect(onDelete).toHaveBeenCalledWith("2026-08-02");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

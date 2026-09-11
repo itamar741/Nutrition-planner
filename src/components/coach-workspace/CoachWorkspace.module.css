@@ -1517,8 +1517,31 @@
 
 .chartEditor > div {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
+}
+
+.chartDeleteAction {
+  padding: 10px;
+  cursor: pointer;
+  border: 1px solid rgba(155, 47, 47, 0.35);
+  border-radius: 9px;
+  background: #fff7f5;
+  color: #9b2f2f;
+  font: inherit;
+  font-weight: 800;
+}
+
+.chartDeleteAction:hover:not(:disabled),
+.chartDeleteAction:focus-visible {
+  border-color: #9b2f2f;
+  background: #fce8e4;
+  outline: none;
+}
+
+.chartDeleteAction:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .chartHint,

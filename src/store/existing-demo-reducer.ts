@@ -25,6 +25,12 @@ export type ExistingDemoAction =
       messages: ExistingChatMessage[];
     }
   | {
+      type: "delete_weight";
+      commandId: string;
+      date: string;
+      messages: ExistingChatMessage[];
+    }
+  | {
       type: "approve_adjustment";
       commandId: string;
       draft: DraftProposal;
@@ -65,6 +71,17 @@ export function existingDemoReducer(
                 commandId: action.commandId,
               }
             : item,
+        ),
+        messages: [...state.messages, ...action.messages],
+      };
+    case "delete_weight":
+      if (!state.measurements.some((item) => item.date === action.date)) {
+        return state;
+      }
+      return {
+        ...state,
+        measurements: state.measurements.filter(
+          (item) => item.date !== action.date,
         ),
         messages: [...state.messages, ...action.messages],
       };

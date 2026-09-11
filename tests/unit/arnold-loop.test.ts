@@ -162,6 +162,46 @@ describe("Arnold bounded skill loop", () => {
     expect(onText.mock.calls.flat().join("")).toBe(repeated);
   });
 
+  it("discards prose from a round that ends in a skill call", async () => {
+    provider.responses = [
+      {
+        status: "completed",
+        streamedText: "Recorded 68.3 kg for today.",
+        output_text: "Recorded 68.3 kg for today.",
+        output: [
+          {
+            type: "function_call",
+            name: "record_weight",
+            call_id: "call-weight",
+            arguments: JSON.stringify({ weightKg: 68.3 }),
+          },
+        ],
+      },
+      {
+        status: "completed",
+        streamedText: "Updated today’s weight from 69.1 kg to 68.3 kg.",
+        output_text: "Updated today’s weight from 69.1 kg to 68.3 kg.",
+        output: [],
+      },
+    ];
+    const onText = vi.fn();
+
+    const result = await runCoachAgent({
+      getSystemPrompt: () => "fixed prompt",
+      conversation: [{ role: "user", content: "I weigh 68.3 kg today" }],
+      getAllowedTools: () => ["record_weight"],
+      onText,
+      onTool: async () => ({
+        operation: "updated",
+        previousWeightKg: 69.1,
+        measurement: { date: "2026-09-11", weightKg: 68.3 },
+      }),
+    });
+
+    expect(result.text).toBe("Updated today’s weight from 69.1 kg to 68.3 kg.");
+    expect(onText.mock.calls.flat().join("")).toBe(result.text);
+  });
+
   it("forces the bounded food search before prose for an explicit named-food request", async () => {
     provider.responses = [
       foodSearchCall(),

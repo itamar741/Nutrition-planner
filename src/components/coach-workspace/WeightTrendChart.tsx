@@ -69,12 +69,14 @@ export function WeightTrendChart({
   measurements,
   trend,
   onEdit,
+  onDelete,
   disabled = false,
   footer,
 }: {
   measurements: WeightMeasurement[];
   trend: WeightTrend;
   onEdit: (date: string, weightKg: number) => void;
+  onDelete: (date: string) => void;
   disabled?: boolean;
   footer?: ReactNode;
 }) {
@@ -87,7 +89,12 @@ export function WeightTrendChart({
   );
 
   if (ordered.length === 0) {
-    return <div className={styles.chartEmpty}>No weights recorded yet.</div>;
+    return (
+      <div className={styles.chartWrap}>
+        <div className={styles.chartEmpty}>No weights recorded yet.</div>
+        <div className={styles.chartFooter}>{footer}</div>
+      </div>
+    );
   }
 
   const values = ordered.map((item) => item.weightKg);
@@ -298,6 +305,18 @@ export function WeightTrendChart({
                 type="button"
               >
                 Cancel
+              </button>
+              <button
+                className={styles.chartDeleteAction}
+                disabled={disabled}
+                onClick={() => {
+                  onDelete(editing.measurement.date);
+                  setEditing(null);
+                  setEditError("");
+                }}
+                type="button"
+              >
+                Delete
               </button>
             </div>
           </form>

@@ -12,6 +12,7 @@ export const coachToolNames = [
   "inspect_food_availability",
   "record_weight",
   "edit_weight",
+  "delete_weight",
   "search_foods",
   "select_food_candidate",
   "submit_draft_proposal",
@@ -121,7 +122,8 @@ const tools = {
   record_weight: {
     type: "function" as const,
     name: "record_weight",
-    description: "Record one weight explicitly supplied for today's date.",
+    description:
+      "Set today's weight to the explicitly supplied value. This creates today's measurement or replaces it when one already exists.",
     strict: true,
     parameters: {
       type: "object",
@@ -145,6 +147,21 @@ const tools = {
       properties: {
         date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
         weightKg: { type: "number", exclusiveMinimum: 0, maximum: 500 },
+      },
+    },
+  },
+  delete_weight: {
+    type: "function" as const,
+    name: "delete_weight",
+    description:
+      "Delete one existing weight measurement. Use the authoritative currentDate when the user says today; otherwise require an unambiguous ISO date.",
+    strict: true,
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["date"],
+      properties: {
+        date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
       },
     },
   },
@@ -257,6 +274,9 @@ const toolArgumentSchemas: Record<CoachToolName, z.ZodType> = {
       date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       weightKg: z.number().positive().max(500),
     })
+    .strict(),
+  delete_weight: z
+    .object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })
     .strict(),
   search_foods: z
     .object({
@@ -380,6 +400,8 @@ export function buildArnoldSystemPrompt(
     "SKILLS",
     "Use a currently available skill for fresh server facts or a permitted change. Never claim completion until its sanitized result returns. Skills are sequential, never parallel, and the server permits at most four per turn.",
     "When calling a skill, emit no user-visible prose in the same response. Wait for the skill result, then give one concise continuation.",
+    "For an explicitly supplied weight for today, always call record_weight. It is a deterministic upsert: it creates today's measurement or replaces the existing one. Use it for contextual follow-ups such as 'okay edit it for me' when the immediately preceding conversation contains the weight for today. Use edit_weight only for another explicit ISO date. Use delete_weight for an explicit deletion and pass authoritative currentDate when the user says today.",
+    "After a weight skill result, give exactly one short confirmation based on the returned operation and values. Do not repeat prose from before the skill call.",
     "",
     "PROTECTED APPROVALS",
     "Typed language such as 'approve it' never approves a food, Draft, or adjustment. Identify the current visible card and name its actual button: an adjustment offer uses Generate AI proposal; only a resulting proposal card uses Approve. Never call a skill to cross an approval boundary.",
@@ -454,7 +476,6 @@ export async function runCoachAgent(input: {
 }) {
   const { client, model } = clientAndModel();
   let responseInput = input.conversation as ResponseInputItem[];
-  let visibleText = "";
   const toolCalls: Array<{
     call: CoachToolCall;
     result: Record<string, unknown>;
@@ -488,46 +509,21 @@ export async function runCoachAgent(input: {
           : { tools: [], tool_choice: "none" as const }),
       }),
     );
-    const previousText = visibleText;
     let roundText = "";
-    let emittedRoundCharacters = 0;
-    let forwardingRound = previousText.length === 0;
-    const forwardDelta = (delta: string) => {
-      roundText += delta;
-      if (!forwardingRound) {
-        if (previousText.startsWith(roundText)) return;
-        if (roundText.startsWith(previousText)) {
-          const addition = roundText.slice(previousText.length);
-          if (addition) {
-            visibleText += addition;
-            input.onText(addition);
-          }
-          emittedRoundCharacters = roundText.length;
-          forwardingRound = true;
-          return;
-        }
-        const separator = visibleText && !/\s$/.test(visibleText) ? " " : "";
-        const addition = `${separator}${roundText}`;
-        visibleText += addition;
-        input.onText(addition);
-        emittedRoundCharacters = roundText.length;
-        forwardingRound = true;
-        return;
-      }
-      const addition = roundText.slice(emittedRoundCharacters);
-      if (!addition) return;
-      visibleText += addition;
-      input.onText(addition);
-      emittedRoundCharacters = roundText.length;
-    };
     const response = await atStage("provider_stream", () =>
-      consumeStream(stream, forwardDelta),
+      consumeStream(stream, (delta) => {
+        roundText += delta;
+      }),
     );
-    if (!roundText && response.output_text) forwardDelta(response.output_text);
+    if (!roundText && response.output_text) roundText = response.output_text;
     const call = atSyncStage("model_output_validation", () =>
       findToolCall(response, allowed),
     );
-    if (!call) return { text: visibleText || response.output_text, toolCalls };
+    if (!call) {
+      const finalText = roundText || response.output_text;
+      if (finalText) input.onText(finalText);
+      return { text: finalText, toolCalls };
+    }
     if (sequence > 4) {
       throw new CoachAgentError("The model exceeded the skill-call limit.");
     }

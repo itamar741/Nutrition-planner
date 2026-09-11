@@ -96,9 +96,15 @@ describe("demo command reducer", () => {
       date: "2026-09-11",
       weightKg: 80.2,
     });
+    const deleted = demoReducer(edited, {
+      type: "delete_weight",
+      commandId: "delete-fresh-weight",
+      date: "2026-09-11",
+    });
 
     expect(recorded.weightMeasurements.at(-1)?.weightKg).toBe(80.4);
     expect(edited.weightMeasurements.at(-1)?.weightKg).toBe(80.2);
+    expect(deleted.weightMeasurements).toHaveLength(0);
   });
 
   it("applies the same closed command at most once", () => {

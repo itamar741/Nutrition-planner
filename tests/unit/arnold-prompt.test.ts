@@ -19,6 +19,9 @@ describe("Arnold system prompt", () => {
     expect(prompt).toContain("NUTRITION PLANNING RULES");
     expect(prompt).toContain("Return the authoritative expectedMealIds");
     expect(prompt).toContain("cannot change a goal after onboarding");
+    expect(prompt).toContain("deterministic upsert");
+    expect(prompt).toContain("okay edit it for me");
+    expect(prompt).toContain("Use delete_weight");
     expect(prompt).toContain("PROTECTED APPROVALS");
     expect(prompt).toContain("DRAFT REPAIR");
     expect(prompt).toContain("follow its repairGuidance exactly");

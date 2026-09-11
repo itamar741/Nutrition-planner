@@ -229,6 +229,7 @@ test("B-02 caps editable and rendered weights at two decimal places", async ({
   });
   await page.goto("/coach/existing");
   const chartPoints = page.locator('circle[role="button"]');
+  const initialPointCount = await chartPoints.count();
   await chartPoints.last().hover();
   await expect(page.getByRole("tooltip")).toContainText(/\d{4}/);
   await expect(page.getByRole("tooltip")).toContainText(/kg/);
@@ -246,4 +247,78 @@ test("B-02 caps editable and rendered weights at two decimal places", async ({
   await replacement.fill("81.09");
   await page.getByRole("button", { name: "Save replacement" }).click();
   await expect(page.getByText(/Updated .* to 81\.09 kg/)).toBeVisible();
+
+  await page.getByRole("button", { name: /Edit .*81\.09 kilograms/ }).click();
+  await page.getByRole("button", { name: "Delete" }).click();
+  await expect(chartPoints).toHaveCount(initialPointCount - 1);
+  await expect(page.getByText(/Deleted the weight recorded for/)).toBeVisible();
+});
+
+test("a coach message waits for an in-flight manual weight mutation", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    window.sessionStorage.setItem("arnold-trend-review:existing", "started");
+  });
+  let patchCompleted = false;
+  let patchedVersion = 0;
+  let patchedState = createExistingDemoState();
+  let agentSawCompletedPatch = false;
+  let agentExpectedVersion = 0;
+
+  await page.route("**/api/demo/state/existing", async (route) => {
+    if (route.request().method() !== "PATCH") {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      profile: {
+        version: number;
+        state: ReturnType<typeof createExistingDemoState>;
+      };
+    };
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    patchedVersion = body.profile.version;
+    patchedState = body.profile.state;
+    patchCompleted = true;
+    await route.fulfill({ response, json: body });
+  });
+  await page.route("**/api/coach/message", async (route) => {
+    const body = route.request().postDataJSON() as {
+      expectedVersion: number;
+    };
+    agentSawCompletedPatch = patchCompleted;
+    agentExpectedVersion = body.expectedVersion;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        profile: {
+          profileId: "existing",
+          version: patchedVersion + 1,
+          state: patchedState,
+        },
+      }),
+    });
+  });
+
+  await page.goto("/coach/existing");
+  await page.locator('circle[role="button"]').last().click();
+  const replacement = page.getByRole("spinbutton", {
+    name: "Replacement weight in kilograms",
+  });
+  await replacement.fill("80.75");
+  await page.getByRole("button", { name: "Save replacement" }).click();
+
+  const chat = page.getByRole("textbox", {
+    name: "Message to nutrition coach",
+  });
+  await chat.fill("I weigh 68.3 kg today");
+  await chat.press("Enter");
+
+  await expect.poll(() => agentExpectedVersion).toBeGreaterThan(0);
+  expect(agentSawCompletedPatch).toBe(true);
+  expect(agentExpectedVersion).toBe(patchedVersion);
 });

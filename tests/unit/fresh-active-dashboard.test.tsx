@@ -38,6 +38,7 @@ function renderDashboard(state = activeState(), overrides = {}) {
     onReject: vi.fn(),
     onRecordWeight: vi.fn(),
     onEditWeight: vi.fn(),
+    onDeleteWeight: vi.fn(),
     ...overrides,
   };
   render(<FreshActiveDashboard {...props} />);

@@ -277,6 +277,7 @@ function ExistingFoundation() {
     setCloudError("");
     setAgentDiagnostics(null);
     try {
+      await cloudQueue.current;
       const result = await sendCoachMessage({
         request: {
           profileId: "existing",
@@ -420,6 +421,22 @@ function ExistingFoundation() {
         appendChat(
           "assistant",
           `Updated ${date} to ${formatWeightKg(weightKg)} kg. Your trend was recalculated.`,
+        ),
+      ],
+    });
+    setProposalError("");
+  }
+  function deleteExistingWeight(date: string) {
+    if (agentBusy) return;
+    const commandId = createCommandId();
+    dispatchExisting({
+      type: "delete_weight",
+      commandId,
+      date,
+      messages: [
+        appendChat(
+          "assistant",
+          `Deleted the weight recorded for ${date}. Your trend was recalculated.`,
         ),
       ],
     });
@@ -572,6 +589,7 @@ function ExistingFoundation() {
               </form>
             }
             measurements={existing.measurements}
+            onDelete={deleteExistingWeight}
             onEdit={editExistingWeight}
             trend={trend}
           />
@@ -835,6 +853,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
     setCloudError("");
     setAgentDiagnostics(null);
     try {
+      await cloudQueue.current;
       const result = await sendCoachMessage({
         request: {
           profileId: "new",
@@ -1209,6 +1228,14 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
     });
   }
 
+  function deleteFreshWeight(date: string) {
+    dispatch({
+      type: "delete_weight",
+      commandId: createCommandId(),
+      date,
+    });
+  }
+
   const inputEnabled =
     profileId === "new" &&
     state.status === "idle" &&
@@ -1256,6 +1283,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
             messageInput={draftMessage}
             onAgentAction={(input) => void sendFreshAgent(input)}
             onApprove={handleApprove}
+            onDeleteWeight={deleteFreshWeight}
             onEditWeight={editFreshWeight}
             onMessageInput={setDraftMessage}
             onRecordWeight={recordFreshWeight}
