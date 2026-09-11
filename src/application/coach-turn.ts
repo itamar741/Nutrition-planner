@@ -29,6 +29,7 @@ import { evaluateWeightAdjustmentDecision } from "@/domain/weight/decision";
 import {
   calculateWeightTrend,
   currentPlanWeightFromMeasurements,
+  formatWeightKg,
   maintenanceReferenceWeightFromInitialMeasurements,
   normalizeWeightKg,
 } from "@/domain/weight/trend";
@@ -390,6 +391,79 @@ function requestsContextualTodayWeightUpsert(
         message.role === "user" &&
         requestsTodayWeightUpsert({ type: "text", text: message.content }),
     );
+}
+
+type ResolvedHistoricalWeightUpsert = {
+  date: string;
+  weightKg: number;
+};
+
+function dateBefore(currentDate: string, days: number) {
+  const value = new Date(`${currentDate}T12:00:00Z`);
+  value.setUTCDate(value.getUTCDate() - days);
+  return value.toISOString().slice(0, 10);
+}
+
+function historicalDateFromText(text: string, currentDate: string) {
+  if (/\byesterday\b/iu.test(text)) return dateBefore(currentDate, 1);
+  const iso = text.match(/\b(\d{4}-\d{2}-\d{2})\b/u)?.[1];
+  if (iso && !Number.isNaN(Date.parse(`${iso}T12:00:00Z`))) return iso;
+  const short = text.match(/(?:^|\s|-)(\d{1,2})[./](\d{1,2})(?=\s|$)/u);
+  if (!short) return null;
+  const day = Number(short[1]);
+  const month = Number(short[2]);
+  const year = Number(currentDate.slice(0, 4));
+  const candidate = new Date(Date.UTC(year, month - 1, day, 12));
+  if (
+    candidate.getUTCFullYear() !== year ||
+    candidate.getUTCMonth() !== month - 1 ||
+    candidate.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return candidate.toISOString().slice(0, 10);
+}
+
+function weightFromText(text: string) {
+  const patterns = [
+    /\b(?:weight\s+(?:is|was)|weigh|was|to)\s+(\d{1,3}(?:[.,]\d{1,2})?)\s*(?:kg)?\b/iu,
+    /\b(\d{1,3}(?:[.,]\d{1,2})?)\s*kg\b/iu,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+    const value = Number(match[1].replace(",", "."));
+    if (value > 0 && value <= 500) return value;
+  }
+  return null;
+}
+
+function resolveHistoricalWeightUpsert(
+  input: CoachMessageRequest["input"],
+  conversation: Array<{ role: "assistant" | "user"; content: string }>,
+  currentDate: string,
+): ResolvedHistoricalWeightUpsert | null {
+  if (input.type !== "text") return null;
+  const currentDateValue = historicalDateFromText(input.text, currentDate);
+  const currentWeight = weightFromText(input.text);
+  if (currentDateValue && currentWeight !== null) {
+    return { date: currentDateValue, weightKg: currentWeight };
+  }
+
+  const contextualIntent =
+    /\b(?:add|record|edit|update|replace|change)\b/iu.test(input.text) ||
+    /^\s*\d{1,3}(?:[.,]\d{1,2})?\s*kg\s*$/iu.test(input.text);
+  if (!contextualIntent) return null;
+
+  let date = currentDateValue;
+  let weightKg = currentWeight;
+  for (const message of [...conversation].reverse().slice(0, 12)) {
+    if (message.role !== "user") continue;
+    date ??= historicalDateFromText(message.content, currentDate);
+    weightKg ??= weightFromText(message.content);
+    if (date && weightKg !== null) return { date, weightKg };
+  }
+  return null;
 }
 
 function requiresImmediateDraftProposal(
@@ -905,6 +979,10 @@ export async function executeCoachTurn(input: {
   let requiredCatalogFoodId =
     state.agentSession.draftIntent?.requiredCatalogFoodId ?? null;
   let proposalAttempts = 0;
+  const turnCurrentDate = new Date().toISOString().slice(0, 10);
+  let resolvedHistoricalWeightUpsert: ResolvedHistoricalWeightUpsert | null =
+    null;
+  let weightConfirmation: string | null = null;
   const rejectedDraftAttempts: DraftAttemptReview[] = [];
   const foodNameMissing = requestsFoodWithoutName(input.request.input);
 
@@ -1425,7 +1503,7 @@ export async function executeCoachTurn(input: {
     if (call.name === "record_weight") {
       if ("profile" in state && !state.activePlan)
         throw new Error("Activate your first plan before recording weight.");
-      const date = new Date().toISOString().slice(0, 10);
+      const date = turnCurrentDate;
       const existingMeasurements = measurementsOf(state);
       const weightKg = normalizeWeightKg(Number(args.weightKg));
       const existingForDate = existingMeasurements.filter(
@@ -1451,6 +1529,9 @@ export async function executeCoachTurn(input: {
         withMeasurements(state, measurements),
         "weight",
       );
+      weightConfirmation = previous
+        ? `Updated today’s weight from ${formatWeightKg(previous.weightKg)} kg to ${formatWeightKg(weightKg)} kg.`
+        : `Recorded ${formatWeightKg(weightKg)} kg for today.`;
       return {
         operation: previous ? "updated" : "created",
         previousWeightKg: previous?.weightKg ?? null,
@@ -1461,16 +1542,27 @@ export async function executeCoachTurn(input: {
     if (call.name === "edit_weight") {
       if ("profile" in state && !state.activePlan)
         throw new Error("Activate your first plan before editing weight.");
-      const date = String(args.date);
+      const date = resolvedHistoricalWeightUpsert?.date ?? String(args.date);
       const existingMeasurements = measurementsOf(state);
-      if (!existingMeasurements.some((item) => item.date === date))
-        throw new Error("No weight is recorded for that date.");
-      const weightKg = normalizeWeightKg(Number(args.weightKg));
-      const measurements = existingMeasurements.map((item) =>
-        item.date === date
-          ? { ...item, weightKg, commandId: input.request.commandId }
-          : item,
+      const weightKg = normalizeWeightKg(
+        resolvedHistoricalWeightUpsert?.weightKg ?? Number(args.weightKg),
       );
+      const existingForDate = existingMeasurements.filter(
+        (item) => item.date === date,
+      );
+      const previous = existingForDate.at(-1) ?? null;
+      const measurement = previous
+        ? { ...previous, weightKg, commandId: input.request.commandId }
+        : {
+            id: `weight-${input.request.commandId}`,
+            date,
+            weightKg,
+            commandId: input.request.commandId,
+          };
+      const measurements = [
+        ...existingMeasurements.filter((item) => item.date !== date),
+        measurement,
+      ].sort((a, b) => a.date.localeCompare(b.date));
       const trend = calculateWeightTrend(measurements, {
         activePlanActivatedAt: state.activePlan?.activatedAt,
       });
@@ -1478,8 +1570,13 @@ export async function executeCoachTurn(input: {
         withMeasurements(state, measurements),
         "weight",
       );
+      weightConfirmation = previous
+        ? `Updated ${date} from ${formatWeightKg(previous.weightKg)} kg to ${formatWeightKg(weightKg)} kg.`
+        : `Recorded ${formatWeightKg(weightKg)} kg for ${date}.`;
       return {
-        updated: { date, weightKg },
+        operation: previous ? "updated" : "created",
+        previousWeightKg: previous?.weightKg ?? null,
+        measurement: { date, weightKg },
         trend,
       };
     }
@@ -1501,6 +1598,7 @@ export async function executeCoachTurn(input: {
         withMeasurements(state, measurements),
         "weight",
       );
+      weightConfirmation = `Deleted the ${formatWeightKg(deleted.at(-1)!.weightKg)} kg measurement for ${date === turnCurrentDate ? "today" : date}.`;
       return {
         deleted: {
           date,
@@ -1936,6 +2034,12 @@ export async function executeCoachTurn(input: {
       currentInput: input.request.input,
     }),
   );
+  resolvedHistoricalWeightUpsert = resolveHistoricalWeightUpsert(
+    input.request.input,
+    conversation.messages,
+    turnCurrentDate,
+  );
+  let finalAgentText = "";
   const result = await runCoachAgent({
     getSystemPrompt: () =>
       buildArnoldSystemPrompt({
@@ -1968,23 +2072,31 @@ export async function executeCoachTurn(input: {
                 conversation.messages,
               ))
           ? "record_weight"
-          : shouldForceDraftProposal()
-            ? "submit_draft_proposal"
-            : requiresImmediateFoodSearch(
-                  input.request.input,
-                  currentInteraction,
-                )
-              ? "search_foods"
-              : null,
+          : !("profile" in state && !state.activePlan) &&
+              resolvedHistoricalWeightUpsert
+            ? "edit_weight"
+            : shouldForceDraftProposal()
+              ? "submit_draft_proposal"
+              : requiresImmediateFoodSearch(
+                    input.request.input,
+                    currentInteraction,
+                  )
+                ? "search_foods"
+                : null,
     getRequiredTool: (sequence) =>
       sequence > 1 && shouldForceDraftProposal()
         ? "submit_draft_proposal"
         : null,
-    onText: input.onText,
+    onText: (value) => {
+      finalAgentText += value;
+    },
     onTool: executeTool,
   });
   const assistantText =
-    result.text.trim() || "Done. What would you like to do next?";
+    (weightConfirmation ?? finalAgentText.trim()) ||
+    result.text.trim() ||
+    "Done. What would you like to do next?";
+  input.onText(assistantText);
   state = {
     ...state,
     agentSession: {

@@ -52,6 +52,61 @@ test("Enter sends the Existing coach message", async ({ page }) => {
   await expect(input).toHaveValue("");
 });
 
+test("a historical weight returned by Arnold redraws the chart immediately", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    window.sessionStorage.setItem("arnold-trend-review:existing", "started");
+  });
+  const state = createExistingDemoState();
+  const target = state.measurements.at(-2)!;
+  const replacementWeight = 76.33;
+  await page.route("**/api/coach/message", async (route) => {
+    const nextState = {
+      ...state,
+      measurements: state.measurements.map((measurement) =>
+        measurement.date === target.date
+          ? { ...measurement, weightKg: replacementWeight }
+          : measurement,
+      ),
+      messages: [
+        ...state.messages,
+        {
+          id: "historical-weight-user",
+          role: "user" as const,
+          text: `${target.date} weight is ${replacementWeight}`,
+        },
+        {
+          id: "historical-weight-assistant",
+          role: "assistant" as const,
+          text: `Updated ${target.date} to ${replacementWeight} kg.`,
+        },
+      ],
+    };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        profile: { profileId: "existing", version: 2, state: nextState },
+      }),
+    });
+  });
+  await page.goto("/coach/existing");
+
+  const input = page.getByRole("textbox", {
+    name: "Message to nutrition coach",
+  });
+  await input.fill(`${target.date} weight is ${replacementWeight}`);
+  await input.press("Enter");
+
+  await expect(
+    page.getByRole("button", {
+      name: new RegExp(`${replacementWeight} kilograms`),
+    }),
+  ).toBeVisible();
+});
+
 test("B-01 reviews, declines, revises, and approves an adjustment in chat", async ({
   page,
 }) => {

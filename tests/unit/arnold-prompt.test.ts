@@ -21,6 +21,8 @@ describe("Arnold system prompt", () => {
     expect(prompt).toContain("cannot change a goal after onboarding");
     expect(prompt).toContain("deterministic upsert");
     expect(prompt).toContain("okay edit it for me");
+    expect(prompt).toContain("'so add it'");
+    expect(prompt).toContain("creates a missing historical measurement");
     expect(prompt).toContain("Use delete_weight");
     expect(prompt).toContain("PROTECTED APPROVALS");
     expect(prompt).toContain("DRAFT REPAIR");

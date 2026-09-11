@@ -138,7 +138,7 @@ const tools = {
     type: "function" as const,
     name: "edit_weight",
     description:
-      "Replace an existing historical weight when the user supplied an unambiguous ISO date and value.",
+      "Set a historical date to the explicitly supplied weight. This creates the measurement when missing or replaces it when one already exists. Resolve relative dates such as yesterday from authoritative currentDate and pass ISO format.",
     strict: true,
     parameters: {
       type: "object",
@@ -400,7 +400,7 @@ export function buildArnoldSystemPrompt(
     "SKILLS",
     "Use a currently available skill for fresh server facts or a permitted change. Never claim completion until its sanitized result returns. Skills are sequential, never parallel, and the server permits at most four per turn.",
     "When calling a skill, emit no user-visible prose in the same response. Wait for the skill result, then give one concise continuation.",
-    "For an explicitly supplied weight for today, always call record_weight. It is a deterministic upsert: it creates today's measurement or replaces the existing one. Use it for contextual follow-ups such as 'okay edit it for me' when the immediately preceding conversation contains the weight for today. Use edit_weight only for another explicit ISO date. Use delete_weight for an explicit deletion and pass authoritative currentDate when the user says today.",
+    "For an explicitly supplied weight for today, always call record_weight. It is a deterministic upsert: it creates today's measurement or replaces the existing one. For another date, call edit_weight; it is also an upsert and creates a missing historical measurement or replaces an existing one. Resolve relative dates such as yesterday from authoritative currentDate and pass ISO format. Resolve contextual follow-ups such as 'add it', 'so add it', a supplied '76 kg', or 'okay edit it for me' from the immediately preceding conversation instead of asking the user to repeat a date or value that is already present. Use delete_weight for an explicit deletion and pass authoritative currentDate when the user says today.",
     "After a weight skill result, give exactly one short confirmation based on the returned operation and values. Do not repeat prose from before the skill call.",
     "",
     "PROTECTED APPROVALS",

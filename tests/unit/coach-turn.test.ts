@@ -340,6 +340,98 @@ describe("unified coach orchestration", () => {
     expect(prompt).toContain('"weightKg":69.1');
   });
 
+  it("adds a missing historical weight from a contextual follow-up and emits one authoritative confirmation", async () => {
+    const initial = await getProfile("existing");
+    const today = new Date().toISOString().slice(0, 10);
+    const yesterdayValue = new Date(`${today}T12:00:00Z`);
+    yesterdayValue.setUTCDate(yesterdayValue.getUTCDate() - 1);
+    const yesterday = yesterdayValue.toISOString().slice(0, 10);
+    const seeded = await mutateProfile({
+      profileId: "existing",
+      expectedVersion: initial.version,
+      commandId: "seed-missing-yesterday-weight",
+      mutation: (state) => {
+        if ("profile" in state) throw new Error("Expected Existing state.");
+        return {
+          ...state,
+          measurements: state.measurements.filter(
+            (measurement) => measurement.date !== yesterday,
+          ),
+          messages: [
+            ...state.messages,
+            {
+              id: "missing-yesterday-user",
+              role: "user" as const,
+              text: "yesterday was 76 kg",
+            },
+            {
+              id: "missing-yesterday-assistant",
+              role: "assistant" as const,
+              text: "No weight is recorded for that date.",
+            },
+          ],
+        };
+      },
+    });
+    agent.tool = {
+      name: "edit_weight",
+      arguments: { date: "2000-01-01", weightKg: 1 },
+    };
+    agent.responseText =
+      "I can add it. Recorded 76 kg for yesterday. Recorded it again.";
+    const request = turnInput(
+      "existing",
+      seeded.version,
+      "agent-weight-contextual-history",
+      "so add it",
+    );
+
+    const result = await executeCoachTurn(request);
+
+    if (!("measurements" in result.profile.state))
+      throw new Error("Expected Existing state.");
+    expect(agent.requiredFirstTools.at(-1)).toBe("edit_weight");
+    expect(agent.toolResults.at(-1)).toMatchObject({
+      operation: "created",
+      previousWeightKg: null,
+      measurement: { date: yesterday, weightKg: 76 },
+    });
+    expect(
+      result.profile.state.measurements.filter(
+        (measurement) => measurement.date === yesterday,
+      ),
+    ).toHaveLength(1);
+    expect(result.assistantText).toBe(`Recorded 76 kg for ${yesterday}.`);
+    expect(request.onText).toHaveBeenCalledTimes(1);
+    expect(request.onText).toHaveBeenCalledWith(
+      `Recorded 76 kg for ${yesterday}.`,
+    );
+
+    const shortDate = `${today.slice(0, 4)}-09-09`;
+    agent.tool = {
+      name: "edit_weight",
+      arguments: { date: "2000-01-01", weightKg: 1 },
+    };
+    const shortDateRequest = turnInput(
+      "existing",
+      result.profile.version,
+      "agent-weight-short-date",
+      "-9.9 weight is 77",
+    );
+    const shortDateResult = await executeCoachTurn(shortDateRequest);
+    if (!("measurements" in shortDateResult.profile.state))
+      throw new Error("Expected Existing state.");
+    expect(agent.requiredFirstTools.at(-1)).toBe("edit_weight");
+    expect(
+      shortDateResult.profile.state.measurements.filter(
+        (measurement) => measurement.date === shortDate,
+      ),
+    ).toEqual([expect.objectContaining({ date: shortDate, weightKg: 77 })]);
+    expect(shortDateResult.assistantText).not.toContain(
+      "Your trend was recalculated.Updated",
+    );
+  });
+
   it("does not treat typed approval language as an Active Plan approval", async () => {
     const initial = await getProfile("existing");
     const result = await executeCoachTurn(
