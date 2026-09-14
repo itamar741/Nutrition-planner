@@ -91,6 +91,18 @@ export function allowedToolsForDecision(
   return available.filter((tool) => authorized.has(tool));
 }
 
+export function decisionAuthorizesOnboardingExtraction(
+  decision: TurnDecision | null,
+  onboardingRequired: boolean,
+) {
+  return Boolean(
+    onboardingRequired &&
+    decision?.intent === "onboarding_answer" &&
+    decision.evidence &&
+    (decision.speechAct === "answer" || decision.speechAct === "request"),
+  );
+}
+
 const modelInteractionActions = new Set<
   Extract<CoachMessageRequest["input"], { type: "interaction" }>["action"]
 >(["review_trend", "generate_adjustment", "confirm_draft_food"]);

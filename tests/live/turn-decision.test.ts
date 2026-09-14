@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { interpretTurnDecision } from "@/ai/turn-decision";
-import { decisionAuthorizesIntent } from "@/application/turn-execution-policy";
+import {
+  decisionAuthorizesIntent,
+  decisionAuthorizesOnboardingExtraction,
+} from "@/application/turn-execution-policy";
 
 const hasLiveConfiguration = Boolean(
   process.env.OPENAI_API_KEY && process.env.OPENAI_MODEL,
@@ -11,6 +14,7 @@ const baseContext = {
   hasActivePlan: true,
   hasDraft: false,
   onboardingRequired: false,
+  onboardingTurn: null,
   recentConversation: [],
   pendingInteraction: null,
 };
@@ -100,5 +104,46 @@ liveDescribe("live structured turn decisions", () => {
         staleTranscriptReply.intent,
       ),
     ).toBe(false);
+  }, 90_000);
+
+  it("separates onboarding facts from hypothetical, negated, ambiguous, and premature actions", async () => {
+    const onboardingContext = {
+      ...baseContext,
+      hasActivePlan: false,
+      onboardingRequired: true,
+      onboardingTurn: {
+        id: "collect-basics",
+        type: "open_question",
+        field: "multiple",
+        prompt: "Tell me your age, sex, height, and current weight.",
+        optionLabels: [],
+      },
+    };
+    const fact = await interpretTurnDecision({
+      ...onboardingContext,
+      message: "I am 30 years old",
+    });
+    expect(decisionAuthorizesOnboardingExtraction(fact, true)).toBe(true);
+
+    const correction = await interpretTurnDecision({
+      ...onboardingContext,
+      message: "Actually, my age is 31",
+    });
+    expect(decisionAuthorizesOnboardingExtraction(correction, true)).toBe(true);
+
+    for (const message of [
+      "What would happen if I were 30?",
+      "Do not set my age to 30",
+      "30",
+      "Create my meal plan now",
+    ]) {
+      const decision = await interpretTurnDecision({
+        ...onboardingContext,
+        message,
+      });
+      expect(decisionAuthorizesOnboardingExtraction(decision, true)).toBe(
+        false,
+      );
+    }
   }, 90_000);
 });

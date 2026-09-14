@@ -1155,9 +1155,12 @@ describe("unified coach orchestration", () => {
       profileId: "new",
       expectedVersion: initial.version,
       commandId: "seed-candidate-list",
-      mutation: (state) => ({
-        ...state,
-        agentSession: { ...state.agentSession, pendingInteraction: pending },
+      mutation: () => ({
+        ...makeReadyState(),
+        agentSession: {
+          ...makeReadyState().agentSession,
+          pendingInteraction: pending,
+        },
       }),
     });
     agent.tool = {
@@ -1665,10 +1668,10 @@ describe("unified coach orchestration", () => {
       profileId: "new",
       expectedVersion: initial.version,
       commandId: "seed-preference-message",
-      mutation: (state) => ({
-        ...state,
+      mutation: () => ({
+        ...makeReadyState(),
         messages: [
-          ...state.messages,
+          ...makeReadyState().messages,
           {
             id: "user-preference-source",
             role: "user" as const,

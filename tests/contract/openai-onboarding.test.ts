@@ -85,6 +85,24 @@ describe("structured OpenAI onboarding contract", () => {
     expect(result.patch).not.toHaveProperty("age");
   });
 
+  it("returns an explicitly stated correction when the router authorizes correction mode", async () => {
+    const createResponse = vi.fn().mockResolvedValue(validExtraction);
+    const result = await extractOnboardingFacts(
+      {
+        commandId: "command-correction",
+        message: "I am actually 30.",
+        profile: { ...emptyProfile, age: 28 },
+        allowCorrections: true,
+      },
+      createResponse,
+    );
+
+    expect(result.patch.age).toBe(30);
+    expect(createResponse.mock.calls[0]?.[0].instructions).toContain(
+      "server-authorized fields",
+    );
+  });
+
   it("AI-06 rejects arbitrary keys and invalid enums", () => {
     const parsed = JSON.parse(validExtraction) as Record<string, unknown>;
     expect(

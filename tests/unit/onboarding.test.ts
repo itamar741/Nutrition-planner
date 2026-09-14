@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { emptyProfile } from "@/data/demo-fixtures";
 import {
   applyFactPatch,
+  applyOnboardingFactPatch,
   getChecklist,
   getMissingFactKeys,
   getNextTurn,
@@ -47,6 +48,13 @@ describe("adaptive onboarding domain", () => {
 
     expect(unchanged.age).toBe(30);
     expect(unchanged.heightCm).toBe(175);
+  });
+
+  it("allows an explicit correction through the onboarding-only transition", () => {
+    const profile = applyFactPatch(emptyProfile, { age: 30 });
+    const corrected = applyOnboardingFactPatch(profile, { age: 31 });
+
+    expect(corrected.age).toBe(31);
   });
 
   it("AI-05 reaches only the dedicated Food Grid turn after all profile facts", () => {

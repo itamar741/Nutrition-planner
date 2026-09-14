@@ -70,8 +70,8 @@ not yet present on `origin/docs/final-submission-evidence`.
 | ----- | ------------------------------------------ | --------------------------------------------- | -------------------- |
 | 1     | `architecture/01-structured-turn-contract` | `docs/final-submission-evidence` at `5f7bd57` | Complete (`859c8c1`) |
 | 2     | `architecture/02-turn-fencing`             | Phase 1                                       | Complete (`cc75510`) |
-| 3     | `architecture/03-workflow-state`           | Phase 2                                       | Ready to commit      |
-| 4     | `architecture/04-onboarding-routing`       | Phase 3                                       | Pending              |
+| 3     | `architecture/03-workflow-state`           | Phase 2                                       | Complete (`7f6fbf6`) |
+| 4     | `architecture/04-onboarding-routing`       | Phase 3                                       | Ready to commit      |
 | 5     | `architecture/05-contract-hardening`       | Phase 4                                       | Pending              |
 | 6     | `architecture/06-final-verification`       | Phase 5                                       | Pending              |
 
@@ -218,6 +218,22 @@ Implemented Phase 3 checkpoint:
 - Verification result: 38 unit files and 262 tests passed; formatting, lint,
   typecheck, security scan (181 files), and production build passed.
 
+Implemented Phase 4 checkpoint:
+
+- Incomplete Fresh text now passes through the same structured decision as a
+  ready profile. The persisted onboarding turn is supplied as authoritative
+  context so a short value is an answer only when its meaning is unambiguous.
+- Only an onboarding answer with exact current-message evidence can reach the
+  existing bounded fact extractor. All ordinary tools are unavailable until
+  onboarding is complete, including for premature plan and catalog requests.
+- Questions, hypotheticals, negations, unsupported requests, and unknown turns
+  remain conversational and preserve the profile and onboarding question.
+- Explicitly stated corrections may replace bounded onboarding facts while the
+  profile is incomplete. Correcting current weight also upserts the same-day
+  onboarding measurement so profile and trend state cannot diverge.
+- Verification result: 38 unit files and 273 tests passed; formatting, lint,
+  typecheck, security scan (181 files), and production build passed.
+
 ## Phase 5 — Contract Hardening and Architectural Edge Cases
 
 Purpose: cover failures that remain possible even with correct intent routing.
@@ -313,9 +329,9 @@ After any summary or interruption:
 
 ## Current Checkpoint
 
-- Current branch: `architecture/03-workflow-state`.
-- Current phase: Phase 3, verified and ready for explicit-path commit and push.
-- Next action: commit and push Phase 3, then create
-  `architecture/04-onboarding-routing` from it and unify Fresh onboarding under
-  the structured turn router.
+- Current branch: `architecture/04-onboarding-routing`.
+- Current phase: Phase 4, verified and ready for explicit-path commit and push.
+- Next action: commit and push Phase 4, then create
+  `architecture/05-contract-hardening` from it and audit the remaining trend,
+  catalog, portion, Draft, security, rate-limit, and failure contracts.
 - Merge/deploy status: not authorized; do neither.

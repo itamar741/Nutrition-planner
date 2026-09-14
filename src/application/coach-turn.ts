@@ -30,7 +30,7 @@ import {
 } from "@/domain/plan/validation";
 import type { DraftCandidate, DraftProposal } from "@/domain/plan/types";
 import {
-  applyFactPatch,
+  applyOnboardingFactPatch,
   getNextTurn,
   isProfileReady,
 } from "@/domain/profile/onboarding";
@@ -88,6 +88,7 @@ import {
 import {
   allowedToolsForDecision,
   coachInputRequiresModel,
+  decisionAuthorizesOnboardingExtraction,
   decisionAuthorizesIntent,
   deterministicInteractionText,
 } from "./turn-execution-policy";
@@ -192,6 +193,15 @@ function contextFor(
           }
         : null,
     turnDecision,
+    onboarding:
+      "profile" in state && !isProfileReady(state.profile)
+        ? {
+            required: true,
+            currentTurn: state.activeTurn,
+            responseRule:
+              "Do not claim a profile update unless the onboarding extractor already persisted one. If no facts were accepted, answer an in-scope question or redirect an unsupported request without changing state; when useful, remind the user of currentTurn.prompt.",
+          }
+        : { required: false },
     foodAlternativeRequest:
       turnDecision && requestsFoodAlternativeOffer(turnDecision)
         ? {
@@ -767,6 +777,7 @@ function allowedTools(
   proposalAttempts: number,
   allowOrdinaryDraftProposal: boolean,
 ): CoachToolName[] {
+  if ("profile" in state && !isProfileReady(state.profile)) return [];
   const common: CoachToolName[] = [
     "remember_preference",
     "remove_approved_food",
@@ -1000,11 +1011,10 @@ export async function executeCoachTurn(input: {
     activePlanVersion,
     hasDraft: Boolean(state.draft),
   });
-  if (
-    input.request.input.type === "text" &&
-    !("profile" in state && !isProfileReady(state.profile))
-  ) {
+  if (input.request.input.type === "text") {
     const currentText = input.request.input.text;
+    const onboardingRequired =
+      "profile" in state && !isProfileReady(state.profile);
     const recentConversation = (
       await listConversationMessages(input.request.profileId)
     )
@@ -1020,8 +1030,21 @@ export async function executeCoachTurn(input: {
         message: currentText,
         hasActivePlan: Boolean(state.activePlan),
         hasDraft: Boolean(state.draft),
-        onboardingRequired:
-          "profile" in state && !isProfileReady(state.profile),
+        onboardingRequired,
+        onboardingTurn:
+          onboardingRequired && "profile" in state
+            ? {
+                id: state.activeTurn.id,
+                type: state.activeTurn.type,
+                field:
+                  "field" in state.activeTurn ? state.activeTurn.field : null,
+                prompt: state.activeTurn.prompt,
+                optionLabels:
+                  state.activeTurn.type === "closed_question"
+                    ? state.activeTurn.options.map((option) => option.label)
+                    : [],
+              }
+            : null,
         recentConversation,
         pendingInteraction: currentInteraction
           ? {
@@ -1032,24 +1055,27 @@ export async function executeCoachTurn(input: {
           : null,
       }),
     );
-    const planChangeResult = applyPlanChangeDecision({
-      state,
-      catalog,
-      decision: turnDecision,
-      currentInteraction,
-    });
-    state = planChangeResult.state;
-    currentInteraction = planChangeResult.currentInteraction;
-    selectedAlternativeFood = planChangeResult.selectedAlternativeFood;
-    requiredCatalogFoodId =
-      planChangeResult.requiredCatalogFoodId ?? requiredCatalogFoodId;
-    planMutationAuthorized = planChangeResult.planMutationAuthorized;
+    if (!onboardingRequired) {
+      const planChangeResult = applyPlanChangeDecision({
+        state,
+        catalog,
+        decision: turnDecision,
+        currentInteraction,
+      });
+      state = planChangeResult.state;
+      currentInteraction = planChangeResult.currentInteraction;
+      selectedAlternativeFood = planChangeResult.selectedAlternativeFood;
+      requiredCatalogFoodId =
+        planChangeResult.requiredCatalogFoodId ?? requiredCatalogFoodId;
+      planMutationAuthorized = planChangeResult.planMutationAuthorized;
+    }
   }
   if (
     "profile" in state &&
     !isProfileReady(state.profile) &&
     !state.agentSession.pendingInteraction &&
-    input.request.input.type === "text"
+    input.request.input.type === "text" &&
+    decisionAuthorizesOnboardingExtraction(turnDecision, true)
   ) {
     const onboardingState = state;
     const onboardingInput = input.request.input;
@@ -1059,26 +1085,52 @@ export async function executeCoachTurn(input: {
         commandId: input.request.commandId,
         message: onboardingInput.text,
         profile: onboardingState.profile,
+        allowCorrections: true,
       }),
     );
     if (Object.keys(extraction.patch).length > 0) {
-      const nextProfile = applyFactPatch(
+      const nextProfile = applyOnboardingFactPatch(
         onboardingState.profile,
         extraction.patch,
       );
       const activeTurn = getNextTurn(nextProfile);
-      const measurements =
-        onboardingState.weightMeasurements.length > 0 ||
-        nextProfile.currentWeightKg === null
-          ? onboardingState.weightMeasurements
+      const currentWeightWasExplicit =
+        extraction.patch.currentWeightKg !== undefined;
+      const currentWeightKg = nextProfile.currentWeightKg;
+      let measurements = onboardingState.weightMeasurements;
+      if (currentWeightKg !== null && currentWeightWasExplicit) {
+        const existingTodayWeight = measurements.find(
+          (measurement) => measurement.date === turnCurrentDate,
+        );
+        measurements = existingTodayWeight
+          ? measurements.map((measurement) =>
+              measurement.id === existingTodayWeight.id
+                ? {
+                    ...measurement,
+                    weightKg: currentWeightKg,
+                    commandId: input.request.commandId,
+                  }
+                : measurement,
+            )
           : [
+              ...measurements,
               {
                 id: `weight-onboarding-${input.request.commandId}`,
                 date: turnCurrentDate,
-                weightKg: nextProfile.currentWeightKg,
+                weightKg: currentWeightKg,
                 commandId: input.request.commandId,
               },
             ];
+      } else if (currentWeightKg !== null && measurements.length === 0) {
+        measurements = [
+          {
+            id: `weight-onboarding-${input.request.commandId}`,
+            date: turnCurrentDate,
+            weightKg: currentWeightKg,
+            commandId: input.request.commandId,
+          },
+        ];
+      }
       state = {
         ...onboardingState,
         profile: nextProfile,

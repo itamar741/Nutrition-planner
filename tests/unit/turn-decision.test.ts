@@ -29,6 +29,7 @@ describe("structured turn decision", () => {
         hasActivePlan: true,
         hasDraft: false,
         onboardingRequired: false,
+        onboardingTurn: null,
         recentConversation: [],
         pendingInteraction: null,
       },
@@ -63,6 +64,45 @@ describe("structured turn decision", () => {
     expect(requestsPlanMutation(selection)).toBe(true);
   });
 
+  it("supplies the authoritative onboarding question to the classifier", async () => {
+    const onboardingAnswer: TurnDecision = {
+      intent: "onboarding_answer",
+      speechAct: "answer",
+      foodNames: [],
+      planChangeStrategy: null,
+      evidence: "I am 30",
+    };
+    const createResponse = vi
+      .fn()
+      .mockResolvedValue(JSON.stringify(onboardingAnswer));
+
+    await interpretTurnDecision(
+      {
+        message: "I am 30",
+        hasActivePlan: false,
+        hasDraft: false,
+        onboardingRequired: true,
+        onboardingTurn: {
+          id: "collect-basics",
+          type: "open_question",
+          field: "multiple",
+          prompt: "Tell me your age, height, sex, and weight.",
+          optionLabels: [],
+        },
+        recentConversation: [],
+        pendingInteraction: null,
+      },
+      createResponse,
+    );
+
+    expect(createResponse.mock.calls[0]?.[0].userInput).toContain(
+      '"id":"collect-basics"',
+    );
+    expect(createResponse.mock.calls[0]?.[0].instructions).toContain(
+      "Do not relabel them as onboarding answers",
+    );
+  });
+
   it.each(["question", "hypothetical", "negated", "answer"] as const)(
     "does not authorize mutation for a %s speech act",
     (speechAct) => {
@@ -91,6 +131,7 @@ describe("structured turn decision", () => {
           hasActivePlan: true,
           hasDraft: false,
           onboardingRequired: false,
+          onboardingTurn: null,
           recentConversation: [],
           pendingInteraction: null,
         },
@@ -109,6 +150,7 @@ describe("structured turn decision", () => {
           hasActivePlan: true,
           hasDraft: false,
           onboardingRequired: false,
+          onboardingTurn: null,
           recentConversation: [],
           pendingInteraction: null,
         },

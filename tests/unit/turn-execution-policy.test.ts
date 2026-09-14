@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   allowedToolsForDecision,
+  decisionAuthorizesOnboardingExtraction,
   decisionAuthorizesIntent,
 } from "@/application/turn-execution-policy";
 import type { CoachToolName } from "@/ai/coach-agent";
@@ -58,6 +59,27 @@ describe("turn execution policy", () => {
     expect(
       allowedToolsForDecision(allTools, decision({ intent: "unknown" })),
     ).toEqual([]);
+  });
+
+  it("authorizes bounded onboarding extraction only for an onboarding answer", () => {
+    const answer = decision({
+      intent: "onboarding_answer",
+      speechAct: "answer",
+    });
+    expect(decisionAuthorizesOnboardingExtraction(answer, true)).toBe(true);
+    expect(decisionAuthorizesOnboardingExtraction(answer, false)).toBe(false);
+    expect(
+      decisionAuthorizesOnboardingExtraction(
+        { ...answer, speechAct: "hypothetical" },
+        true,
+      ),
+    ).toBe(false);
+    expect(
+      decisionAuthorizesOnboardingExtraction(
+        decision({ intent: "nutrition_question", speechAct: "question" }),
+        true,
+      ),
+    ).toBe(false);
   });
 
   it("authorizes a short answer only against a compatible persisted interaction", () => {
