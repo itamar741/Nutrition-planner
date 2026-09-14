@@ -48,19 +48,20 @@ export const turnDecisionSchema = z
 
 export type TurnDecision = z.infer<typeof turnDecisionSchema>;
 
-const planMutationIntents = new Set<TurnDecision["intent"]>([
+const directPlanMutationIntents = new Set<TurnDecision["intent"]>([
   "plan_create",
   "plan_replace",
   "plan_revise",
-  "food_alternative_selection",
-  "draft_retry",
 ]);
 
 export function requestsPlanMutation(decision: TurnDecision) {
   return (
-    planMutationIntents.has(decision.intent) &&
     decision.evidence !== null &&
-    (decision.speechAct === "request" || decision.speechAct === "answer")
+    ((directPlanMutationIntents.has(decision.intent) &&
+      decision.speechAct === "request") ||
+      (decision.intent === "food_alternative_selection" &&
+        decision.speechAct === "answer") ||
+      (decision.intent === "draft_retry" && decision.speechAct === "answer"))
   );
 }
 

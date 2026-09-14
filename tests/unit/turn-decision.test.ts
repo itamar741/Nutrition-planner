@@ -63,7 +63,7 @@ describe("structured turn decision", () => {
     expect(requestsPlanMutation(selection)).toBe(true);
   });
 
-  it.each(["question", "hypothetical", "negated"] as const)(
+  it.each(["question", "hypothetical", "negated", "answer"] as const)(
     "does not authorize mutation for a %s speech act",
     (speechAct) => {
       expect(requestsPlanMutation({ ...planReplacement, speechAct })).toBe(

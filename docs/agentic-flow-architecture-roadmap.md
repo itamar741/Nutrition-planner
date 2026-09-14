@@ -69,8 +69,8 @@ not yet present on `origin/docs/final-submission-evidence`.
 | Phase | Branch                                     | Parent                                        | Status               |
 | ----- | ------------------------------------------ | --------------------------------------------- | -------------------- |
 | 1     | `architecture/01-structured-turn-contract` | `docs/final-submission-evidence` at `5f7bd57` | Complete (`859c8c1`) |
-| 2     | `architecture/02-turn-fencing`             | Phase 1                                       | Ready to commit      |
-| 3     | `architecture/03-workflow-state`           | Phase 2                                       | Pending              |
+| 2     | `architecture/02-turn-fencing`             | Phase 1                                       | Complete (`cc75510`) |
+| 3     | `architecture/03-workflow-state`           | Phase 2                                       | Ready to commit      |
 | 4     | `architecture/04-onboarding-routing`       | Phase 3                                       | Pending              |
 | 5     | `architecture/05-contract-hardening`       | Phase 4                                       | Pending              |
 | 6     | `architecture/06-final-verification`       | Phase 5                                       | Pending              |
@@ -201,6 +201,23 @@ Research and implementation requirements:
 - Test topic switches, corrections, ambiguous answers, repeated facts, and
   attempts to invoke plan or catalog mutations before readiness.
 
+Implemented Phase 3 checkpoint:
+
+- Contextual answers now receive mutation authority only when the current
+  persisted interaction belongs to the compatible workflow. Recent transcript
+  text remains conversational context but cannot revive an old weight, food, or
+  Draft mutation.
+- A single transition module now handles same-workflow continuation, the first
+  paused workflow, explicit resume, completion, and supersession after another
+  topic switch.
+- Turn-start reconciliation removes Plan Change state with a stale Active Plan
+  or Draft baseline and prunes stale Draft-approval, Draft-failure, and
+  adjustment interactions before policy authorization.
+- Exact stored alternative selections additionally require the active Draft
+  clarification; an unrelated current interaction cannot consume the old offer.
+- Verification result: 38 unit files and 262 tests passed; formatting, lint,
+  typecheck, security scan (181 files), and production build passed.
+
 ## Phase 5 — Contract Hardening and Architectural Edge Cases
 
 Purpose: cover failures that remain possible even with correct intent routing.
@@ -296,8 +313,9 @@ After any summary or interruption:
 
 ## Current Checkpoint
 
-- Current branch: `architecture/02-turn-fencing`.
-- Current phase: Phase 2, verified and ready for explicit-path commit and push.
-- Next action: commit and push Phase 2, then create
-  `architecture/03-workflow-state` from it and inventory the transition matrix.
+- Current branch: `architecture/03-workflow-state`.
+- Current phase: Phase 3, verified and ready for explicit-path commit and push.
+- Next action: commit and push Phase 3, then create
+  `architecture/04-onboarding-routing` from it and unify Fresh onboarding under
+  the structured turn router.
 - Merge/deploy status: not authorized; do neither.

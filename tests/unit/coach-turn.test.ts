@@ -459,7 +459,8 @@ describe("unified coach orchestration", () => {
         "okay edit it for me",
       ),
     );
-    expect(agent.requiredFirstTools.at(-1)).toBe("record_weight");
+    expect(agent.requiredFirstTools.at(-1)).toBeNull();
+    expect(agent.allowedAfterCalls.at(-1)).not.toContain("record_weight");
 
     agent.tool = { name: "delete_weight", arguments: { date: today } };
     const deleted = await executeCoachTurn(
@@ -550,7 +551,7 @@ describe("unified coach orchestration", () => {
     expect(prompt).toContain('"weightKg":69.1');
   });
 
-  it("adds a missing historical weight from a contextual follow-up and emits one authoritative confirmation", async () => {
+  it("does not revive a historical weight mutation from transcript prose alone", async () => {
     const initial = await getProfile("existing");
     const today = new Date().toISOString().slice(0, 10);
     const yesterdayValue = new Date(`${today}T12:00:00Z`);
@@ -588,7 +589,7 @@ describe("unified coach orchestration", () => {
       arguments: { date: "2000-01-01", weightKg: 1 },
     };
     agent.responseText =
-      "I can add it. Recorded 76 kg for yesterday. Recorded it again.";
+      "Please state the date and weight you want to record in this message.";
     const request = turnInput(
       "existing",
       seeded.version,
@@ -600,21 +601,19 @@ describe("unified coach orchestration", () => {
 
     if (!("measurements" in result.profile.state))
       throw new Error("Expected Existing state.");
-    expect(agent.requiredFirstTools.at(-1)).toBe("edit_weight");
-    expect(agent.toolResults.at(-1)).toMatchObject({
-      operation: "created",
-      previousWeightKg: null,
-      measurement: { date: yesterday, weightKg: 76 },
-    });
+    expect(agent.requiredFirstTools.at(-1)).toBeNull();
+    expect(agent.toolResults).toHaveLength(0);
     expect(
       result.profile.state.measurements.filter(
         (measurement) => measurement.date === yesterday,
       ),
-    ).toHaveLength(1);
-    expect(result.assistantText).toBe(`Recorded 76 kg for ${yesterday}.`);
+    ).toHaveLength(0);
+    expect(result.assistantText).toBe(
+      "Please state the date and weight you want to record in this message.",
+    );
     expect(request.onText).toHaveBeenCalledTimes(1);
     expect(request.onText).toHaveBeenCalledWith(
-      `Recorded 76 kg for ${yesterday}.`,
+      "Please state the date and weight you want to record in this message.",
     );
 
     const shortDate = `${today.slice(0, 4)}-09-09`;
@@ -645,12 +644,12 @@ describe("unified coach orchestration", () => {
       name: "delete_weight",
       arguments: { date: "2000-01-01" },
     };
-    agent.responseText = "Deleted the weight for yesterday.";
+    agent.responseText = "Deleted the requested weight.";
     const deleteRequest = turnInput(
       "existing",
       shortDateResult.profile.version,
-      "agent-delete-yesterday",
-      "remove yesterday weight",
+      "agent-delete-short-date",
+      "remove 9/9 weight",
     );
     const deleteResult = await executeCoachTurn(deleteRequest);
     if (!("measurements" in deleteResult.profile.state))
@@ -658,14 +657,14 @@ describe("unified coach orchestration", () => {
     expect(agent.requiredFirstTools.at(-1)).toBe("delete_weight");
     expect(
       deleteResult.profile.state.measurements.some(
-        (measurement) => measurement.date === yesterday,
+        (measurement) => measurement.date === shortDate,
       ),
     ).toBe(false);
     expect(agent.toolResults.at(-1)).toMatchObject({
-      deleted: { date: yesterday, weightKg: 76 },
+      deleted: { date: shortDate, weightKg: 77 },
     });
     expect(deleteResult.assistantText).toBe(
-      `Deleted the 76 kg measurement for ${yesterday}.`,
+      `Deleted the 77 kg measurement for ${shortDate}.`,
     );
     expect(deleteRequest.onText).toHaveBeenCalledTimes(1);
   });

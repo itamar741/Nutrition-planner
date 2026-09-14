@@ -95,12 +95,15 @@ export function startPlanChange(
 function selectedOfferedFood(
   decision: TurnDecision,
   workflow: PlanChangeWorkflow | null,
+  currentInteraction: AgentInteraction | null,
   catalog: CatalogFood[],
 ) {
   if (
     decision.intent !== "food_alternative_selection" ||
     decision.speechAct !== "answer" ||
-    !workflow
+    !workflow ||
+    currentInteraction?.type !== "clarification" ||
+    currentInteraction.workflow !== "draft"
   ) {
     return null;
   }
@@ -165,6 +168,7 @@ export function applyPlanChangeDecision(input: {
     selectedAlternativeFood = selectedOfferedFood(
       input.decision,
       state.agentSession.planChange,
+      currentInteraction,
       input.catalog,
     );
     if (selectedAlternativeFood && state.agentSession.planChange) {

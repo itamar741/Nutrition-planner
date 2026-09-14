@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { planChangeCandidateIssues } from "@/application/plan-change-workflow";
+import {
+  applyPlanChangeDecision,
+  planChangeCandidateIssues,
+} from "@/application/plan-change-workflow";
 import { createExistingDemoState } from "@/data/demo-fixtures";
+import { foodCatalog } from "@/data/food-catalog";
 import type { DraftCandidate } from "@/domain/plan/types";
 
 function candidateFromActivePlan(): {
@@ -52,6 +56,41 @@ describe("plan change workflow", () => {
 
     expect(planChangeCandidateIssues(state, candidate).issues).not.toContain(
       "The requested strategy requires a different mix of approved foods; changing gram amounts alone is not enough.",
+    );
+  });
+
+  it("does not accept an offered-food answer after another workflow became current", () => {
+    const { state } = candidateFromActivePlan();
+    state.agentSession.planChange = {
+      ...state.agentSession.planChange!,
+      offeredAlternativeFoodIds: ["potato-baked"],
+    };
+    const currentInteraction = {
+      id: "current-food-search",
+      type: "clarification" as const,
+      workflow: "food" as const,
+      prompt: "Which food should I search for?",
+      quickReplies: [],
+    };
+    state.agentSession.pendingInteraction = currentInteraction;
+
+    const result = applyPlanChangeDecision({
+      state,
+      catalog: [...foodCatalog],
+      currentInteraction,
+      decision: {
+        intent: "food_alternative_selection",
+        speechAct: "answer",
+        foodNames: ["Potato"],
+        planChangeStrategy: null,
+        evidence: "Potato",
+      },
+    });
+
+    expect(result.planMutationAuthorized).toBe(false);
+    expect(result.selectedAlternativeFood).toBeNull();
+    expect(result.state.agentSession.pendingInteraction).toEqual(
+      currentInteraction,
     );
   });
 });

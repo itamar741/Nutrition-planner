@@ -1,5 +1,6 @@
 import type { CoachToolName } from "@/ai/coach-agent";
 import type { CoachMessageRequest } from "@/domain/agent/types";
+import type { AgentInteraction } from "@/domain/agent/types";
 import type { TurnDecision } from "@/domain/agent/turn-decision";
 
 const toolsByIntent: Record<TurnDecision["intent"], CoachToolName[]> = {
@@ -39,24 +40,51 @@ const questionIntents = new Set<TurnDecision["intent"]>(["food_inspect"]);
 export function decisionAuthorizesIntent(
   decision: TurnDecision | null,
   intent: TurnDecision["intent"],
+  pendingInteraction: AgentInteraction | null = null,
 ) {
   if (!decision || decision.intent !== intent || !decision.evidence) {
     return false;
   }
-  return (
-    decision.speechAct === "request" ||
-    (decision.speechAct === "answer" && answerIntents.has(intent)) ||
-    (decision.speechAct === "question" && questionIntents.has(intent))
-  );
+  if (decision.speechAct === "request") return true;
+  if (decision.speechAct === "question") return questionIntents.has(intent);
+  if (decision.speechAct !== "answer" || !answerIntents.has(intent)) {
+    return false;
+  }
+  switch (intent) {
+    case "food_alternative_selection":
+      return (
+        pendingInteraction?.type === "clarification" &&
+        pendingInteraction.workflow === "draft"
+      );
+    case "draft_retry":
+      return pendingInteraction?.type === "draft_failure_review";
+    case "food_search":
+      return (
+        pendingInteraction?.type === "clarification" &&
+        pendingInteraction.workflow === "food"
+      );
+    case "food_candidate_selection":
+      return pendingInteraction?.type === "food_candidates";
+    case "weight_record":
+    case "weight_edit":
+    case "weight_delete":
+      return (
+        pendingInteraction?.type === "clarification" &&
+        pendingInteraction.workflow === "weight"
+      );
+    default:
+      return false;
+  }
 }
 
 export function allowedToolsForDecision(
   available: CoachToolName[],
   decision: TurnDecision | null,
+  pendingInteraction: AgentInteraction | null = null,
 ) {
   if (!decision) return available;
   const authorized = new Set(
-    decisionAuthorizesIntent(decision, decision.intent)
+    decisionAuthorizesIntent(decision, decision.intent, pendingInteraction)
       ? toolsByIntent[decision.intent]
       : [],
   );

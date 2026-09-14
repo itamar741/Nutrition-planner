@@ -76,6 +76,7 @@ import { prepareAiEstimate, prepareFoodCandidate } from "./food-candidates";
 import {
   finishNonInteractiveWorkflow,
   interactionWorkflow,
+  reconcileAgentWorkflowState,
   setInteraction,
 } from "./interaction-state";
 import {
@@ -962,7 +963,7 @@ export async function executeCoachTurn(input: {
       }
     : undefined;
   let profile = await getProfile(input.request.profileId);
-  let state = structuredClone(profile.state);
+  let state = reconcileAgentWorkflowState(structuredClone(profile.state));
   let catalog = await listCatalogFoods();
   let approvedCatalogFood: CatalogFood | undefined;
   let actionSummary: Record<string, unknown> | null = null;
@@ -981,18 +982,9 @@ export async function executeCoachTurn(input: {
   const foodNameMissing = requestsFoodWithoutName(input.request.input);
 
   const activePlanVersion = state.activePlan?.version ?? null;
-  if (
-    state.agentSession.planChange &&
-    state.agentSession.planChange.basePlanVersion !== activePlanVersion
-  ) {
-    state = {
-      ...state,
-      agentSession: { ...state.agentSession, planChange: null },
-    };
-    requiredCatalogFoodId = null;
-  }
 
   let currentInteraction = state.agentSession.pendingInteraction;
+  const interactionAtTurnStart = currentInteraction;
   console.info("coach_turn_received", {
     turnId: input.turnId,
     commandId: input.request.commandId,
@@ -2165,7 +2157,11 @@ export async function executeCoachTurn(input: {
           proposalAttempts,
           allowOrdinaryDraftProposal,
         );
-    let policyAllowed = allowedToolsForDecision(allowed, turnDecision);
+    let policyAllowed = allowedToolsForDecision(
+      allowed,
+      turnDecision,
+      interactionAtTurnStart,
+    );
     if (foodNameMissing) {
       policyAllowed = policyAllowed.filter((name) => name !== "search_foods");
     }
@@ -2274,7 +2270,11 @@ export async function executeCoachTurn(input: {
       input.request.input.action === "generate_adjustment"
         ? "submit_adjustment_proposal"
         : !("profile" in state && !state.activePlan) &&
-            decisionAuthorizesIntent(turnDecision, "weight_record") &&
+            decisionAuthorizesIntent(
+              turnDecision,
+              "weight_record",
+              interactionAtTurnStart,
+            ) &&
             (requestsTodayWeightUpsert(input.request.input) ||
               requestsContextualTodayWeightUpsert(
                 input.request.input,
@@ -2282,11 +2282,19 @@ export async function executeCoachTurn(input: {
               ))
           ? "record_weight"
           : !("profile" in state && !state.activePlan) &&
-              decisionAuthorizesIntent(turnDecision, "weight_delete") &&
+              decisionAuthorizesIntent(
+                turnDecision,
+                "weight_delete",
+                interactionAtTurnStart,
+              ) &&
               resolvedWeightDelete
             ? "delete_weight"
             : !("profile" in state && !state.activePlan) &&
-                decisionAuthorizesIntent(turnDecision, "weight_edit") &&
+                decisionAuthorizesIntent(
+                  turnDecision,
+                  "weight_edit",
+                  interactionAtTurnStart,
+                ) &&
                 resolvedHistoricalWeightUpsert
               ? "edit_weight"
               : shouldForceDraftProposal()
@@ -2294,7 +2302,12 @@ export async function executeCoachTurn(input: {
                 : requiresImmediateFoodSearch(
                       input.request.input,
                       currentInteraction,
-                    ) && decisionAuthorizesIntent(turnDecision, "food_search")
+                    ) &&
+                    decisionAuthorizesIntent(
+                      turnDecision,
+                      "food_search",
+                      interactionAtTurnStart,
+                    )
                   ? "search_foods"
                   : null,
     getRequiredTool: (sequence) =>

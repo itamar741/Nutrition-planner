@@ -82,7 +82,7 @@ function instructionsFor(repairIssue?: string) {
     "Use food_search for an explicit request to find or add a basic food, including a short food-name answer to a stored food clarification. Use food_candidate_selection only when pendingInteraction.type is food_candidates; never use it for a draft clarification or offeredFoodNames.",
     "A question about what would happen is a question or hypothetical, not a mutation request. An instruction such as 'do not change my plan' is negated.",
     "For a short contextual answer, use the stored interaction. Never invent a food name that is absent from the current message.",
-    "Use recentConversation only to resolve a clear pronoun or short continuation in the current message. Do not revive an older mutation when the current message is a question, hypothetical, negation, or topic change.",
+    "Use recentConversation for conversational meaning, but classify a mutation as an answer only when authoritativeState.pendingInteraction is compatible with that exact workflow. Without a compatible pending interaction, a short pronoun or continuation must not revive an older mutation; classify it as unknown unless the current message is independently an explicit request.",
     "evidence is the shortest exact excerpt from the current message supporting the classification, or null when uncertain.",
     "Examples: 'I want to change the whole meal plan' is plan_replace/request. 'I don't like rice, any other options?' is food_alternatives/question with rice in foodNames. 'couscous' after an alternative offer is food_alternative_selection/answer. 'different mix of approved foods' after draft_failure_review is draft_retry/answer with different_approved_mix.",
     repairIssue

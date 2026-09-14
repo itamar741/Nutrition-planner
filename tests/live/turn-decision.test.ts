@@ -82,5 +82,23 @@ liveDescribe("live structured turn decisions", () => {
       speechAct: "answer",
       planChangeStrategy: "different_approved_mix",
     });
+
+    const staleTranscriptReply = await interpretTurnDecision({
+      ...baseContext,
+      message: "so add it",
+      recentConversation: [
+        { role: "user", content: "Yesterday was 76 kg" },
+        {
+          role: "assistant",
+          content: "No weight is recorded for that date.",
+        },
+      ],
+    });
+    expect(
+      decisionAuthorizesIntent(
+        staleTranscriptReply,
+        staleTranscriptReply.intent,
+      ),
+    ).toBe(false);
   }, 90_000);
 });

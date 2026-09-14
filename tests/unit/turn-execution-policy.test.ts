@@ -5,6 +5,7 @@ import {
 } from "@/application/turn-execution-policy";
 import type { CoachToolName } from "@/ai/coach-agent";
 import type { TurnDecision } from "@/domain/agent/turn-decision";
+import type { AgentInteraction } from "@/domain/agent/types";
 
 const allTools: CoachToolName[] = [
   "remember_preference",
@@ -56,6 +57,43 @@ describe("turn execution policy", () => {
   it("fails closed for an unknown decision", () => {
     expect(
       allowedToolsForDecision(allTools, decision({ intent: "unknown" })),
+    ).toEqual([]);
+  });
+
+  it("authorizes a short answer only against a compatible persisted interaction", () => {
+    const answer = decision({
+      intent: "food_search",
+      speechAct: "answer",
+    });
+    const foodClarification: AgentInteraction = {
+      id: "food-clarification",
+      type: "clarification",
+      workflow: "food",
+      prompt: "Which food?",
+      quickReplies: [],
+    };
+
+    expect(allowedToolsForDecision(allTools, answer)).toEqual([]);
+    expect(
+      allowedToolsForDecision(allTools, answer, foodClarification),
+    ).toEqual(["search_foods"]);
+  });
+
+  it("does not let an answer for one workflow continue a different workflow", () => {
+    const draftRetry = decision({
+      intent: "draft_retry",
+      speechAct: "answer",
+    });
+    const foodClarification: AgentInteraction = {
+      id: "food-clarification",
+      type: "clarification",
+      workflow: "food",
+      prompt: "Which food?",
+      quickReplies: [],
+    };
+
+    expect(
+      allowedToolsForDecision(allTools, draftRetry, foodClarification),
     ).toEqual([]);
   });
 });
