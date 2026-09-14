@@ -1,6 +1,6 @@
 # Security Remediation Note
 
-Status: security-remediation Phases 1–5 are implemented in PR #9. Phase 6 live-deployment and exact-submission checks remain open.
+Status: security-remediation Phases 1–5 are implemented through PRs #9 and #10. The academic live-deployment checks pass; exact final-submission archive inspection remains open.
 
 ## Phase 1 — Credential containment
 
@@ -33,23 +33,27 @@ The shared anonymous bucket is an accepted academic-demo tradeoff: one visitor c
 ## Phase 5 — Deployment safeguards
 
 - Production responses add CSP, HSTS, MIME-sniffing, referrer, and permissions headers. The CSP retains inline script/style compatibility and is not claimed as complete XSS prevention.
-- Both application and migration PostgreSQL pools require certificate verification when TLS is required and reject URL TLS parameters that could replace the explicit configuration.
+- Both application and migration PostgreSQL pools require certificate verification when TLS is enabled and reject URL TLS parameters that could replace the explicit configuration.
+- The academic Render Blueprint uses `fromDatabase.connectionString`, which supplies a same-region internal private-network URL, and leaves database TLS disabled because Render's internal TLS uses a self-signed certificate that cannot satisfy the selected certificate-verification policy. This exception is limited to the Render private network; external database URLs must use verified TLS.
+- Production requires `DATABASE_URL` and fails closed rather than silently using the development/test memory adapter. The health and access routes return generic `503` responses when persistence is unavailable.
 - Public JSON and stream failures use generic messages and safe codes rather than raw exceptions, database URLs, API keys, environment values, source payloads, or model internals.
 - Regression coverage exercises forged state/transcript input, stale and invalid proposals, access failures, rate limits, removed routes, TLS options, response headers, error redaction, and archive inspection.
 
 ## Verification evidence
 
-The completed implementation verification recorded formatting, lint, type checking, 215 passing unit tests, the project security scan, a production build, and 23 passing Chromium scenarios. Phase-specific evidence is stored under `docs/verification-results/`.
+The latest local verification recorded formatting, lint, type checking, 219 passing unit tests, the project security scan, a production build, and 23 passing Chromium scenarios. Phase-specific evidence is stored under `docs/verification-results/`.
 
-## Remaining Phase 6 gates
+## Phase 6 deployment evidence
 
-Read-only checks against `https://nutrition-coach-demo.onrender.com/` on 2026-09-14 found a healthy `/api/health` response and a valid browser-to-Render TLS certificate. The required Phase 5 production headers were absent, so the current live service is not yet verified as running the reviewed commit.
+Read-only checks against `https://nutrition-coach-demo.onrender.com/` on 2026-09-14 found a healthy `/api/health` response, valid browser-to-Render TLS, and every required Phase 5 production header on both the page and health endpoint. That deployed health response predates the final production persistence guard and therefore does not independently prove that PostgreSQL was configured. After this branch is deployed, health returns `200` only after a configured PostgreSQL connection initializes successfully. The application does not expose a version endpoint, so the exact deployed commit SHA was not independently read from the public service.
 
-After PR #9 is merged and deployed:
+Remaining gates:
 
-1. record the deployed commit SHA and verify all required page/API headers;
-2. confirm through authorized Render configuration or redacted logs that both migration and application connections validate the PostgreSQL certificate;
-3. exercise the authenticated demo flow without guessing the shared code; and
-4. run `npm run security:archive -- <final-submission.zip>` on the exact archive submitted.
+1. Recheck `/api/health` after deploying the production persistence guard; and
+2. run `npm run security:archive -- <final-submission.zip>` on the exact archive submitted.
 
-Do not mark the complete security plan finished until these four gates are recorded without secret values.
+An authorized live access request returned `200`, issued the signed cookie, and allowed a read-only request to a protected profile-state endpoint. The code and cookie were neither printed nor stored in evidence.
+
+The expected deployed revision may also be recorded from Render or GitHub deployment metadata when available, but the application does not expose it and it is not a security acceptance gate for this assignment.
+
+Do not mark the complete security plan finished until the archive gate is recorded without secret values. For this academic submission, the private-network database exception is accepted and must remain visible in the final documentation.

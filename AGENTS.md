@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Turns 1–8 and security-remediation Phases 1–5 are implemented locally. Do not claim deployment acceptance until the reviewed commit is live and every Phase 6 Render gate passes.
+Turns 1–8 and security-remediation Phases 1–5 are implemented, merged, and deployed. The final persistence guard is implemented on the current branch; its Render health recheck and exact final submission archive remain Phase 6 gates.
 
 ## Read first
 
@@ -55,7 +55,8 @@ Arnold receives ordinary role/content conversation items plus a fixed system-pro
 - Fresh and Existing reset independently. Reset never deletes runtime catalog foods or rate-limit events.
 - A stale cloud mutation returns `409`, reloads the latest profile, and requires retry.
 - Production access fails closed when either access secret is invalid. Ignore client-supplied forwarding headers; unauthenticated access attempts intentionally share one five-per-15-minute bucket, while authenticated limits use a verified signed-session identity.
-- With `DATABASE_SSL=require`, both PostgreSQL pools must verify certificates and reject TLS query parameters in `DATABASE_URL`. Public errors must remain generic and production security headers must stay covered by tests.
+- With `DATABASE_SSL=require`, both PostgreSQL pools must verify certificates and reject TLS query parameters in `DATABASE_URL`. The academic Render Blueprint may leave TLS unset only when `fromDatabase.connectionString` supplies the same-region internal private-network URL; record this as a deployment exception. Public errors must remain generic and production security headers must stay covered by tests.
+- Production must not silently fall back to in-memory persistence. A missing `DATABASE_URL` is permitted during development and automated tests; the production-build browser harness uses only its explicit local test flag. That flag must never appear in deployment configuration. Production health and access otherwise fail closed.
 
 ## Working protocol
 

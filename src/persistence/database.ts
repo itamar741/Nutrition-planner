@@ -6,7 +6,13 @@ declare global {
 }
 
 export function hasPostgresConfiguration() {
-  return Boolean(process.env.DATABASE_URL);
+  if (process.env.DATABASE_URL) return true;
+  const explicitE2eMemoryAdapter =
+    process.env.ALLOW_IN_MEMORY_PERSISTENCE_FOR_E2E === "true";
+  if (process.env.NODE_ENV === "production" && !explicitE2eMemoryAdapter) {
+    throw new Error("DATABASE_URL is required in production.");
+  }
+  return false;
 }
 
 export function getPool() {

@@ -21,7 +21,7 @@ function accessRequest(code: string, forwardedFor?: string) {
 
 beforeEach(() => {
   delete process.env.DATABASE_URL;
-  vi.stubEnv("NODE_ENV", "production");
+  vi.stubEnv("NODE_ENV", "test");
   process.env.DEMO_ACCESS_CODE = "lecturer-demo";
   process.env.COOKIE_SIGNING_SECRET =
     "a-production-length-test-secret-that-is-not-committed";
@@ -42,6 +42,7 @@ describe("demo access route security", () => {
   it.each(["DEMO_ACCESS_CODE", "COOKIE_SIGNING_SECRET"] as const)(
     "returns 503 without setting a cookie when %s is missing",
     async (missingSecret) => {
+      vi.stubEnv("NODE_ENV", "production");
       delete process.env[missingSecret];
 
       const response = await POST(accessRequest("lecturer-demo"));
@@ -50,6 +51,15 @@ describe("demo access route security", () => {
       expect(response.headers.get("set-cookie")).toBeNull();
     },
   );
+
+  it("fails closed when production persistence is not configured", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+
+    const response = await POST(accessRequest("lecturer-demo"));
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
 
   it("shares one anonymous limit even when forwarding headers change", async () => {
     for (let index = 0; index < 5; index += 1) {
