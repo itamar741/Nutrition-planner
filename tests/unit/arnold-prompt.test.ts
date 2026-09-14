@@ -40,6 +40,16 @@ describe("Arnold system prompt", () => {
     expect(prompt).toContain("do not call a skill");
     expect(prompt).toContain("write a for loop that counts from 1 to 10");
     expect(prompt).toContain("never create personalized workout programming");
+    expect(prompt).toContain(
+      "options, alternatives, replacements, or substitutes for a disliked food",
+    );
+    expect(prompt).toContain("ordinary misspellings such as 'oprions'");
+    expect(prompt).toContain(
+      "Never include substitution or alternative fields inside a submitted Draft",
+    );
+    expect(prompt).toContain(
+      "keep the Active Plan unchanged until the user approves",
+    );
     expect(prompt).not.toContain("raw, cooked, or packaged");
     expect(prompt).not.toContain("fat percentage");
     expect(prompt).not.toContain("preparation state");

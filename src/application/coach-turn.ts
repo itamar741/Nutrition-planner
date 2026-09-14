@@ -166,6 +166,17 @@ function contextFor(
             interactionId: currentInput.interactionId,
           }
         : null,
+    foodAlternativeRequest: requestsFoodAlternatives(currentInput)
+      ? {
+          responseMode: "offer_approved_options_only",
+          rules: [
+            "Offer concise relevant choices from approvedFoods only.",
+            "Exclude the food the user dislikes from the offered choices.",
+            "Ask which option the user prefers.",
+            "Do not persist a preference, remove a food, create a Draft, or change the Active Plan in this turn.",
+          ],
+        }
+      : null,
     currentDate,
     weightHistory: {
       todayMeasurement:
@@ -351,7 +362,10 @@ function requestsDraftProposal(input: CoachMessageRequest["input"]) {
   if (input.type !== "text") return false;
   const text = input.text.trim();
   if (
-    /\b(?:don't|do not|not|never)\b[\s\S]{0,80}\b(?:draft|meal plan|menu)\b/iu.test(
+    /\b(?:don't|do not|never)\b[\s\S]{0,40}\b(?:generate|create|make|build|prepare|propose|change|modify|replace|update)\b[\s\S]{0,80}\b(?:draft|meal\s+plan|menu)\b/iu.test(
+      text,
+    ) ||
+    /\b(?:don't|do not)\s+want\b[\s\S]{0,60}\b(?:draft|meal\s+plan|menu)\b/iu.test(
       text,
     )
   ) {
@@ -364,6 +378,53 @@ function requestsDraftProposal(input: CoachMessageRequest["input"]) {
     /(?:צור|תכין|הכן|תייצר|בנה)[\s\S]{0,100}(?:טיוטה|תפריט|תוכנית\s+ארוחות)/u.test(
       text,
     )
+  );
+}
+
+function requestsFoodAlternatives(input: CoachMessageRequest["input"]) {
+  if (input.type !== "text") return false;
+  const text = input.text.trim();
+  const asksForAlternatives =
+    /\b(?:options?|oprions?|alternatives?|replacements?|substitutes?|instead)\b/iu.test(
+      text,
+    );
+  const hasFoodPreferenceContext =
+    /\b(?:don['’]?t\s+like|do\s+not\s+like|dislike|hate|avoid|rather\s+not\s+eat)\b/iu.test(
+      text,
+    );
+  const refersToPlan = /\b(?:meal\s+plan|menu)\b/iu.test(text);
+  return asksForAlternatives && (hasFoodPreferenceContext || refersToPlan);
+}
+
+function contextualAlternativeSelection(
+  input: CoachMessageRequest["input"],
+  conversation: Array<{ role: "assistant" | "user"; content: string }>,
+  state: PersistedDemoState,
+  catalog: CatalogFood[],
+) {
+  if (input.type !== "text" || input.text.length > 120) return null;
+  const previousUserMessage = conversation
+    .slice(0, -1)
+    .reverse()
+    .find((message) => message.role === "user");
+  if (
+    !previousUserMessage ||
+    !requestsFoodAlternatives({
+      type: "text",
+      text: previousUserMessage.content,
+    })
+  ) {
+    return null;
+  }
+  const normalizedSelection = input.text.toLocaleLowerCase("en-US");
+  return (
+    approvedCatalog(catalog, approvedIdsOf(state))
+      .sort((left, right) => right.displayName.length - left.displayName.length)
+      .find((food) =>
+        normalizedSelection.includes(
+          food.displayName.toLocaleLowerCase("en-US"),
+        ),
+      ) ?? null
   );
 }
 
@@ -774,6 +835,7 @@ function allowedTools(
   input: CoachMessageRequest["input"],
   proposalAttempts: number,
 ): CoachToolName[] {
+  if (requestsFoodAlternatives(input)) return [];
   const common: CoachToolName[] = [
     "remember_preference",
     "remove_approved_food",
@@ -1007,6 +1069,7 @@ export async function executeCoachTurn(input: {
   let actionSummary: Record<string, unknown> | null = null;
   let requiredCatalogFoodId =
     state.agentSession.draftIntent?.requiredCatalogFoodId ?? null;
+  let selectedAlternativeFood: CatalogFood | null = null;
   let proposalAttempts = 0;
   const turnCurrentDate = new Date().toISOString().slice(0, 10);
   let resolvedHistoricalWeightUpsert: ResolvedHistoricalWeightUpsert | null =
@@ -2134,6 +2197,7 @@ export async function executeCoachTurn(input: {
     return (
       requestsDraftProposal(input.request.input) ||
       requiresImmediateDraftProposal(input.request.input, state) ||
+      selectedAlternativeFood !== null ||
       pendingDraftFeedback
     );
   };
@@ -2160,6 +2224,25 @@ export async function executeCoachTurn(input: {
       currentInput: input.request.input,
     }),
   );
+  selectedAlternativeFood = contextualAlternativeSelection(
+    input.request.input,
+    conversation.messages,
+    state,
+    catalog,
+  );
+  if (selectedAlternativeFood && state.activePlan) {
+    requiredCatalogFoodId = selectedAlternativeFood.id;
+    state = {
+      ...state,
+      agentSession: {
+        ...state.agentSession,
+        draftIntent: {
+          basePlanVersion: state.activePlan.version,
+          requiredCatalogFoodId: selectedAlternativeFood.id,
+        },
+      },
+    };
+  }
   resolvedHistoricalWeightUpsert = resolveHistoricalWeightUpsert(
     input.request.input,
     conversation.messages,

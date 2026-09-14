@@ -1467,6 +1467,145 @@ describe("unified coach orchestration", () => {
     ]);
   });
 
+  it("offers approved food alternatives without changing plan or profile state", async () => {
+    const initial = await getProfile("existing");
+    if (!("measurements" in initial.state))
+      throw new Error("Expected Existing state.");
+    const activeBefore = structuredClone(initial.state.activePlan);
+    const approvedBefore = [...initial.state.approvedCatalogFoodIds];
+    const preferencesBefore = structuredClone(
+      initial.state.agentSession.preferences,
+    );
+    agent.responseText =
+      "You could use potato, quinoa, sweet potato, pasta, or whole-wheat pita. Which option would you prefer?";
+
+    const result = await executeCoachTurn(
+      turnInput(
+        "existing",
+        initial.version,
+        "offer-rice-alternatives",
+        "i dont like rice. any other oprions for my meal plan?",
+      ),
+    );
+
+    expect(agent.requiredFirstTools).toEqual([null]);
+    expect(agent.allowedAfterCalls.every((tools) => tools.length === 0)).toBe(
+      true,
+    );
+    expect(agent.systemPrompts.at(-1)).toContain(
+      '"responseMode":"offer_approved_options_only"',
+    );
+    expect(agent.systemPrompts.at(-1)).toContain('"id":"quinoa-cooked"');
+    expect(result.assistantText).toContain("quinoa");
+    expect(result.assistantText).not.toContain(
+      "I can help with nutrition, food, meal preparation",
+    );
+    if (!("measurements" in result.profile.state))
+      throw new Error("Expected Existing state.");
+    expect(result.profile.state.activePlan).toEqual(activeBefore);
+    expect(result.profile.state.draft).toBeNull();
+    expect(result.profile.state.approvedCatalogFoodIds).toEqual(approvedBefore);
+    expect(result.profile.state.agentSession.preferences).toEqual(
+      preferencesBefore,
+    );
+  });
+
+  it("distinguishes a disliked food from an explicit instruction not to change a plan", async () => {
+    const initial = await getProfile("existing");
+
+    await executeCoachTurn(
+      turnInput(
+        "existing",
+        initial.version,
+        "create-plan-despite-dislike",
+        "Please create a meal plan because I don't like rice.",
+      ),
+    );
+    expect(agent.requiredFirstTools.at(-1)).toBe("submit_draft_proposal");
+
+    const current = await getProfile("existing");
+    await executeCoachTurn(
+      turnInput(
+        "existing",
+        current.version,
+        "decline-plan-change",
+        "Do not change my meal plan.",
+      ),
+    );
+    expect(agent.requiredFirstTools.at(-1)).toBeNull();
+  });
+
+  it("turns a selected offered alternative into a Draft while preserving the Active Plan", async () => {
+    const initial = await getProfile("existing");
+    if (!("measurements" in initial.state))
+      throw new Error("Expected Existing state.");
+    const activeBefore = structuredClone(initial.state.activePlan);
+    const seeded = await mutateProfile({
+      profileId: "existing",
+      expectedVersion: initial.version,
+      commandId: "seed-rice-alternative-conversation",
+      mutation: (state) => ({
+        ...state,
+        messages: [
+          ...state.messages,
+          {
+            id: "rice-alternative-request",
+            role: "user" as const,
+            text: "i dont like rice. any other oprions for my meal plan?",
+          },
+          {
+            id: "rice-alternative-offer",
+            role: "assistant" as const,
+            text: "You could use potato, quinoa, sweet potato, pasta, or whole-wheat pita. Which option would you prefer?",
+          },
+        ],
+      }),
+    });
+    agent.tool = {
+      name: "submit_draft_proposal",
+      arguments: {
+        summary: "Replaces white rice with potato.",
+        meals: activeBefore.plan.meals.map((meal) => ({
+          id: meal.id,
+          items: meal.items.map((item) => ({
+            catalogFoodId:
+              item.catalogFoodId === "white-rice-cooked"
+                ? "potato-baked"
+                : item.catalogFoodId,
+            grams:
+              item.catalogFoodId === "white-rice-cooked" ? 490 : item.grams,
+          })),
+        })),
+      },
+    };
+
+    const result = await executeCoachTurn(
+      turnInput(
+        "existing",
+        seeded.version,
+        "select-potato-alternative",
+        "Potato, please.",
+      ),
+    );
+
+    expect(agent.requiredFirstTools.at(-1)).toBe("submit_draft_proposal");
+    expect(agent.toolResults[0]).toMatchObject({ accepted: true });
+    if (!("measurements" in result.profile.state))
+      throw new Error("Expected Existing state.");
+    expect(result.profile.state.activePlan).toEqual(activeBefore);
+    expect(result.profile.state.draft).not.toBeNull();
+    expect(
+      result.profile.state.draft?.plan.meals.flatMap((meal) =>
+        meal.items.map((item) => item.catalogFoodId),
+      ),
+    ).not.toContain("white-rice-cooked");
+    expect(
+      result.profile.state.draft?.plan.meals.flatMap((meal) =>
+        meal.items.map((item) => item.catalogFoodId),
+      ),
+    ).toContain("potato-baked");
+  });
+
   it("inspects and removes an approved food without changing the Active Plan", async () => {
     const initial = await getProfile("existing");
     const activeBefore = structuredClone(
