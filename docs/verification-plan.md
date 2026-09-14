@@ -214,7 +214,8 @@ Run `security:check`, inspect dependency and lockfile changes, and run `npm audi
 - **SR-04:** Production page and API responses include the documented CSP, HSTS, MIME-sniffing, referrer, and permissions headers. Development does not claim production CSP enforcement.
 - **SR-05:** Both PostgreSQL pools reject conflicting TLS options embedded in `DATABASE_URL` and require certificate verification when `DATABASE_SSL=require`.
 - **SR-06:** The exact final submission ZIP passes `npm run security:archive -- <archive.zip>`; it contains neither `.git/` nor a local `.env*` file and does not match the bounded secret scan.
-- **SR-07:** For the live Render service, record the deployed commit, health response, public-edge TLS result, response-header result, and an authorized confirmation of the internal PostgreSQL certificate path. Do not use an unknown access code or a guessing test against the shared demo limit.
+- **SR-07:** For the live Render service, record the deployed commit, health response, public-edge TLS result, response-header result, and an authorized confirmation that `fromDatabase.connectionString` supplies the same-region internal private-network PostgreSQL URL. Any external database URL must pass certificate-verified TLS. Do not use an unknown access code or a guessing test against the shared demo limit.
+- **SR-08:** With no `DATABASE_URL`, development and tests may use the memory adapter, but production health and access return generic `503` responses without issuing an access cookie.
 
 Evidence belongs in `docs/verification-results/phase-3.md`, `phase-6.md`, and the deployment-specific result record. A missing live deployment check is an open deployment gate, not a passing result.
 
@@ -241,7 +242,7 @@ The implementation plan selects npm, ESLint, Prettier, TypeScript, Vitest, React
 - `npm run typecheck` — exit 0 with no TypeScript errors.
 - `npm run test:unit` — run deterministic domain, reducer, and structured-contract tests once and exit 0 only when all pass.
 - `npm run security:check` — scan tracked files for common committed secret forms and fail before build or merge.
-- `npm run test:e2e` — run Playwright controls against a production-like local server and exit 0 only when all pass.
+- `npm run test:e2e` — run Playwright controls against a production build with an explicit local-only memory-persistence test flag and exit 0 only when all pass. The flag is absent from deployment configuration; Render requires PostgreSQL.
 - `npm run build` — produce a successful production build.
 - `npm run verify` — run `format:check`, `lint`, `typecheck`, `test:unit`, `security:check`, `build`, and `test:e2e`; fail immediately or return nonzero if any mandatory check fails.
 

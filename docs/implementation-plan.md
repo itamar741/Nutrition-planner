@@ -194,5 +194,7 @@ bodies are strict-schema validated.
 - One shared access code is privacy gating, not production authentication.
 - The shared anonymous pre-access limit avoids spoofable proxy identity but allows one visitor to exhaust the short access window for everyone.
 - The production CSP permits inline scripts and styles for framework compatibility and therefore reduces external-source exposure without claiming complete XSS prevention.
+- The academic Render Web Service uses the database `connectionString` supplied over Render's same-region private network and leaves database TLS unset. External database URLs remain required to use certificate-verified TLS. This exception is deployment-specific and must not become a general fallback.
+- The in-memory persistence adapter is limited to development and automated tests. Production fails closed if `DATABASE_URL` is absent so health, rate limits, idempotency, and shared state cannot silently become process-local.
 - Archive inspection is bounded protection against accidental secret and nested-container inclusion; it is not a general detector for encrypted or arbitrarily encoded content.
 - The source adapter is low-volume and basic-food only; changed or malformed API responses fail closed.

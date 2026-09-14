@@ -28,6 +28,7 @@ export default defineConfig({
     command: "npm run start",
     env: {
       ...process.env,
+      ALLOW_IN_MEMORY_PERSISTENCE_FOR_E2E: "true",
       COOKIE_SIGNING_SECRET: e2eSigningSecret,
       DATABASE_URL: "",
       DEMO_ACCESS_CODE: e2eAccessCode,

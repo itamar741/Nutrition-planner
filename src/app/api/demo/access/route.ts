@@ -29,7 +29,18 @@ export async function POST(request: Request) {
       { status: 401 },
     );
   }
-  if (!(await recordAndCheckDemoAccessRateLimit(rateIdentity(request)))) {
+  let rateLimitAllowed: boolean;
+  try {
+    rateLimitAllowed = await recordAndCheckDemoAccessRateLimit(
+      rateIdentity(request),
+    );
+  } catch {
+    return NextResponse.json(
+      { ok: false, message: "Demo access is temporarily unavailable." },
+      { status: 503 },
+    );
+  }
+  if (!rateLimitAllowed) {
     return NextResponse.json(
       {
         ok: false,

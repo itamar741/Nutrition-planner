@@ -14,7 +14,8 @@ Every free-text coach message reaches the server-owned Arnold agent with authori
 - The browser submits text or a narrow action with identifiers and optimistic-version metadata. It cannot submit an assistant message, replacement profile, Draft, target snapshot, validation result, or Active Plan.
 - `/api/coach/message` is the only public AI entry point. The server loads stored proposals and authoritative profile/catalog state before validating any approval.
 - Production access fails closed unless the shared code and a signing secret of at least 32 characters are configured. Five access-code attempts within 15 minutes exhaust the shared anonymous pre-access bucket; authenticated limits use only a verified signed-session identity.
-- Production adds browser security headers, verifies PostgreSQL TLS certificates, and returns fixed public errors rather than raw internal messages.
+- Production adds browser security headers and returns fixed public errors rather than raw internal messages. The database layer verifies certificates whenever TLS is enabled; the academic Render Blueprint instead uses its same-region private-network database URL without TLS as a documented deployment exception.
+- Production requires `DATABASE_URL` and never falls back to temporary in-memory persistence. Development and automated tests may use the deterministic memory adapter.
 - The submission ZIP must be checked separately with `npm run security:archive -- <archive.zip>`.
 
 ## Local verification
@@ -30,7 +31,7 @@ Without `DATABASE_URL`, local development and automated tests use an in-memory r
 
 The project is configured as one Render Web Service plus one Render PostgreSQL database in `render.yaml`. See [docs/deployment.md](docs/deployment.md) for the required secrets, setup, and staging checklist.
 
-The current live Render service must not be considered security-verified until it serves the reviewed commit with the documented production headers and its internal PostgreSQL certificate path is confirmed. Current evidence is recorded in [docs/verification-results/phase-6.md](docs/verification-results/phase-6.md).
+The live Render service passes the public health, edge-TLS, production-header, and authenticated-read checks. After this branch is deployed, health must be rechecked against the new fail-closed persistence guard; the exact final submission ZIP also remains open until the final commit is merged. Current evidence is recorded in [docs/verification-results/phase-6.md](docs/verification-results/phase-6.md).
 
 ## Safety boundary
 

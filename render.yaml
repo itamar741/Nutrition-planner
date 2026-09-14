@@ -19,6 +19,8 @@ services:
         fromDatabase:
           name: nutrition-coach-db
           property: connectionString
+      # Render injects its same-region internal private-network URL here.
+      # This academic deployment therefore leaves DATABASE_SSL unset.
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_MODEL
