@@ -316,6 +316,7 @@ function turnInput(
     },
     rateIdentity: identity,
     turnId: commandId,
+    leaseToken: null,
     onStatus: vi.fn(),
     onText: vi.fn(),
   };

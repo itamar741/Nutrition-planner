@@ -57,6 +57,7 @@ import {
   mutateProfile,
   recordAgentSkillCall,
   recordAndCheckRateLimit,
+  renewAgentTurnLease,
   replaceCandidate,
   saveCandidates,
   saveConversationSummary,
@@ -531,6 +532,11 @@ async function conversationForModel(input: {
   state: PersistedDemoState;
   contextWithoutDigest: Record<string, unknown>;
   currentInput: CoachMessageRequest["input"];
+  agentTurnLease?: {
+    profileId: "new" | "existing";
+    commandId: string;
+    leaseToken: string;
+  };
 }) {
   const stored = await listConversationMessages(input.profileId);
   const complete = stored
@@ -593,6 +599,7 @@ async function conversationForModel(input: {
       profileId: input.profileId,
       throughMessageId: through.id,
       digest,
+      lease: input.agentTurnLease,
     });
   }
   return {
@@ -818,20 +825,31 @@ async function searchFoods(input: {
   preparation: "cooked" | "raw" | "packaged" | null;
   rateIdentity: RateIdentity;
   turnId: string;
+  agentTurnLease?: {
+    profileId: "new" | "existing";
+    commandId: string;
+    leaseToken: string;
+  };
   onStatus: (value: Status) => void;
 }) {
   const existing = await findCatalogFood(input.query);
   if (existing) return { outcome: "existing" as const, food: existing };
+  if (input.agentTurnLease) {
+    await renewAgentTurnLease(input.agentTurnLease);
+  }
   if (!(await recordAndCheckRateLimit(input.rateIdentity))) {
     throw new Error("The food-search limit has been reached. Try again later.");
   }
-  const lookup = await createLookup({
-    profileId: input.profileId,
-    query: input.query,
-    context: { turnId: input.turnId, preparation: input.preparation },
-    status: "searching",
-    failureCode: null,
-  });
+  const lookup = await createLookup(
+    {
+      profileId: input.profileId,
+      query: input.query,
+      context: { turnId: input.turnId, preparation: input.preparation },
+      status: "searching",
+      failureCode: null,
+    },
+    input.agentTurnLease,
+  );
   input.onStatus("searching");
   try {
     const arguments_ = {
@@ -853,10 +871,14 @@ async function searchFoods(input: {
       candidates: summaries,
     });
     if (ranking.outcome === "clarification") {
-      await updateLookup(lookup.id, {
-        status: "failed",
-        failureCode: "needs_clarification",
-      });
+      await updateLookup(
+        lookup.id,
+        {
+          status: "failed",
+          failureCode: "needs_clarification",
+        },
+        input.agentTurnLease,
+      );
       return {
         outcome: "needs_clarification" as const,
         prompt: ranking.message,
@@ -892,13 +914,22 @@ async function searchFoods(input: {
         status: "summary" as const,
         data: { ...candidate, toolArguments: arguments_ },
       })),
+      input.agentTurnLease,
     );
-    await updateLookup(lookup.id, { status: "ready", failureCode: null });
+    await updateLookup(
+      lookup.id,
+      { status: "ready", failureCode: null },
+      input.agentTurnLease,
+    );
     return { outcome: "candidates" as const, lookupId: lookup.id, candidates };
   } catch (error) {
     const failureCode =
       error instanceof UsdaUnavailableError ? error.code : "source_unavailable";
-    await updateLookup(lookup.id, { status: "failed", failureCode });
+    await updateLookup(
+      lookup.id,
+      { status: "failed", failureCode },
+      input.agentTurnLease,
+    );
     console.error("agent_food_lookup_failed", {
       turnId: input.turnId,
       lookupId: lookup.id,
@@ -919,9 +950,17 @@ export async function executeCoachTurn(input: {
   request: CoachMessageRequest;
   rateIdentity: RateIdentity;
   turnId: string;
+  leaseToken: string | null;
   onStatus: (value: Status) => void;
   onText: (delta: string) => void;
 }): Promise<CoachTurnResult> {
+  const turnLease = input.leaseToken
+    ? {
+        profileId: input.request.profileId,
+        commandId: input.request.commandId,
+        leaseToken: input.leaseToken,
+      }
+    : undefined;
   let profile = await getProfile(input.request.profileId);
   let state = structuredClone(profile.state);
   let catalog = await listCatalogFoods();
@@ -1072,6 +1111,7 @@ export async function executeCoachTurn(input: {
           profileId: input.request.profileId,
           expectedVersion: profile.version,
           commandId: input.request.commandId,
+          agentTurnLease: turnLease,
           mutation: () => state,
         }),
       );
@@ -1228,6 +1268,7 @@ export async function executeCoachTurn(input: {
       const selected = await prepareFoodCandidate({
         profileId: input.request.profileId,
         candidateId: input.request.input.candidateId,
+        agentTurnLease: turnLease,
       });
       state = setInteraction(
         state,
@@ -1261,11 +1302,16 @@ export async function executeCoachTurn(input: {
         profileId: input.request.profileId,
         expectedVersion: profile.version,
         commandId: `${input.request.commandId}:food`,
+        agentTurnLease: turnLease,
       });
-      await updateLookup(stored.lookupId, {
-        status: "approved",
-        failureCode: null,
-      });
+      await updateLookup(
+        stored.lookupId,
+        {
+          status: "approved",
+          failureCode: null,
+        },
+        turnLease,
+      );
       profile = result.profile;
       state = setInteraction(
         profile.state,
@@ -1288,8 +1334,12 @@ export async function executeCoachTurn(input: {
         throw new Error("There is no food awaiting review.");
       const stored = await getCandidate(pending.candidate.id);
       const lookup = await getLookup(stored.lookupId);
-      await replaceCandidate({ ...stored, status: "rejected" });
-      await updateLookup(lookup.id, { status: "rejected", failureCode: null });
+      await replaceCandidate({ ...stored, status: "rejected" }, turnLease);
+      await updateLookup(
+        lookup.id,
+        { status: "rejected", failureCode: null },
+        turnLease,
+      );
       state = setInteraction(
         state,
         interaction(randomUUID(), {
@@ -1309,6 +1359,7 @@ export async function executeCoachTurn(input: {
         profileId: input.request.profileId,
         expectedVersion: profile.version,
         commandId: `${input.request.commandId}:existing-food`,
+        agentTurnLease: turnLease,
       });
       profile = result.profile;
       state = setInteraction(
@@ -1433,6 +1484,7 @@ export async function executeCoachTurn(input: {
       const candidate = await prepareAiEstimate({
         profileId: input.request.profileId,
         lookupId: pending.lookupId,
+        agentTurnLease: turnLease,
       });
       state = setInteraction(
         state,
@@ -1479,6 +1531,7 @@ export async function executeCoachTurn(input: {
         profileId: input.request.profileId,
         expectedVersion: profile.version,
         commandId: input.request.commandId,
+        agentTurnLease: turnLease,
         mutation: () => state,
       }),
     );
@@ -1553,6 +1606,7 @@ export async function executeCoachTurn(input: {
         turnId: input.turnId,
         kind: "remembering_preference",
         label: `Remembering your preference: ${preference.subject} — ${preference.value}`,
+        lease: turnLease,
       });
       return {
         saved: true,
@@ -1619,6 +1673,7 @@ export async function executeCoachTurn(input: {
         turnId: input.turnId,
         kind: "checking_foods",
         label: "Checking your foods and plans",
+        lease: turnLease,
       });
       return { query: String(args.query), matches };
     }
@@ -1741,6 +1796,7 @@ export async function executeCoachTurn(input: {
         preparation: null,
         rateIdentity: input.rateIdentity,
         turnId: input.turnId,
+        agentTurnLease: turnLease,
         onStatus: input.onStatus,
       });
       input.onStatus("validating");
@@ -1809,6 +1865,7 @@ export async function executeCoachTurn(input: {
       const selected = await prepareFoodCandidate({
         profileId: input.request.profileId,
         candidateId: String(args.candidateId),
+        agentTurnLease: turnLease,
       });
       const next = interaction(randomUUID(), {
         type: "food_approval",
@@ -1920,6 +1977,7 @@ export async function executeCoachTurn(input: {
         turnId: input.turnId,
         kind: "checking_plan",
         label: "Checking plan safety",
+        lease: turnLease,
       });
       return {
         accepted: true,
@@ -2026,6 +2084,7 @@ export async function executeCoachTurn(input: {
       arguments: call.arguments as Record<string, unknown>,
       result: null,
       status: "pending",
+      lease: turnLease,
     });
     try {
       const interactionBeforeTool = state.agentSession.pendingInteraction?.id;
@@ -2046,6 +2105,7 @@ export async function executeCoachTurn(input: {
         arguments: call.arguments as Record<string, unknown>,
         result,
         status: rejected ? "rejected" : "completed",
+        lease: turnLease,
       });
       console.info("coach_skill_finished", {
         turnId: input.turnId,
@@ -2070,6 +2130,7 @@ export async function executeCoachTurn(input: {
         arguments: call.arguments as Record<string, unknown>,
         result: { safeFailure: "Skill execution failed safely." },
         status: "failed",
+        lease: turnLease,
       });
       console.error("coach_skill_failed", {
         turnId: input.turnId,
@@ -2172,6 +2233,7 @@ export async function executeCoachTurn(input: {
       state,
       contextWithoutDigest,
       currentInput: input.request.input,
+      agentTurnLease: turnLease,
     }),
   );
   resolvedHistoricalWeightUpsert = resolveHistoricalWeightUpsert(
@@ -2264,6 +2326,7 @@ export async function executeCoachTurn(input: {
       profileId: input.request.profileId,
       expectedVersion: profile.version,
       commandId: input.request.commandId,
+      agentTurnLease: turnLease,
       mutation: () => state,
     }),
   );

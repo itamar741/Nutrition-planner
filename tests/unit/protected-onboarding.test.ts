@@ -32,6 +32,7 @@ describe("protected onboarding", () => {
       },
       rateIdentity: { sessionHash: "session", ipHash: "ip" },
       turnId: "protected-onboarding-age",
+      leaseToken: null,
       onStatus: vi.fn(),
       onText,
     });

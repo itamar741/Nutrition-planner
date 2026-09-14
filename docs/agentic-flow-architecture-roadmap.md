@@ -66,14 +66,14 @@ The chain starts from local commit `5f7bd57` on
 `docs/final-submission-evidence`. That local branch itself contains three commits
 not yet present on `origin/docs/final-submission-evidence`.
 
-| Phase | Branch                                     | Parent                                        | Status      |
-| ----- | ------------------------------------------ | --------------------------------------------- | ----------- |
-| 1     | `architecture/01-structured-turn-contract` | `docs/final-submission-evidence` at `5f7bd57` | In progress |
-| 2     | `architecture/02-turn-fencing`             | Phase 1                                       | Pending     |
-| 3     | `architecture/03-workflow-state`           | Phase 2                                       | Pending     |
-| 4     | `architecture/04-onboarding-routing`       | Phase 3                                       | Pending     |
-| 5     | `architecture/05-contract-hardening`       | Phase 4                                       | Pending     |
-| 6     | `architecture/06-final-verification`       | Phase 5                                       | Pending     |
+| Phase | Branch                                     | Parent                                        | Status               |
+| ----- | ------------------------------------------ | --------------------------------------------- | -------------------- |
+| 1     | `architecture/01-structured-turn-contract` | `docs/final-submission-evidence` at `5f7bd57` | Complete (`859c8c1`) |
+| 2     | `architecture/02-turn-fencing`             | Phase 1                                       | Ready to commit      |
+| 3     | `architecture/03-workflow-state`           | Phase 2                                       | Pending              |
+| 4     | `architecture/04-onboarding-routing`       | Phase 3                                       | Pending              |
+| 5     | `architecture/05-contract-hardening`       | Phase 4                                       | Pending              |
+| 6     | `architecture/06-final-verification`       | Phase 5                                       | Pending              |
 
 Create each branch only after its parent phase is committed and verified. Push
 each branch with its explicit upstream. Do not rebase or squash the chain during
@@ -141,6 +141,24 @@ Research and implementation requirements:
   the lease is valid.
 - Add concurrency tests for old-worker completion, stale partial text, duplicate
   commands, expired leases, and simultaneous profile turns.
+
+Implemented checkpoint:
+
+- Every reservation attempt owns a new random lease token. Recovery rotates the
+  token, so an expired worker cannot write with its previous ownership proof.
+- Profile mutations, assistant output, activity events, conversation summaries,
+  tool-call records, lookup state, and candidate writes made by the coach verify
+  the current lease. Ordinary profile mutations atomically expire a stale turn
+  before writing and reject while a live turn exists.
+- The route renews a valid lease every 30 seconds, and successful persisted work
+  also refreshes it. The recovery threshold remains 90 seconds.
+- Expiring a turn also marks its current pending or partial assistant message as
+  failed. Completion is terminal: the former owner cannot append output after it.
+- Added memory-persistence race tests for lease rotation, late assistant,
+  activity, skill, lookup, candidate, and profile writes, terminal writes,
+  heartbeat renewal, and ordinary writes after expiry.
+- Verification result: 38 unit files and 255 tests passed; formatting, lint,
+  typecheck, security scan (181 files), and production build passed.
 
 Non-goal: changing the user-visible one-minute AI limit.
 
@@ -278,8 +296,8 @@ After any summary or interruption:
 
 ## Current Checkpoint
 
-- Current branch: `architecture/01-structured-turn-contract`.
-- Current phase: Phase 1, ready for final review, commit, and push.
-- Next action: verify the explicit staged file list, commit Phase 1, push its
-  branch, then create `architecture/02-turn-fencing` from it.
+- Current branch: `architecture/02-turn-fencing`.
+- Current phase: Phase 2, verified and ready for explicit-path commit and push.
+- Next action: commit and push Phase 2, then create
+  `architecture/03-workflow-state` from it and inventory the transition matrix.
 - Merge/deploy status: not authorized; do neither.

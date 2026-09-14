@@ -14,6 +14,7 @@ vi.mock("@/application/coach-turn", () => ({ executeCoachTurn }));
 
 type MockTurnInput = {
   request: CoachMessageRequest;
+  leaseToken: string;
   onStatus: (value: "thinking") => void;
   onText: (value: string) => void;
 };
@@ -89,6 +90,9 @@ describe("protected coach route", () => {
     expect(duplicate.status).toBe(200);
     expect(body.duplicate).toBe(true);
     expect(executeCoachTurn).toHaveBeenCalledOnce();
+    expect(executeCoachTurn.mock.calls[0][0].leaseToken).toEqual(
+      expect.any(String),
+    );
   });
 
   it("returns a fixed message when a command is replayed with new input", async () => {

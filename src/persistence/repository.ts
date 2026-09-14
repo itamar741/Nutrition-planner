@@ -106,6 +106,13 @@ export interface StoredAgentTurn {
   createdAt: string;
   updatedAt: string;
   attempt: number;
+  leaseToken: string;
+}
+
+export interface AgentTurnLease {
+  profileId: DemoProfileId;
+  commandId: string;
+  leaseToken: string;
 }
 
 declare global {
@@ -337,8 +344,16 @@ async function mutatePostgresProfile<T extends PersistedDemoState>(
   profileId: DemoProfileId,
   expectedVersion: number,
   commandId: string,
+  agentTurnLease: AgentTurnLease | undefined,
   mutation: (state: T) => T,
 ) {
+  await lockPostgresProfileAgentState(client, profileId);
+  if (agentTurnLease) {
+    if (agentTurnLease.profileId !== profileId) {
+      throw new AgentTurnLeaseLostError();
+    }
+    await touchPostgresAgentTurnLease(client, agentTurnLease);
+  }
   const duplicate = await client.query<{ response: VersionedProfile<T> }>(
     "SELECT response FROM demo_commands WHERE profile_id = $1 AND command_id = $2",
     [profileId, commandId],
@@ -353,6 +368,18 @@ async function mutatePostgresProfile<T extends PersistedDemoState>(
       ),
       activityEvents: await postgresActivitiesWithClient(client, profileId),
     };
+  }
+  if (!agentTurnLease) {
+    await expirePostgresAgentTurns(client, profileId);
+    const active = await client.query<{ command_id: string }>(
+      `SELECT command_id FROM agent_turns
+       WHERE profile_id = $1 AND status = 'pending'
+       LIMIT 1 FOR UPDATE`,
+      [profileId],
+    );
+    if (active.rows[0]) {
+      throw new ActiveAgentTurnError(active.rows[0].command_id);
+    }
   }
   const locked = await client.query<{ version: number; state: T }>(
     "SELECT version, state FROM demo_profiles WHERE profile_id = $1 FOR UPDATE",
@@ -468,10 +495,17 @@ export async function mutateProfile<T extends PersistedDemoState>(input: {
   profileId: DemoProfileId;
   expectedVersion: number;
   commandId: string;
+  agentTurnLease?: AgentTurnLease;
   mutation: (state: T) => T;
 }): Promise<VersionedProfile<T>> {
   if (!hasPostgresConfiguration()) {
     const store = memoryStore();
+    if (input.agentTurnLease) {
+      if (input.agentTurnLease.profileId !== input.profileId) {
+        throw new AgentTurnLeaseLostError();
+      }
+      touchMemoryAgentTurnLease(input.agentTurnLease);
+    }
     const key = `${input.profileId}:${input.commandId}`;
     const duplicate = store.commands.get(key);
     if (duplicate) {
@@ -485,6 +519,14 @@ export async function mutateProfile<T extends PersistedDemoState>(input: {
           store.conversationActivities.get(input.profileId) ?? [],
         ),
       } as VersionedProfile<T>;
+    }
+    if (!input.agentTurnLease) {
+      expireMemoryAgentTurns(input.profileId, Date.now() - 90_000);
+      const active = [...store.agentTurns.values()].find(
+        (turn) =>
+          turn.profileId === input.profileId && turn.status === "pending",
+      );
+      if (active) throw new ActiveAgentTurnError(active.commandId);
     }
     const current = store.profiles.get(input.profileId);
     if (!current) throw new Error("Unknown demo profile.");
@@ -514,6 +556,7 @@ export async function mutateProfile<T extends PersistedDemoState>(input: {
       input.profileId,
       input.expectedVersion,
       input.commandId,
+      input.agentTurnLease,
       input.mutation,
     ),
   );
@@ -619,45 +662,60 @@ export async function findCatalogFood(query: string) {
   );
 }
 
-export async function createLookup(input: Omit<StoredLookup, "id">) {
+export async function createLookup(
+  input: Omit<StoredLookup, "id">,
+  lease?: AgentTurnLease,
+) {
   const lookup = { ...input, id: randomUUID() };
+  if (lease && lease.profileId !== input.profileId) {
+    throw new AgentTurnLeaseLostError();
+  }
   if (!hasPostgresConfiguration()) {
+    if (lease) touchMemoryAgentTurnLease(lease);
     memoryStore().lookups.set(lookup.id, clone(lookup));
     return lookup;
   }
   await ensurePersistenceInitialized();
-  await getPool().query(
-    `INSERT INTO food_lookups (id, profile_id, query, context, status, failure_code)
-     VALUES ($1, $2, $3, $4::jsonb, $5, $6)`,
-    [
-      lookup.id,
-      lookup.profileId,
-      lookup.query,
-      JSON.stringify(lookup.context),
-      lookup.status,
-      lookup.failureCode,
-    ],
-  );
+  await withTransaction(async (client) => {
+    if (lease) await touchPostgresAgentTurnLease(client, lease);
+    await client.query(
+      `INSERT INTO food_lookups (id, profile_id, query, context, status, failure_code)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6)`,
+      [
+        lookup.id,
+        lookup.profileId,
+        lookup.query,
+        JSON.stringify(lookup.context),
+        lookup.status,
+        lookup.failureCode,
+      ],
+    );
+  });
   return lookup;
 }
 
 export async function updateLookup(
   id: string,
   patch: Pick<StoredLookup, "status" | "failureCode">,
+  lease?: AgentTurnLease,
 ) {
   if (!hasPostgresConfiguration()) {
+    if (lease) touchMemoryAgentTurnLease(lease);
     const current = memoryStore().lookups.get(id);
     if (!current) throw new Error("Unknown food lookup.");
     const updated = { ...current, ...patch };
     memoryStore().lookups.set(id, updated);
     return updated;
   }
-  const result = await getPool().query<{ id: string }>(
-    `UPDATE food_lookups SET status = $2, failure_code = $3, updated_at = now()
-     WHERE id = $1 RETURNING id`,
-    [id, patch.status, patch.failureCode],
-  );
-  if (!result.rows[0]) throw new Error("Unknown food lookup.");
+  await withTransaction(async (client) => {
+    if (lease) await touchPostgresAgentTurnLease(client, lease);
+    const result = await client.query<{ id: string }>(
+      `UPDATE food_lookups SET status = $2, failure_code = $3, updated_at = now()
+       WHERE id = $1 RETURNING id`,
+      [id, patch.status, patch.failureCode],
+    );
+    if (!result.rows[0]) throw new Error("Unknown food lookup.");
+  });
 }
 
 export async function updateLookupContext(
@@ -705,14 +763,19 @@ export async function getLookup(id: string): Promise<StoredLookup> {
   };
 }
 
-export async function saveCandidates(candidates: StoredCandidate[]) {
+export async function saveCandidates(
+  candidates: StoredCandidate[],
+  lease?: AgentTurnLease,
+) {
   if (!hasPostgresConfiguration()) {
+    if (lease) touchMemoryAgentTurnLease(lease);
     for (const candidate of candidates) {
       memoryStore().candidates.set(candidate.id, clone(candidate));
     }
     return;
   }
   await withTransaction(async (client) => {
+    if (lease) await touchPostgresAgentTurnLease(client, lease);
     for (const candidate of candidates) {
       await client.query(
         `INSERT INTO food_candidates (id, lookup_id, source_url, source_identifier, status, data)
@@ -760,22 +823,29 @@ export async function getCandidate(id: string): Promise<StoredCandidate> {
   };
 }
 
-export async function replaceCandidate(candidate: StoredCandidate) {
+export async function replaceCandidate(
+  candidate: StoredCandidate,
+  lease?: AgentTurnLease,
+) {
   if (!hasPostgresConfiguration()) {
+    if (lease) touchMemoryAgentTurnLease(lease);
     memoryStore().candidates.set(candidate.id, clone(candidate));
     return;
   }
-  await getPool().query(
-    `UPDATE food_candidates SET source_url = $2, source_identifier = $3, status = $4, data = $5::jsonb
-     WHERE id = $1`,
-    [
-      candidate.id,
-      candidate.sourceUrl,
-      candidate.sourceIdentifier,
-      candidate.status,
-      JSON.stringify(candidate.data),
-    ],
-  );
+  await withTransaction(async (client) => {
+    if (lease) await touchPostgresAgentTurnLease(client, lease);
+    await client.query(
+      `UPDATE food_candidates SET source_url = $2, source_identifier = $3, status = $4, data = $5::jsonb
+       WHERE id = $1`,
+      [
+        candidate.id,
+        candidate.sourceUrl,
+        candidate.sourceIdentifier,
+        candidate.status,
+        JSON.stringify(candidate.data),
+      ],
+    );
+  });
 }
 
 export class ActiveAgentTurnError extends Error {
@@ -792,33 +862,150 @@ export class AgentTurnReplayError extends Error {
   }
 }
 
+export class AgentTurnLeaseLostError extends Error {
+  constructor() {
+    super("This coach turn no longer owns the active lease.");
+    this.name = "AgentTurnLeaseLostError";
+  }
+}
+
 export async function assertNoActiveAgentTurn(profileId: DemoProfileId) {
   const staleBefore = Date.now() - 90_000;
   if (!hasPostgresConfiguration()) {
+    expireMemoryAgentTurns(profileId, staleBefore);
     const active = [...memoryStore().agentTurns.values()].find(
-      (turn) =>
-        turn.profileId === profileId &&
-        turn.status === "pending" &&
-        new Date(turn.updatedAt).getTime() > staleBefore,
+      (turn) => turn.profileId === profileId && turn.status === "pending",
     );
     if (active) throw new ActiveAgentTurnError(active.commandId);
     return;
   }
   await ensurePersistenceInitialized();
-  const active = await getPool().query<{ command_id: string }>(
-    `SELECT command_id FROM agent_turns
-     WHERE profile_id = $1 AND status = 'pending'
-       AND updated_at > now() - interval '90 seconds'
-     LIMIT 1`,
-    [profileId],
-  );
-  if (active.rows[0]) {
-    throw new ActiveAgentTurnError(active.rows[0].command_id);
-  }
+  await withTransaction(async (client) => {
+    await lockPostgresProfileAgentState(client, profileId);
+    await expirePostgresAgentTurns(client, profileId);
+    const active = await client.query<{ command_id: string }>(
+      `SELECT command_id FROM agent_turns
+       WHERE profile_id = $1 AND status = 'pending'
+       LIMIT 1`,
+      [profileId],
+    );
+    if (active.rows[0]) {
+      throw new ActiveAgentTurnError(active.rows[0].command_id);
+    }
+  });
 }
 
 function agentTurnKey(profileId: DemoProfileId, commandId: string) {
   return `${profileId}:${commandId}`;
+}
+
+function assertLeaseTarget(
+  lease: AgentTurnLease,
+  profileId: DemoProfileId,
+  commandId: string,
+) {
+  if (lease.profileId !== profileId || lease.commandId !== commandId) {
+    throw new AgentTurnLeaseLostError();
+  }
+}
+
+function touchMemoryAgentTurnLease(lease: AgentTurnLease) {
+  const key = agentTurnKey(lease.profileId, lease.commandId);
+  const store = memoryStore();
+  const turn = store.agentTurns.get(key);
+  if (
+    !turn ||
+    turn.status !== "pending" ||
+    turn.leaseToken !== lease.leaseToken
+  ) {
+    throw new AgentTurnLeaseLostError();
+  }
+  turn.updatedAt = new Date().toISOString();
+}
+
+function expireMemoryAgentTurns(profileId: DemoProfileId, staleBefore: number) {
+  const store = memoryStore();
+  const now = new Date().toISOString();
+  for (const [key, turn] of store.agentTurns) {
+    if (
+      turn.profileId !== profileId ||
+      turn.status !== "pending" ||
+      new Date(turn.updatedAt).getTime() > staleBefore
+    ) {
+      continue;
+    }
+    store.agentTurns.set(key, {
+      ...turn,
+      status: "failed",
+      failureCode: "stale_pending_turn",
+      updatedAt: now,
+    });
+    markMemoryAssistantFailed(
+      profileId,
+      `assistant-${turn.commandId}-${turn.attempt}`,
+      "Previous attempt expired safely.",
+    );
+  }
+}
+
+async function touchPostgresAgentTurnLease(
+  client: PoolClient,
+  lease: AgentTurnLease,
+) {
+  const result = await client.query(
+    `UPDATE agent_turns
+     SET updated_at = now()
+     WHERE profile_id = $1 AND command_id = $2
+       AND lease_token = $3 AND status = 'pending'`,
+    [lease.profileId, lease.commandId, lease.leaseToken],
+  );
+  if (!result.rowCount) throw new AgentTurnLeaseLostError();
+}
+
+async function lockPostgresProfileAgentState(
+  client: PoolClient,
+  profileId: DemoProfileId,
+) {
+  await client.query(
+    "SELECT pg_advisory_xact_lock(hashtext('nutrition-coach-agent:' || $1))",
+    [profileId],
+  );
+}
+
+async function expirePostgresAgentTurns(
+  client: PoolClient,
+  profileId: DemoProfileId,
+) {
+  const expired = await client.query<{ command_id: string; attempt: number }>(
+    `UPDATE agent_turns
+     SET status = 'failed', failure_code = 'stale_pending_turn',
+         updated_at = now()
+     WHERE profile_id = $1 AND status = 'pending'
+       AND updated_at <= now() - interval '90 seconds'
+     RETURNING command_id, attempt`,
+    [profileId],
+  );
+  for (const turn of expired.rows) {
+    await client.query(
+      `UPDATE conversation_messages
+       SET status = 'failed',
+           content = CASE WHEN content = ''
+             THEN 'Previous attempt expired safely.' ELSE content END,
+           updated_at = now()
+       WHERE profile_id = $1 AND id = $2
+         AND status IN ('pending', 'partial')`,
+      [profileId, `assistant-${turn.command_id}-${turn.attempt}`],
+    );
+  }
+}
+
+export async function renewAgentTurnLease(lease: AgentTurnLease) {
+  if (!hasPostgresConfiguration()) {
+    touchMemoryAgentTurnLease(lease);
+    return;
+  }
+  await ensurePersistenceInitialized();
+  await withTransaction((client) => touchPostgresAgentTurnLease(client, lease));
 }
 
 function insertMemoryAssistant(
@@ -997,6 +1184,7 @@ export async function reserveAgentTurn(input: {
         `assistant-${input.commandId}-${duplicate.attempt}`,
         duplicate.failureCode ?? "Previous attempt failed safely.",
       );
+      const leaseToken = randomUUID();
       const resumed = {
         ...duplicate,
         expectedVersion: input.expectedVersion,
@@ -1004,6 +1192,7 @@ export async function reserveAgentTurn(input: {
         result: null,
         failureCode: null,
         attempt: duplicate.attempt + 1,
+        leaseToken,
         updatedAt: now.toISOString(),
       };
       store.agentTurns.set(key, clone(resumed));
@@ -1024,19 +1213,12 @@ export async function reserveAgentTurn(input: {
     if (current.version !== input.expectedVersion) {
       throw new StaleProfileError(clone(current));
     }
-    for (const [turnKey, turn] of store.agentTurns) {
-      if (turn.profileId !== input.profileId || turn.status !== "pending") {
-        continue;
-      }
-      if (new Date(turn.updatedAt).getTime() > staleBefore) {
-        throw new ActiveAgentTurnError(turn.commandId);
-      }
-      store.agentTurns.set(turnKey, {
-        ...turn,
-        status: "failed",
-        failureCode: "stale_pending_turn",
-        updatedAt: now.toISOString(),
-      });
+    expireMemoryAgentTurns(input.profileId, staleBefore);
+    const active = [...store.agentTurns.values()].find(
+      (turn) => turn.profileId === input.profileId && turn.status === "pending",
+    );
+    if (active) {
+      throw new ActiveAgentTurnError(active.commandId);
     }
     const turn: StoredAgentTurn = {
       ...input,
@@ -1046,6 +1228,7 @@ export async function reserveAgentTurn(input: {
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
       attempt: 1,
+      leaseToken: randomUUID(),
     };
     store.agentTurns.set(key, clone(turn));
     insertMemoryConversationStart(input, now.toISOString());
@@ -1057,6 +1240,7 @@ export async function reserveAgentTurn(input: {
   }
   await ensurePersistenceInitialized();
   return withTransaction(async (client) => {
+    await lockPostgresProfileAgentState(client, input.profileId);
     const duplicate = await client.query<{
       profile_id: DemoProfileId;
       command_id: string;
@@ -1068,6 +1252,7 @@ export async function reserveAgentTurn(input: {
       created_at: Date;
       updated_at: Date;
       attempt: number;
+      lease_token: string;
     }>(
       "SELECT * FROM agent_turns WHERE profile_id = $1 AND command_id = $2 FOR UPDATE",
       [input.profileId, input.commandId],
@@ -1088,6 +1273,7 @@ export async function reserveAgentTurn(input: {
         createdAt: row.created_at.toISOString(),
         updatedAt: row.updated_at.toISOString(),
         attempt: row.attempt,
+        leaseToken: row.lease_token,
       };
       const stalePending =
         row.status === "pending" && row.updated_at.getTime() <= staleBefore;
@@ -1126,16 +1312,18 @@ export async function reserveAgentTurn(input: {
          WHERE profile_id = $1 AND id = $2`,
         [input.profileId, `assistant-${input.commandId}-${row.attempt}`],
       );
+      const leaseToken = randomUUID();
       const resumed = await client.query<{
         attempt: number;
         updated_at: Date;
       }>(
         `UPDATE agent_turns
          SET expected_version = $3, status = 'pending', result = NULL,
-             failure_code = NULL, attempt = attempt + 1, updated_at = now()
+             failure_code = NULL, attempt = attempt + 1, lease_token = $4,
+             updated_at = now()
          WHERE profile_id = $1 AND command_id = $2
          RETURNING attempt, updated_at`,
-        [input.profileId, input.commandId, input.expectedVersion],
+        [input.profileId, input.commandId, input.expectedVersion, leaseToken],
       );
       const attempt = resumed.rows[0].attempt;
       await insertPostgresConversationStart(client, input, attempt);
@@ -1149,6 +1337,7 @@ export async function reserveAgentTurn(input: {
           failureCode: null,
           updatedAt: resumed.rows[0].updated_at.toISOString(),
           attempt,
+          leaseToken,
         },
         assistantMessageId: `assistant-${input.commandId}-${attempt}`,
       };
@@ -1170,12 +1359,7 @@ export async function reserveAgentTurn(input: {
         ),
       });
     }
-    await client.query(
-      `UPDATE agent_turns
-       SET status = 'failed', failure_code = 'stale_pending_turn', updated_at = now()
-       WHERE profile_id = $1 AND status = 'pending' AND updated_at <= now() - interval '90 seconds'`,
-      [input.profileId],
-    );
+    await expirePostgresAgentTurns(client, input.profileId);
     const active = await client.query<{ command_id: string }>(
       "SELECT command_id FROM agent_turns WHERE profile_id = $1 AND status = 'pending' LIMIT 1",
       [input.profileId],
@@ -1183,20 +1367,22 @@ export async function reserveAgentTurn(input: {
     if (active.rows[0]) {
       throw new ActiveAgentTurnError(active.rows[0].command_id);
     }
+    const leaseToken = randomUUID();
     const inserted = await client.query<{
       created_at: Date;
       updated_at: Date;
       attempt: number;
     }>(
       `INSERT INTO agent_turns
-         (profile_id, command_id, expected_version, request, status)
-       VALUES ($1, $2, $3, $4::jsonb, 'pending')
+         (profile_id, command_id, expected_version, request, status, lease_token)
+       VALUES ($1, $2, $3, $4::jsonb, 'pending', $5)
        RETURNING created_at, updated_at, attempt`,
       [
         input.profileId,
         input.commandId,
         input.expectedVersion,
         JSON.stringify(input.request),
+        leaseToken,
       ],
     );
     await insertPostgresConversationStart(client, input, 1);
@@ -1210,6 +1396,7 @@ export async function reserveAgentTurn(input: {
         createdAt: inserted.rows[0].created_at.toISOString(),
         updatedAt: inserted.rows[0].updated_at.toISOString(),
         attempt: inserted.rows[0].attempt,
+        leaseToken,
       },
       assistantMessageId: `assistant-${input.commandId}-1`,
     };
@@ -1219,6 +1406,7 @@ export async function reserveAgentTurn(input: {
 export async function finishAgentTurn(input: {
   profileId: DemoProfileId;
   commandId: string;
+  leaseToken: string;
   status: "completed" | "failed";
   result?: Record<string, unknown>;
   failureCode?: string;
@@ -1228,6 +1416,9 @@ export async function finishAgentTurn(input: {
     const store = memoryStore();
     const turn = store.agentTurns.get(key);
     if (!turn) throw new Error("Unknown agent turn.");
+    if (turn.status !== "pending" || turn.leaseToken !== input.leaseToken) {
+      throw new AgentTurnLeaseLostError();
+    }
     store.agentTurns.set(key, {
       ...turn,
       status: input.status,
@@ -1237,47 +1428,68 @@ export async function finishAgentTurn(input: {
     });
     return;
   }
-  await getPool().query(
+  const result = await getPool().query(
     `UPDATE agent_turns
      SET status = $3, result = $4::jsonb, failure_code = $5, updated_at = now()
-     WHERE profile_id = $1 AND command_id = $2`,
+     WHERE profile_id = $1 AND command_id = $2
+       AND lease_token = $6 AND status = 'pending'`,
     [
       input.profileId,
       input.commandId,
       input.status,
       JSON.stringify(input.result ?? null),
       input.failureCode ?? null,
+      input.leaseToken,
     ],
   );
+  if (!result.rowCount) throw new AgentTurnLeaseLostError();
 }
 
 export async function updateAssistantMessage(input: {
   profileId: DemoProfileId;
   messageId: string;
+  lease: AgentTurnLease;
   content: string;
   status: "partial" | "final" | "failed";
 }) {
   const content = input.content.slice(0, 4_000);
+  if (input.lease.profileId !== input.profileId) {
+    throw new AgentTurnLeaseLostError();
+  }
   if (!hasPostgresConfiguration()) {
+    touchMemoryAgentTurnLease(input.lease);
     const messages =
       memoryStore().conversationMessages.get(input.profileId) ?? [];
     const message = messages.find(
       (candidate) => candidate.id === input.messageId,
     );
     if (!message) throw new Error("Unknown assistant message.");
+    if (message.turnId !== input.lease.commandId) {
+      throw new AgentTurnLeaseLostError();
+    }
     message.content = content;
     message.status = input.status;
     message.updatedAt = new Date().toISOString();
     return;
   }
   await ensurePersistenceInitialized();
-  const result = await getPool().query(
-    `UPDATE conversation_messages
-     SET content = $3, status = $4, updated_at = now()
-     WHERE profile_id = $1 AND id = $2 AND role = 'assistant'`,
-    [input.profileId, input.messageId, content, input.status],
-  );
-  if (!result.rowCount) throw new Error("Unknown assistant message.");
+  await withTransaction(async (client) => {
+    await touchPostgresAgentTurnLease(client, input.lease);
+    const result = await client.query(
+      `UPDATE conversation_messages
+       SET content = $3, status = $4, updated_at = now()
+       WHERE profile_id = $1 AND id = $2 AND role = 'assistant'
+         AND turn_id = $5`,
+      [
+        input.profileId,
+        input.messageId,
+        content,
+        input.status,
+        input.lease.commandId,
+      ],
+    );
+    if (!result.rowCount) throw new Error("Unknown assistant message.");
+  });
 }
 
 export async function appendConversationActivity(input: {
@@ -1287,7 +1499,15 @@ export async function appendConversationActivity(input: {
   kind: ConversationActivity["kind"];
   label: string;
   status?: ConversationActivity["status"];
+  lease?: AgentTurnLease;
 }) {
+  if (input.lease) {
+    assertLeaseTarget(
+      input.lease,
+      input.profileId,
+      input.turnId ?? input.lease.commandId,
+    );
+  }
   const activity: ConversationActivity = {
     id: input.id,
     turnId: input.turnId,
@@ -1297,6 +1517,7 @@ export async function appendConversationActivity(input: {
     createdAt: new Date().toISOString(),
   };
   if (!hasPostgresConfiguration()) {
+    if (input.lease) touchMemoryAgentTurnLease(input.lease);
     const store = memoryStore();
     const activities = store.conversationActivities.get(input.profileId) ?? [];
     const current = activities.find((item) => item.id === input.id);
@@ -1306,31 +1527,43 @@ export async function appendConversationActivity(input: {
     return clone(activity);
   }
   await ensurePersistenceInitialized();
-  const result = await getPool().query<{ created_at: Date }>(
-    `INSERT INTO conversation_activity_events
-       (profile_id, id, turn_id, kind, label, status)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     ON CONFLICT (profile_id, id) DO UPDATE
-     SET label = EXCLUDED.label, status = EXCLUDED.status, updated_at = now()
-     RETURNING created_at`,
-    [
-      input.profileId,
-      input.id,
-      input.turnId,
-      input.kind,
-      activity.label,
-      activity.status,
-    ],
-  );
-  return { ...activity, createdAt: result.rows[0].created_at.toISOString() };
+  return withTransaction(async (client) => {
+    if (input.lease) {
+      await touchPostgresAgentTurnLease(client, input.lease);
+    }
+    const result = await client.query<{ created_at: Date }>(
+      `INSERT INTO conversation_activity_events
+         (profile_id, id, turn_id, kind, label, status)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (profile_id, id) DO UPDATE
+       SET label = EXCLUDED.label, status = EXCLUDED.status, updated_at = now()
+       RETURNING created_at`,
+      [
+        input.profileId,
+        input.id,
+        input.turnId,
+        input.kind,
+        activity.label,
+        activity.status,
+      ],
+    );
+    return { ...activity, createdAt: result.rows[0].created_at.toISOString() };
+  });
 }
 
 export async function saveConversationSummary(input: {
   profileId: DemoProfileId;
   throughMessageId: string;
   digest: Record<string, unknown>;
+  lease?: AgentTurnLease;
 }) {
   if (!hasPostgresConfiguration()) {
+    if (input.lease) {
+      if (input.lease.profileId !== input.profileId) {
+        throw new AgentTurnLeaseLostError();
+      }
+      touchMemoryAgentTurnLease(input.lease);
+    }
     memoryStore().conversationSummaries.set(input.profileId, {
       throughMessageId: input.throughMessageId,
       digest: clone(input.digest),
@@ -1338,42 +1571,71 @@ export async function saveConversationSummary(input: {
     return;
   }
   await ensurePersistenceInitialized();
-  await getPool().query(
-    `INSERT INTO conversation_summaries (profile_id, through_message_id, digest)
-     VALUES ($1, $2, $3::jsonb)
-     ON CONFLICT (profile_id) DO UPDATE
-     SET through_message_id = EXCLUDED.through_message_id,
-         digest = EXCLUDED.digest, updated_at = now()`,
-    [input.profileId, input.throughMessageId, JSON.stringify(input.digest)],
-  );
+  await withTransaction(async (client) => {
+    if (input.lease) {
+      if (input.lease.profileId !== input.profileId) {
+        throw new AgentTurnLeaseLostError();
+      }
+      await touchPostgresAgentTurnLease(client, input.lease);
+    }
+    await client.query(
+      `INSERT INTO conversation_summaries (profile_id, through_message_id, digest)
+       VALUES ($1, $2, $3::jsonb)
+       ON CONFLICT (profile_id) DO UPDATE
+       SET through_message_id = EXCLUDED.through_message_id,
+           digest = EXCLUDED.digest, updated_at = now()`,
+      [input.profileId, input.throughMessageId, JSON.stringify(input.digest)],
+    );
+  });
 }
 
-export async function recordAgentSkillCall(input: StoredAgentSkillCall) {
+export async function recordAgentSkillCall(
+  input: StoredAgentSkillCall & { lease?: AgentTurnLease },
+) {
   if (input.sequence < 1 || input.sequence > 4) {
     throw new Error("Agent skill sequence is out of bounds.");
   }
   const key = `${input.profileId}:${input.commandId}:${input.sequence}`;
+  const stored: StoredAgentSkillCall = {
+    profileId: input.profileId,
+    commandId: input.commandId,
+    sequence: input.sequence,
+    name: input.name,
+    arguments: input.arguments,
+    result: input.result,
+    status: input.status,
+  };
   if (!hasPostgresConfiguration()) {
-    memoryStore().agentSkillCalls.set(key, clone(input));
+    if (input.lease) {
+      assertLeaseTarget(input.lease, input.profileId, input.commandId);
+      touchMemoryAgentTurnLease(input.lease);
+    }
+    memoryStore().agentSkillCalls.set(key, clone(stored));
     return;
   }
   await ensurePersistenceInitialized();
-  await getPool().query(
-    `INSERT INTO agent_skill_calls
-       (profile_id, command_id, sequence, name, arguments, result, status)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7)
-     ON CONFLICT (profile_id, command_id, sequence) DO UPDATE
-     SET result = EXCLUDED.result, status = EXCLUDED.status, updated_at = now()`,
-    [
-      input.profileId,
-      input.commandId,
-      input.sequence,
-      input.name,
-      JSON.stringify(input.arguments),
-      JSON.stringify(input.result),
-      input.status,
-    ],
-  );
+  await withTransaction(async (client) => {
+    if (input.lease) {
+      assertLeaseTarget(input.lease, input.profileId, input.commandId);
+      await touchPostgresAgentTurnLease(client, input.lease);
+    }
+    await client.query(
+      `INSERT INTO agent_skill_calls
+         (profile_id, command_id, sequence, name, arguments, result, status)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7)
+       ON CONFLICT (profile_id, command_id, sequence) DO UPDATE
+       SET result = EXCLUDED.result, status = EXCLUDED.status, updated_at = now()`,
+      [
+        input.profileId,
+        input.commandId,
+        input.sequence,
+        input.name,
+        JSON.stringify(input.arguments),
+        JSON.stringify(input.result),
+        input.status,
+      ],
+    );
+  });
 }
 
 export async function recordAndCheckAgentRateLimit(input: {
@@ -1539,6 +1801,7 @@ export async function approveCatalogFood(input: {
   profileId: DemoProfileId;
   expectedVersion: number;
   commandId: string;
+  agentTurnLease?: AgentTurnLease;
 }) {
   const normalizedIdentity =
     `${input.food.displayName} ${input.food.preparation} ${input.food.brand ?? ""}`
@@ -1591,6 +1854,7 @@ export async function approveCatalogFood(input: {
       profileId: input.profileId,
       expectedVersion: input.expectedVersion,
       commandId: input.commandId,
+      agentTurnLease: input.agentTurnLease,
       mutation: (state) => addToState(state, food.id),
     });
     store.catalog.set(food.id, clone(food));
@@ -1600,6 +1864,7 @@ export async function approveCatalogFood(input: {
 
   await ensurePersistenceInitialized();
   return withTransaction(async (client) => {
+    await lockPostgresProfileAgentState(client, input.profileId);
     const existing = await client.query<{ data: CatalogFood }>(
       "SELECT data FROM catalog_foods WHERE normalized_identity = $1 OR source_identifier = $2 LIMIT 1",
       [normalizedIdentity, input.sourceIdentifier],
@@ -1622,6 +1887,7 @@ export async function approveCatalogFood(input: {
       input.profileId,
       input.expectedVersion,
       input.commandId,
+      input.agentTurnLease,
       (state) => addToState(state, food.id),
     );
     await client.query(
@@ -1637,6 +1903,7 @@ export async function addExistingFoodToProfile(input: {
   profileId: DemoProfileId;
   expectedVersion: number;
   commandId: string;
+  agentTurnLease?: AgentTurnLease;
 }) {
   const food = (await listCatalogFoods()).find(
     (candidate) => candidate.id === input.foodId,
@@ -1646,6 +1913,7 @@ export async function addExistingFoodToProfile(input: {
     profileId: input.profileId,
     expectedVersion: input.expectedVersion,
     commandId: input.commandId,
+    agentTurnLease: input.agentTurnLease,
     mutation: (state) => {
       if ("profile" in state) {
         return {

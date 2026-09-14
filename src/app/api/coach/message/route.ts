@@ -14,6 +14,7 @@ import {
   getProfile,
   listConversationActivities,
   recordAndCheckAgentRateLimit,
+  renewAgentTurnLease,
   reserveAgentTurn,
   StaleProfileError,
   updateAssistantMessage,
@@ -179,21 +180,26 @@ export async function POST(request: Request) {
     }
     throw error;
   }
+  const lease = {
+    profileId: input.profileId,
+    commandId: input.commandId,
+    leaseToken: reservation.turn.leaseToken,
+  };
   const rateLimit = coachInputRequiresModel(input.input)
     ? await recordAndCheckAgentRateLimit(identity)
     : null;
   if (rateLimit && !rateLimit.allowed) {
-    await finishAgentTurn({
-      profileId: input.profileId,
-      commandId: input.commandId,
-      status: "failed",
-      failureCode: "rate_limited",
-    });
     await updateAssistantMessage({
       profileId: input.profileId,
       messageId: reservation.assistantMessageId,
+      lease,
       content: AGENT_RATE_LIMIT_MESSAGE,
       status: "failed",
+    });
+    await finishAgentTurn({
+      ...lease,
+      status: "failed",
+      failureCode: "rate_limited",
     });
     return NextResponse.json(
       {
@@ -213,6 +219,12 @@ export async function POST(request: Request) {
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       let open = true;
+      let leaseFailure: unknown = null;
+      const heartbeat = setInterval(() => {
+        void renewAgentTurnLease(lease).catch((error) => {
+          leaseFailure = error;
+        });
+      }, 30_000);
       const send = (event: AgentStreamEvent) => {
         if (!open) return;
         try {
@@ -233,6 +245,7 @@ export async function POST(request: Request) {
             updateAssistantMessage({
               profileId: input.profileId,
               messageId: reservation.assistantMessageId,
+              lease,
               content: assistantText,
               status: "partial",
             }),
@@ -250,6 +263,7 @@ export async function POST(request: Request) {
               turnId: input.commandId,
               kind,
               label,
+              lease,
             }).then(() => undefined),
           );
         };
@@ -258,6 +272,7 @@ export async function POST(request: Request) {
             request: input,
             rateIdentity: identity,
             turnId: input.commandId,
+            leaseToken: lease.leaseToken,
             onStatus: (value) => {
               const event = { type: "status" as const, value };
               persistStatus(event);
@@ -268,11 +283,13 @@ export async function POST(request: Request) {
               send({ type: "text_delta", value });
             },
           });
+          if (leaseFailure) throw leaseFailure;
           await persistenceQueue;
           assistantText = result.assistantText.slice(0, 4_000);
           await updateAssistantMessage({
             profileId: input.profileId,
             messageId: reservation.assistantMessageId,
+            lease,
             content: assistantText,
             status: "final",
           });
@@ -284,8 +301,7 @@ export async function POST(request: Request) {
             assistantText,
           };
           await finishAgentTurn({
-            profileId: input.profileId,
-            commandId: input.commandId,
+            ...lease,
             status: "completed",
             result: persisted as unknown as Record<string, unknown>,
           });
@@ -312,6 +328,7 @@ export async function POST(request: Request) {
           await updateAssistantMessage({
             profileId: input.profileId,
             messageId: reservation.assistantMessageId,
+            lease,
             content: assistantText || safeMessage,
             status: "failed",
           }).catch(() => undefined);
@@ -322,10 +339,10 @@ export async function POST(request: Request) {
             kind: "failure",
             label: "This turn failed safely; confirmed state was preserved",
             status: "failed",
+            lease,
           }).catch(() => undefined);
           await finishAgentTurn({
-            profileId: input.profileId,
-            commandId: input.commandId,
+            ...lease,
             status: "failed",
             failureCode,
           }).catch(() => undefined);
@@ -364,6 +381,7 @@ export async function POST(request: Request) {
             },
           });
         } finally {
+          clearInterval(heartbeat);
           if (open) controller.close();
         }
       })();
