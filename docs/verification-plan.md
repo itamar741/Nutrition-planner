@@ -1,6 +1,6 @@
 # Verification Plan v0.2
 
-Status: Active verification plan. Turn 8 adds Arnold role/content conversation, durable timeline persistence, bounded skills, model-created Draft proposals, and reset-scoped preferences; credentialed Render staging remains pending.
+Status: Active final verification plan. The academic deployment and security gates passed as recorded in [Phase 6](verification-results/phase-6.md). The later conversational topic-boundary change passed its deterministic, browser, and credentialed live-model checks in [Coach topic-boundary verification](verification-results/coach-topic-boundary.md). Historical turn-level files retain the limitations that applied when each turn was checked.
 
 ## Purpose
 

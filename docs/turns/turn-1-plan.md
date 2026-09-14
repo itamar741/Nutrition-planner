@@ -2,7 +2,7 @@
 
 > **Historical plan:** This records the authorized Turn 1 architecture at that time. Security Phases 2–5 later removed direct AI routes and made transcript/state transitions server-owned. Use the current [implementation plan](../implementation-plan.md) and [verification plan](../verification-plan.md) for the supported interfaces.
 
-Status: Implemented and automatically verified on 2026-08-30; awaiting human review on branch `turn-1-onboarding-foundation`.
+Historical status: implemented and automatically verified on 2026-08-30 on branch `turn-1-onboarding-foundation`. The human review subsequently passed, as recorded in [Turn 1 Verification Result](../verification-results/turn-1.md#human-review-gate).
 
 Restore point: `b43f93c` (`docs: add planning-only implementation plan`).
 

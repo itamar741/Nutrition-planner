@@ -47,7 +47,7 @@ The latest local verification recorded formatting, lint, type checking, 219 pass
 
 Read-only checks against `https://nutrition-coach-demo.onrender.com/` on 2026-09-14 found valid browser-to-Render TLS and every required Phase 5 production header on both the page and health endpoint. GitHub recorded Render deployment `6436916765` for merge commit `8457ba4` as successful. The following health request returned `200`; with the merged production persistence guard, that response requires a configured PostgreSQL connection to initialize successfully instead of using the memory adapter.
 
-The history-free `nutrition-coach-submission-2026-09-14.zip` generated from the final merged tree passed `npm run security:archive`. It excludes Git history and local environment files; `.env.example` remains as the permitted non-secret template. Regenerate and reinspect the archive if the submitted tree changes.
+The history-free `nutrition-coach-submission-2026-09-14-final.zip` for final implementation merge commit `cf6c85b` passed `npm run security:archive`. It excludes Git history and local environment files; `.env.example` remains as the permitted non-secret template. [Phase 6](docs/verification-results/phase-6.md) distinguishes the deployed revision from the final implementation revision. A documentation-only reconciliation requires a newly generated archive from its exact commit; the generated sidecar beside the ZIP records that commit and the archive checksum.
 
 An authorized live access request returned `200`, issued the signed cookie, and allowed a read-only request to a protected profile-state endpoint. The code and cookie were neither printed nor stored in evidence.
 

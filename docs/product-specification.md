@@ -1,6 +1,6 @@
 # Product Specification v0.3
 
-Status: Active specification. Turns 1–8 are implemented locally and await final verification and credentialed Render staging.
+Status: Active final specification. Turns 1–8 and the conversational topic boundary are implemented. The academic deployment and security gates are consolidated in [Phase 6](verification-results/phase-6.md); the later topic-boundary verification is recorded separately in [Coach topic-boundary verification](verification-results/coach-topic-boundary.md).
 
 This specification is governed by [Project Framing](project-framing.md), [Project Description](project-description.md), and [Interface Design](interface-design.md). If a future interpretation expands the product beyond those documents, the narrower documented scope wins until the specification is deliberately revised.
 

@@ -23,7 +23,7 @@ Display every editable or read-only weight value with at most two digits after t
 
 ## B-03 — Credentialed Render staging
 
-Status: pending external deployment credentials.
+Status: completed for the academic assignment on 2026-09-14. The accepted live deployment and access checks are recorded in [Phase 6](verification-results/phase-6.md). Earlier turn-specific staging lists remain historical evidence and are not silently reclassified as checks that were run.
 
 The cloud application, Blueprint, migrations, access gate, durable Arnold conversation, and bounded USDA workflow require final credentialed staging before deployment acceptance:
 
@@ -34,7 +34,7 @@ The cloud application, Blueprint, migrations, access gate, durable Arnold conver
 
 ## B-04 — Visible nutrition decision journey
 
-Status: implemented locally on 2026-09-07; verification and deployed acceptance remain required.
+Status: implemented and deterministically verified. The academic deployment gate was accepted on 2026-09-14 in [Phase 6](verification-results/phase-6.md).
 
 The product must make its deterministic nutrition work visible without overwhelming a beginner. Once targets exist, both demo journeys show a progressively disclosed explanation from profile inputs through the current nutrition decision.
 

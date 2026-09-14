@@ -1,6 +1,6 @@
 # Implementation Plan v0.4
 
-Status: Turns 1–8 are implemented locally. Credentialed Render staging remains required.
+Status: Final implemented architecture. Turns 1–8 and the conversational topic boundary are complete. The academic deployment and security gates are recorded in [Phase 6](verification-results/phase-6.md), with the final topic-boundary verification recorded separately in [Coach topic-boundary verification](verification-results/coach-topic-boundary.md).
 
 This plan is governed by the project framing, description, interface design, product specification, nutrition guidance, and verification plan. The narrower documented boundary wins if two documents conflict.
 

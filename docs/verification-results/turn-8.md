@@ -6,7 +6,7 @@ Branch: `turn-8-arnold-conversational-planning`
 
 Starting commit: `9d0843fe421d2cc847fb72c065bad041428ffccd`
 
-Status: local implementation and deterministic verification passed. The Turn 8 migration was applied to the Render PostgreSQL database; OpenAI, USDA, and complete Render application acceptance remain deployment steps.
+Historical status: local implementation and deterministic verification passed, and the Turn 8 migration was applied to Render PostgreSQL. Complete application acceptance remained a deployment step at this point; the current academic deployment status is consolidated in [Phase 6](phase-6.md).
 
 ## Automated evidence
 
@@ -29,7 +29,7 @@ Status: local implementation and deterministic verification passed. The Turn 8 m
 - Existing performs one Arnold trend review per browser/profile session and creates an adjustment only after the persisted Generate AI proposal event.
 - USDA ranking receives up to 50 sanitized identity summaries, selects only one to five returned identifiers after strict validation and one repair attempt, then loads nutrition details only for those selections. No-match ranking creates a focused clarification instead of weak candidate cards.
 
-## Remaining live gate
+## Live Gate Outstanding at the Time
 
 On 2026-09-05, `004_arnold_conversation.sql` was applied transactionally to `nutrition-coach-db`. The migration record, all four conversation/audit tables, the `agent_turns.attempt` column, and one backfilled seed transcript message for each profile were verified. No profile or transcript reset was performed.
 

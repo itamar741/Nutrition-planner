@@ -2,7 +2,7 @@
 
 Date: 2026-09-03
 
-Status: local implementation and verification passed. Credentialed Render probes remain a deployment acceptance step.
+Historical status: local implementation and verification passed. Credentialed Render probes remained a deployment acceptance step at this point; the current academic deployment status is consolidated in [Phase 6](phase-6.md).
 
 ## Automated evidence
 
@@ -20,6 +20,6 @@ Status: local implementation and verification passed. Credentialed Render probes
 - The candidate-route test proves that selection uses cached data and performs no USDA fetch.
 - Stage-specific logs and safe expandable diagnostics do not expose source bodies, keys, or profile data.
 
-## Remaining live gate
+## Live Gate Outstanding at the Time
 
 On Render, verify cooked jasmine rice, green bell pepper, cottage cheese, and one unavailable record with the configured USDA key. Confirm that displayed candidates contain all four required macros and that selection does not emit a new USDA request.
