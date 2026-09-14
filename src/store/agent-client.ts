@@ -14,6 +14,7 @@ export class AgentClientError extends Error {
     readonly code?: string,
     readonly current?: VersionedProfile,
     readonly diagnostics?: Record<string, string>,
+    readonly retryAfterSeconds?: number,
   ) {
     super(message);
   }
@@ -49,6 +50,7 @@ export async function sendCoachMessage(input: {
       code?: string;
       profile?: VersionedProfile;
       catalogFood?: CatalogFood;
+      retryAfterSeconds?: number;
     };
     if (response.ok && body.profile) {
       return { profile: body.profile, catalogFood: body.catalogFood };
@@ -57,6 +59,10 @@ export async function sendCoachMessage(input: {
       body.message ?? "The coach request failed.",
       body.code,
       body.profile,
+      undefined,
+      typeof body.retryAfterSeconds === "number"
+        ? body.retryAfterSeconds
+        : Number(response.headers.get("Retry-After")) || undefined,
     );
   }
   if (!response.body)

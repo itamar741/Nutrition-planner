@@ -321,6 +321,16 @@
   line-height: 1.4;
 }
 
+.errorCopy {
+  display: grid;
+  gap: 4px;
+}
+
+.errorBox .rateLimitTimer {
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+}
+
 .retryButton {
   padding: 10px 14px;
   background: var(--error);

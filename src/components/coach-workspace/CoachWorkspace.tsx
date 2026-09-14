@@ -135,6 +135,49 @@ function agentStatusLabel(
   return "Thinking…";
 }
 
+export function formatRateLimitCountdown(totalSeconds: number) {
+  const safeSeconds = Math.max(0, Math.ceil(totalSeconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const seconds = safeSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+interface RateLimitWindow {
+  observedAt: number;
+  retryAt: number;
+}
+
+function useRateLimitCountdown(window: RateLimitWindow | null) {
+  const [clock, setClock] = useState<{
+    retryAt: number;
+    current: number;
+  } | null>(null);
+  useEffect(() => {
+    if (window === null) return;
+    const timer = globalThis.window.setInterval(() => {
+      const current = Date.now();
+      setClock({ retryAt: window.retryAt, current });
+      if (current >= window.retryAt) globalThis.window.clearInterval(timer);
+    }, 250);
+    return () => globalThis.window.clearInterval(timer);
+  }, [window]);
+  if (window === null) return null;
+  const current =
+    clock?.retryAt === window.retryAt ? clock.current : window.observedAt;
+  return Math.max(0, Math.ceil((window.retryAt - current) / 1_000));
+}
+
+function RateLimitCountdown({ remaining }: { remaining: number | null }) {
+  if (remaining === null) return null;
+  return (
+    <p className={styles.rateLimitTimer} role="timer">
+      {remaining > 0
+        ? `Available again in ${formatRateLimitCountdown(remaining)}.`
+        : "The limit has reset. You can try again now."}
+    </p>
+  );
+}
+
 function ExistingFoundation() {
   const profile = existingProfileFoundation;
   const [existing, setExisting] = useState<ExistingDemoState>(
@@ -143,6 +186,9 @@ function ExistingFoundation() {
   const [catalog, setCatalog] = useState<CatalogFood[]>([...foodCatalog]);
   const [activities, setActivities] = useState<ConversationActivity[]>([]);
   const [cloudError, setCloudError] = useState("");
+  const [rateLimitWindow, setRateLimitWindow] =
+    useState<RateLimitWindow | null>(null);
+  const rateLimitRemaining = useRateLimitCountdown(rateLimitWindow);
   const cloudVersion = useRef(1);
   const cloudQueue = useRef<Promise<void>>(Promise.resolve());
   const [weightInput, setWeightInput] = useState("");
@@ -259,6 +305,7 @@ function ExistingFoundation() {
         : agentInput.action.replaceAll("_", " "),
     );
     setCloudError("");
+    setRateLimitWindow(null);
     setAgentDiagnostics(null);
     try {
       await cloudQueue.current;
@@ -289,8 +336,20 @@ function ExistingFoundation() {
         cloudVersion.current = error.current.version;
         setExisting(error.current.state as ExistingDemoState);
       }
-      if (error instanceof AgentClientError)
+      if (error instanceof AgentClientError) {
         setAgentDiagnostics(error.diagnostics ?? null);
+        if (error.code === "rate_limited") {
+          const observedAt = Date.now();
+          setRateLimitWindow({
+            observedAt,
+            retryAt: observedAt + (error.retryAfterSeconds ?? 60) * 1_000,
+          });
+        } else {
+          setRateLimitWindow(null);
+        }
+      } else {
+        setRateLimitWindow(null);
+      }
       try {
         const latest = await loadCloudProfile<ExistingDemoState>("existing");
         cloudVersion.current = latest.profile.version;
@@ -423,7 +482,10 @@ function ExistingFoundation() {
       </p>
       {cloudError ? (
         <div className={styles.errorBox} role="alert">
-          <p>{cloudError}</p>
+          <div className={styles.errorCopy}>
+            <p>{cloudError}</p>
+            <RateLimitCountdown remaining={rateLimitRemaining} />
+          </div>
           {agentDiagnostics ? (
             <details>
               <summary>Technical details</summary>
@@ -437,11 +499,13 @@ function ExistingFoundation() {
           {lastAgentRequest ? (
             <button
               className={styles.retryButton}
-              disabled={agentBusy}
+              disabled={agentBusy || (rateLimitRemaining ?? 0) > 0}
               onClick={() =>
                 void sendExistingAgent(
                   lastAgentRequest.input,
-                  lastAgentRequest.commandId,
+                  rateLimitWindow === null
+                    ? lastAgentRequest.commandId
+                    : createCommandId(),
                 )
               }
               type="button"
@@ -683,6 +747,9 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
   const [catalog, setCatalog] = useState<CatalogFood[]>([...foodCatalog]);
   const [activities, setActivities] = useState<ConversationActivity[]>([]);
   const [cloudError, setCloudError] = useState("");
+  const [rateLimitWindow, setRateLimitWindow] =
+    useState<RateLimitWindow | null>(null);
+  const rateLimitRemaining = useRateLimitCountdown(rateLimitWindow);
   const cloudVersion = useRef(1);
   const cloudQueue = useRef<Promise<void>>(Promise.resolve());
   const [draftMessage, setDraftMessage] = useState("");
@@ -813,6 +880,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
         : agentInput.action.replaceAll("_", " "),
     );
     setCloudError("");
+    setRateLimitWindow(null);
     setAgentDiagnostics(null);
     try {
       await cloudQueue.current;
@@ -851,8 +919,20 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
           error.current.state as import("@/store/demo-reducer").DemoState,
         );
       }
-      if (error instanceof AgentClientError)
+      if (error instanceof AgentClientError) {
         setAgentDiagnostics(error.diagnostics ?? null);
+        if (error.code === "rate_limited") {
+          const observedAt = Date.now();
+          setRateLimitWindow({
+            observedAt,
+            retryAt: observedAt + (error.retryAfterSeconds ?? 60) * 1_000,
+          });
+        } else {
+          setRateLimitWindow(null);
+        }
+      } else {
+        setRateLimitWindow(null);
+      }
       try {
         const latest =
           await loadCloudProfile<import("@/store/demo-reducer").DemoState>(
@@ -1122,7 +1202,10 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
 
               {cloudError ? (
                 <div className={styles.errorBox} role="alert">
-                  <p>{cloudError}</p>
+                  <div className={styles.errorCopy}>
+                    <p>{cloudError}</p>
+                    <RateLimitCountdown remaining={rateLimitRemaining} />
+                  </div>
                   {agentDiagnostics ? (
                     <details>
                       <summary>Technical details</summary>
@@ -1136,11 +1219,13 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                   {lastAgentRequest ? (
                     <button
                       className={styles.retryButton}
-                      disabled={agentBusy}
+                      disabled={agentBusy || (rateLimitRemaining ?? 0) > 0}
                       onClick={() =>
                         void sendFreshAgent(
                           lastAgentRequest.input,
-                          lastAgentRequest.commandId,
+                          rateLimitWindow === null
+                            ? lastAgentRequest.commandId
+                            : createCommandId(),
                         )
                       }
                       type="button"
