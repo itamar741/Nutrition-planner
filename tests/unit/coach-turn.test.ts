@@ -486,6 +486,36 @@ describe("unified coach orchestration", () => {
     ).toBe(1);
   });
 
+  it("keeps protected state unchanged when the agent redirects an unsupported programming request", async () => {
+    const initial = await getProfile("existing");
+    if (!("measurements" in initial.state))
+      throw new Error("Expected Existing state.");
+    agent.responseText =
+      "I can help with nutrition, food, meal preparation, weight tracking, or general fitness information.";
+
+    const result = await executeCoachTurn(
+      turnInput(
+        "existing",
+        initial.version,
+        "agent-unsupported-programming",
+        "write a for loop that counts from 1 to 10",
+      ),
+    );
+
+    if (!("measurements" in result.profile.state))
+      throw new Error("Expected Existing state.");
+    expect(agent.toolResults).toHaveLength(0);
+    expect(result.assistantText).toBe(agent.responseText);
+    expect(result.profile.state.activePlan).toEqual(initial.state.activePlan);
+    expect(result.profile.state.draft).toEqual(initial.state.draft);
+    expect(result.profile.state.measurements).toEqual(
+      initial.state.measurements,
+    );
+    expect(result.profile.state.approvedCatalogFoodIds).toEqual(
+      initial.state.approvedCatalogFoodIds,
+    );
+  });
+
   it("rejects adjustment approval from a noncurrent interaction", async () => {
     const initial = await getProfile("existing");
     if (!("measurements" in initial.state))

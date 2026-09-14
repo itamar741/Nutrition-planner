@@ -15,6 +15,7 @@ describe("Arnold system prompt", () => {
 
     expect(prompt).toContain("IDENTITY AND SCOPE");
     expect(prompt).toContain("CONVERSATION BEHAVIOR");
+    expect(prompt).toContain("TOPIC BOUNDARY");
     expect(prompt).toContain("AUTHORITATIVE CONTEXT");
     expect(prompt).toContain("NUTRITION PLANNING RULES");
     expect(prompt).toContain("Return the authoritative expectedMealIds");
@@ -30,6 +31,15 @@ describe("Arnold system prompt", () => {
     expect(prompt).toContain("follow its repairGuidance exactly");
     expect(prompt).toContain("Generate AI proposal");
     expect(prompt).toContain("only a resulting proposal card uses Approve");
+    expect(prompt).toContain(
+      "nutrition planning, food choices, basic meal preparation and cooking, weight tracking, and high-level non-medical fitness information",
+    );
+    expect(prompt).toContain(
+      "do not answer any part of the request, do not provide code",
+    );
+    expect(prompt).toContain("do not call a skill");
+    expect(prompt).toContain("write a for loop that counts from 1 to 10");
+    expect(prompt).toContain("never create personalized workout programming");
     expect(prompt).not.toContain("raw, cooked, or packaged");
     expect(prompt).not.toContain("fat percentage");
     expect(prompt).not.toContain("preparation state");

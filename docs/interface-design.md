@@ -162,6 +162,7 @@ Feedback must make the current state, accepted action, and next available action
 - If another browser changed the shared profile, show a stale-state message, load the current cloud version, and ask the user to retry.
 - A source or agent failure may reveal only a collapsible safe stage, failure code, turn ID, and lookup ID; credentials, SQL, raw source payloads, and model internals are never rendered.
 - A configuration or database failure uses a fixed public message and stable code. Raw exception text and environment values never reach JSON or streamed responses.
+- A programming, technical-support, or unrelated general request receives one brief redirect in the language of the latest user message. The redirect offers nutrition, food, meal preparation, weight tracking, or general fitness topics, contains no partial answer, and creates no action card.
 - If a source request times out, is blocked, returns no food record, or fails parsing, preserve confirmed state and offer refinement or the explicitly labelled AI-estimate path.
 - If the rate limit is reached, explain that lookup is temporarily unavailable without disabling the rest of the demo.
 - Recovery controls follow the same one-action-per-turn lock and cannot create duplicate messages, measurements, or approvals.

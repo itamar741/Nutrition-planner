@@ -111,6 +111,7 @@ Each criterion must produce a clear pass or fail result. Nutrition criteria use 
 - **SC-54 — Transport and error controls:** Production page and API responses include the documented security headers. When database TLS is enabled, both application and migration pools verify certificates and reject conflicting URL options. The academic Render Blueprint may use only its same-region internal private-network URL without TLS as a documented exception. Client responses never expose raw exception, credential, database URL, source payload, or environment text.
 - **SC-55 — Submission archive control:** The exact academic-submission ZIP excludes Git history and local environment files and passes the bounded archive secret/container inspection before submission.
 - **SC-56 — Production persistence:** Production requires PostgreSQL configuration and must return a generic unavailable response rather than falling back to the development/test memory adapter.
+- **SC-57 — Conversational topic boundary:** Arnold answers only nutrition planning, food and basic meal preparation, weight tracking, and high-level non-medical fitness questions. For programming, technical support, or unrelated requests, it gives one brief same-language redirect without answering any part of the request or calling a skill. It does not create personalized workout programs or tracking. This best-effort model behavior does not replace server validation of tools and protected state.
 
 ## Part 3 — Architectural Guidance
 

@@ -126,6 +126,7 @@ Run these controls with mocked or recorded model responses. Do not rely on varia
 - **AI-20:** Arnold may make at most four sequential skill calls, cannot call skills in parallel, retries a rejected Draft at most three times, and asks a focused question rather than using a hidden deterministic plan fallback.
 - **AI-21:** `inspect_food_availability` reports central-catalog, profile-approved, Draft, and Active Plan facts; `remove_approved_food` cannot modify Active Plan.
 - **AI-22:** Fresh and Existing use the same ordinary Draft skill. An Existing Draft retains the current Active Plan targets, survives reload, and cannot activate from text or a stale button. A confirmed food continuation forces the complete Draft skill before prose, includes that food, and requires rebalance rather than an uncompensated append.
+- **AI-23:** The fixed prompt identifies the supported conversational topics and instructs Arnold to answer an unsupported programming, technical-support, or unrelated request with one brief same-language redirect, no partial answer, and no skill call. A representative programming request leaves measurements, Draft, Active Plan, and approved foods unchanged. High-level non-medical fitness information remains supported without adding workout programming or tracking.
 
 Evidence: input fixture, expected contract result, actual validator result, and unchanged-state assertion for every rejected response.
 
@@ -246,4 +247,4 @@ The implementation plan selects npm, ESLint, Prettier, TypeScript, Vitest, React
 - `npm run build` — produce a successful production build.
 - `npm run verify` — run `format:check`, `lint`, `typecheck`, `test:unit`, `security:check`, `build`, and `test:e2e`; fail immediately or return nonzero if any mandatory check fails.
 
-An opt-in `npm run test:ai-live` may be added for one credentialed structured-response smoke test. It must not be included in offline deterministic acceptance and cannot replace mocked AI contract controls.
+The opt-in `npm run test:ai-live` command uses a separate configuration for credentialed model smoke tests. It is not included in offline deterministic acceptance and cannot replace mocked AI contract controls. When no OpenAI key/model is configured, its tests report skipped rather than attempting a provider call.
