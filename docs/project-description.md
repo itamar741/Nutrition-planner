@@ -21,6 +21,8 @@ Both journeys use one server-owned streaming conversation led by Arnold. For eve
 
 The model can request only tools currently permitted by server state. The server validates each call, executes the bounded operation, returns only sanitized structured results, and persists the completed turn. The agent never receives SQL, credentials, arbitrary URLs, browser tools, raw USDA payloads, or direct database access. A topic change may pause one workflow for later resumption.
 
+The browser can submit text or one typed action containing identifiers, an expected profile version, and an idempotency command ID. It cannot submit assistant transcript entries, a Draft or Active Plan, a target snapshot, a validation decision, or an arbitrary closed-answer patch. Closed answers are resolved from the currently stored option, and proposal approval is resolved from the current server-stored interaction before deterministic recalculation and activation.
+
 The full transcript remains in PostgreSQL until Reset and is always rendered in the workspace. The model receives ordinary chronological `role`/`content` messages, not a JSON-encoded transcript. When the estimated request exceeds 60% of the configured model context window, the server supplies a validated digest of older dialogue plus the latest 20 messages. That digest can guide language but cannot override structured state.
 
 ## Adaptive Conversational Onboarding
@@ -126,6 +128,8 @@ The deployed product uses Render only:
 - The same Web Service performs the low-volume, bounded USDA lookup synchronously. It is not a browser or crawler and fails cleanly on its bounded timeout.
 - **Render PostgreSQL** persists both versioned demo states, reset-scoped transcripts, interactive message state, agent turns, the central catalog, lookup requests, candidate records, source metadata, command results, and rate-limit events.
 
-The two profiles are deliberately shared and use optimistic versions; a stale browser reloads the latest state and asks the user to retry. The browser holds only temporary rendered state and a signed access cookie. The server never gives the model or browser USDA response bodies, arbitrary source URLs, credentials, or database access.
+The two profiles are deliberately shared and use optimistic versions; a stale browser reloads the latest state and asks the user to retry. The browser holds only temporary rendered state and a signed access cookie. The server never gives the model or browser USDA response bodies, arbitrary source URLs, credentials, or database access. `/api/coach/message` is the only public AI entry point; onboarding, planning, adjustment, lookup, candidate preparation, and estimates execute only as bounded operations inside that protected server flow.
+
+Production refuses access when the shared code or a sufficiently long cookie-signing secret is missing. Before a verified session exists, all access-code attempts share a five-per-15-minute anonymous bucket because the application does not trust client-controlled forwarding headers. Authenticated limits derive identity only from a verified signed session. PostgreSQL connections verify TLS certificates, public responses use generic errors, and production responses include the documented browser security headers.
 
 Each profile has an independent **Reset demo** control. Fresh reset restores only the empty onboarding seed. Existing reset restores only its prepared plan, conversation, and generated weight history. Runtime catalog foods and persistent rate-limit events survive both resets.

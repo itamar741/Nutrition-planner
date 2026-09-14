@@ -75,7 +75,7 @@ These tests are written from the specifications and nutrition documents, not inf
 - **VT-14c:** Resetting Fresh does not alter Existing, runtime catalog foods, or rate-limit events. Resetting Existing restores its original plan and generated weights without altering Fresh.
 - **VT-14d:** Approving one runtime food inserts the catalog record and selects it for the requesting profile in one transaction. A stale approval inserts neither half of that transaction.
 - **VT-14e:** A signed access token accepts no tampering; the wrong shared code fails; rate identities contain only stable HMAC hashes.
-- **VT-14f:** The eleventh hourly workflow for one hashed session/IP and the thirty-first global daily workflow are rejected, including after a profile reset.
+- **VT-14f:** The eleventh hourly food workflow for one verified signed-session identity and the thirty-first global daily workflow are rejected, including after a profile reset. Forwarding-header changes and forged cookies cannot create new identities.
 
 ### Weight and Trend Controls
 
@@ -217,6 +217,8 @@ Run `security:check`, inspect dependency and lockfile changes, and run `npm audi
 - **SR-07:** For the live Render service, record the deployed commit, health response, public-edge TLS result, response-header result, and an authorized confirmation of the internal PostgreSQL certificate path. Do not use an unknown access code or a guessing test against the shared demo limit.
 
 Evidence belongs in `docs/verification-results/phase-3.md`, `phase-6.md`, and the deployment-specific result record. A missing live deployment check is an open deployment gate, not a passing result.
+
+The archive test is an intentionally bounded academic-submission safeguard. Acceptance does not claim detection of encrypted containers or every possible text encoding; review of the archive creation process and exact final ZIP remains mandatory.
 
 ## Gate 9 — Human Merge-Readiness Review
 

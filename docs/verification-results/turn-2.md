@@ -1,5 +1,7 @@
 # Turn 2 Verification Result
 
+> **Historical evidence:** These results apply only to the named Turn 2 commit. Direct Draft endpoints and browser-authoritative completion paths were superseded by Security Phases 2–3. Current controls and open live gates are documented in the [implementation plan](../implementation-plan.md) and [Phase 6 result](phase-6.md).
+
 - Date: 2026-08-30
 - Branch: `turn-2-catalog-and-plan`
 - Implementation commit under test: `50a75258b4d4a4c87479816497ad93d80561d0fc`

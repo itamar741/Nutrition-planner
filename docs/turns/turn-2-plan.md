@@ -1,5 +1,7 @@
 # Turn 2 Plan — Closed Catalog and Draft-to-Active Plan
 
+> **Historical plan:** This records the authorized Turn 2 architecture at that time. The direct Draft and modification endpoints described below were removed in Security Phase 3; current planning runs inside `/api/coach/message`, and approval uses only the current server-stored proposal. Use the current [implementation plan](../implementation-plan.md) and [verification plan](../verification-plan.md) for supported interfaces.
+
 Status: Authorized on 2026-08-30. Planning and catalog-source decisions are fixed before behavior changes.
 
 Branch: `turn-2-catalog-and-plan`

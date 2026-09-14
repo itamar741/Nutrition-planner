@@ -30,10 +30,10 @@ npm run security:check
 npm run build
 ```
 
-The Playwright suite needs Chromium. If a local `.env.local` enables the access gate, disable it only for the test process:
+The Playwright suite needs Chromium. Its global setup uses dedicated test-only access and signing values and authenticates through the real access endpoint:
 
 ```bash
-DEMO_ACCESS_CODE= npm run test:e2e
+npm run test:e2e
 ```
 
 The deployed service must keep `DEMO_ACCESS_CODE` enabled. Never commit `.env.local`, API keys, database URLs, signed cookies, or real user data.
@@ -44,7 +44,7 @@ For the academic submission, create the ZIP without `.git` or local environment 
 npm run security:archive -- /path/to/submission.zip
 ```
 
-The archive check permits `.env.example` but rejects every other `.env*` file and all `.git` metadata.
+The archive check permits `.env.example` but rejects every other `.env*` file, all `.git` metadata, recognized nested archive containers, and common credential patterns within its byte limits. It is a safeguard against accidental submission contents, not a general detector for encryption or every possible encoding.
 
 ## Architecture
 
@@ -72,6 +72,8 @@ Never put real values in `.env.example`, Git, browser code, screenshots, or veri
 `DATABASE_URL` must not contain `ssl`, `sslmode`, `sslcert`, `sslkey`, or `sslrootcert` query parameters. The application and migration command reject those parameters so they cannot replace the verified TLS settings. Before deployment, test the connection against the intended academic database. If its certificate cannot be validated and no trusted CA is available, record that deployment limitation; do not disable certificate verification.
 
 The production response policy includes a same-origin Content Security Policy. It permits inline scripts and styles for Next.js compatibility, so it limits external sources but is not a complete XSS defense. CSP and HSTS are production-only; the remaining browser headers also apply during local development.
+
+Production access also fails closed: if `DEMO_ACCESS_CODE` is absent or `COOKIE_SIGNING_SECRET` is absent or shorter than 32 characters, `/api/demo/access` returns a generic `503`, sets no cookie, and protected routes remain inaccessible. Do not use a temporary hard-coded fallback in a deployment.
 
 ## Create the services
 
@@ -120,6 +122,7 @@ Run this checklist against the deployed URL:
 10. Exercise one controlled source failure. Confirm that the AI estimate appears only after clicking **Use an AI estimate** and remains labelled `AI estimate · USDA not verified`.
 11. Reset both demos separately and confirm the runtime food remains in the central catalog.
 12. Verify a wrong access code is rejected and no protected route or state endpoint is usable without the signed cookie.
+    Do this once with an authorized test code; do not perform repeated guessing against the shared anonymous attempt bucket.
 13. Send one English and one Hebrew coach turn and confirm streamed, language-matched replies plus persisted conversation after reload.
 14. Select a USDA candidate using text such as “the fifth one,” then verify typed “approve it” does not approve it and the visible Approve button does.
 15. Open the same profile in two tabs, start concurrent turns, and confirm the second receives a recoverable conflict without duplicate transcript entries.
@@ -137,6 +140,8 @@ After each production deployment, verify the deployed commit rather than assumin
 5. Run `npm run security:archive -- <final-submission.zip>` on the exact archive being submitted. The command rejects Git history, local environment files, nested archives, and common credential patterns.
 
 If the expected headers are absent, treat the deployment as an older or misconfigured build and do not record the live security gate as passed.
+
+Raw application, database, OpenAI, or USDA exception messages must not appear in page, JSON, or streamed responses. Use server logs for redacted diagnostics and expose only the documented generic message and stable safe code to the browser.
 
 ## Updating an existing deployment
 

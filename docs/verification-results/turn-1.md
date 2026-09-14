@@ -1,5 +1,7 @@
 # Turn 1 Verification Result
 
+> **Historical evidence:** These results describe the Turn 1 commit and its then-current route inventory. Direct onboarding/plan AI routes were later removed by Security Phase 3. Current controls and open live gates are documented in the [implementation plan](../implementation-plan.md) and [Phase 6 result](phase-6.md).
+
 - Date: 2026-08-30
 - Branch: `turn-1-onboarding-foundation`
 - Implementation commit under test: `20783766fc4ec3bb3bc5de5cbb8be697c46ae369`

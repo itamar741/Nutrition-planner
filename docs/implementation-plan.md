@@ -56,9 +56,9 @@ PostgreSQL owns:
 - the baseline and runtime catalog, source identifiers, provenance, retrieval time, and approval metadata;
 - lookup requests and source candidates;
 - command results used for idempotency; and
-- hashed-session/IP rate-limit events.
+- verified-session and anonymous/global rate-limit events stored as HMAC-safe bucket identifiers.
 
-The browser never sends a replacement profile. A mutation sends the target `profileId`, `expectedVersion`, a mutation `commandId`, and one validated action. A stale version returns `409` with the current profile, reloads the interface, and asks the user to retry.
+The browser never sends a replacement profile, assistant message, Draft, target snapshot, validation result, or Active Plan. A mutation sends the target `profileId`, `expectedVersion`, a mutation `commandId`, and one validated action containing only required facts or identifiers. A stale version returns `409` with the current profile, reloads the interface, and asks the user to retry.
 
 ## 4. Two Shared Demo Journeys
 
@@ -147,7 +147,7 @@ Fresh and Existing expose the same ordinary `submit_draft_proposal` skill. Fresh
 
 For Maintenance adjustments, the Active Plan also stores a deterministic, non-user-editable reference weight. The initial Existing fixture and the idempotent migration derive it from the first seven post-activation measurements; a newly approved Existing plan derives it from the seven latest confirmed measurements. The trend gate retains its 35-day evidence rule and permits a bounded adjustment when either the rate is out of band or two non-overlapping seven-measurement averages are both at least 0.70 kg from that reference in the same direction. This is not a target-weight surface.
 
-Conversation limits are 30 agent turns per hour per hashed session/IP and 100 per day globally. Food-source limits remain independently enforced at 10 per hour and 30 per day. Raw IP addresses are never stored.
+Conversation limits are 30 agent turns per hour per verified, hashed signed session and 100 per day globally. Food-source limits remain independently enforced at 10 per hour for that verified session and 30 per day globally. Access-code attempts use one shared anonymous five-per-15-minute bucket before authentication. Client-controlled forwarding headers are ignored and raw IP addresses are never stored.
 
 ## 8. Bounded Endpoints
 
@@ -169,6 +169,7 @@ bodies are strict-schema validated.
 
 - A stale mutation returns `409` and never overwrites the current state.
 - A malformed model response, injected URL/SQL/tool field, unsafe source URL, parser failure, implausible nutrition record, timeout, access block, or database failure does not change a profile, catalog, Draft, or Active Plan.
+- Public JSON and streamed failures use fixed messages and stable allowlisted codes; raw exceptions, database URLs, API keys, environment values, source payloads, and model internals remain server-side.
 - A rejected source candidate asks what should be corrected and permits a new bounded search.
 - A required runtime food omitted by the plan model fails validation and triggers one repair attempt; it cannot be silently ignored.
 - An approval failure keeps the candidate review visible and the confirmed state unchanged.
@@ -191,4 +192,7 @@ bodies are strict-schema validated.
 - Synchronous USDA requests avoid a worker but still require a visible timeout and failure path.
 - JSONB aggregates simplify reset and migrations but are not designed for analytics.
 - One shared access code is privacy gating, not production authentication.
+- The shared anonymous pre-access limit avoids spoofable proxy identity but allows one visitor to exhaust the short access window for everyone.
+- The production CSP permits inline scripts and styles for framework compatibility and therefore reduces external-source exposure without claiming complete XSS prevention.
+- Archive inspection is bounded protection against accidental secret and nested-container inclusion; it is not a general detector for encrypted or arbitrarily encoded content.
 - The source adapter is low-volume and basic-food only; changed or malformed API responses fail closed.
