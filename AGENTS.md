@@ -25,6 +25,7 @@ The written specification wins over conversational memory. Resolve any conflict 
 - Browser state requests contain only narrow action facts, identifiers, expected versions, and command IDs. They never contain assistant messages, Drafts, target snapshots, validation results, or replacement Active Plans.
 - The only verified runtime source is the server-owned USDA FoodData Central API adapter, restricted to Foundation Foods and SR Legacy basic foods.
 - The model receives only the bounded tools permitted by the current profile state. It never receives arbitrary URLs, raw USDA response bodies, SQL, browser control, source credentials, or database writes.
+- Arnold discusses nutrition planning, food, basic meal preparation, weight tracking, and high-level non-medical fitness information. It briefly redirects programming, technical help, and other unrelated requests without answering any part of them or calling a skill. This is prompt-level behavior, not a server authorization boundary.
 - Never add accounts, additional profiles, allergies/intolerances, clinical advice, workout/adherence tracking, hydration, micronutrient optimization, target weight, goal switching, plan history, long-term memory infrastructure, weekly variation, or arbitrary AI actions.
 - Protein powder remains an ordinary catalog food. There is no supplements workflow or kashrut subsystem.
 

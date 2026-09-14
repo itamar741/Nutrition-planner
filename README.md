@@ -9,6 +9,8 @@ Turn 4 added PostgreSQL-backed shared state, one shared access code, and indepen
 
 Every free-text coach message reaches the server-owned Arnold agent with authoritative profile context and reset-scoped conversation history. Arnold can request only state-dependent bounded skills; deterministic code validates and executes them. Food insertion and Active Plan changes still require visible approval buttons.
 
+Arnold is limited conversationally to nutrition planning, food and basic meal preparation, weight tracking, and high-level non-medical fitness information. Programming, technical help, and unrelated requests receive a brief redirect rather than an answer. This conversational scope is model-guided; protected state changes remain independently enforced by server code.
+
 ## Security architecture
 
 - The browser submits text or a narrow action with identifiers and optimistic-version metadata. It cannot submit an assistant message, replacement profile, Draft, target snapshot, validation result, or Active Plan.
@@ -35,4 +37,4 @@ The live Render service passes the public health, edge-TLS, production-header, P
 
 ## Safety boundary
 
-The application is a course demonstration for healthy adults and is not medical advice. It has no accounts, general multi-user system, allergies or intolerances, workout tracking, adherence tracking, target weight, goal switching, plan history, weekly variation, or arbitrary AI/browser tools.
+The application is a course demonstration for healthy adults and is not medical advice. It has no accounts, general multi-user system, allergies or intolerances, personalized workout programming or tracking, adherence tracking, target weight, goal switching, plan history, weekly variation, or arbitrary AI/browser tools.
