@@ -38,7 +38,8 @@ export async function POST(request: Request) {
         {
           ok: false,
           code: "stale_state",
-          message: error.message,
+          message:
+            "The demo changed in another browser. Reloaded the latest state; add the food again if it is still correct.",
           profile: error.current,
         },
         { status: 409 },

@@ -79,10 +79,18 @@ Resetting one profile never resets the other. Runtime catalog foods and rate-lim
 - One shared course-demo code; no account or authentication system.
 - Constant-time comparison for equal-length codes.
 - Signed `HttpOnly`, `Secure` in production, `SameSite=Lax` cookie with a 12-hour expiry.
+- Production fails closed when `DEMO_ACCESS_CODE` is absent or `COOKIE_SIGNING_SECRET` is shorter than 32 characters; no access cookie is issued in that state.
+- Access-code attempts are limited to five per 15 minutes. Before a signed session exists, the academic demo deliberately uses one shared anonymous bucket rather than an untrusted forwarding header.
 - Required secrets remain server-side: `DATABASE_URL`, `DEMO_ACCESS_CODE`, `COOKIE_SIGNING_SECRET`, `OPENAI_API_KEY`, `OPENAI_MODEL`, and `USDA_FDC_API_KEY`.
-- At most 10 food-lookup workflows per hour for the same hashed session or IP.
+- At most 10 food-lookup workflows per hour for the same verified session.
 - At most 30 food-lookup workflows per day globally.
 - Only HMAC hashes are stored; raw IP addresses are never persisted.
+
+## 5.1 Server-Owned Security Boundaries
+
+- The browser cannot replace an Active Plan, submit a Draft, supply validation results, or write assistant transcript rows. Draft approval and plan activation are recalculated from server-stored proposals and authoritative profile data.
+- The browser submits only action facts. For a closed onboarding answer it submits an offered option ID; the server derives the permitted label and profile patch.
+- `/api/coach/message` is the only public route that can invoke the AI workflow. Legacy direct AI endpoints are not exposed.
 
 ## 6. Runtime Food State Machine
 
@@ -145,16 +153,17 @@ Conversation limits are 30 agent turns per hour per hashed session/IP and 100 pe
 
 - `POST /api/demo/access`
 - `GET|PATCH|POST /api/demo/state/[profileId]`
-- `POST /api/coach/catalog/lookup`
-- `POST /api/coach/catalog/candidate`
+- `POST /api/coach/message`
 - `POST /api/coach/catalog/approve`
 - `POST /api/coach/catalog/reject`
 - `POST /api/coach/catalog/add-existing`
-- `POST /api/coach/catalog/estimate`
-- existing bounded onboarding, Draft, modification, and adjustment endpoints
 - `GET /api/health`
 
-All state and catalog endpoints enforce shared access in production. All untrusted bodies are strict-schema validated.
+Onboarding, Draft creation and modification, adjustment generation, food lookup,
+candidate preparation, and AI estimates run only inside the protected
+`/api/coach/message` turn. They are not exposed as separate AI endpoints. All
+state and catalog endpoints enforce shared access in production. All untrusted
+bodies are strict-schema validated.
 
 ## 9. Failure Rules
 

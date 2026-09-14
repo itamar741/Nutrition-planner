@@ -1,9 +1,12 @@
 import type { CatalogFood } from "@/domain/catalog/types";
 import type { ConversationActivity } from "@/domain/agent/types";
 import type { DemoProfileId } from "@/domain/profile/types";
-import type { DemoAction, DemoState } from "./demo-reducer";
-import type { ExistingDemoAction } from "./existing-demo-reducer";
+import type { DemoState } from "./demo-reducer";
 import type { ExistingDemoState } from "./existing-demo-store";
+import type {
+  ExistingDemoCloudAction,
+  NewDemoCloudAction,
+} from "./cloud-action-schemas";
 
 export type ClientDemoState = DemoState | ExistingDemoState;
 
@@ -55,7 +58,7 @@ export async function sendCloudAction<T extends ClientDemoState>(input: {
   profileId: DemoProfileId;
   expectedVersion: number;
   commandId: string;
-  action: DemoAction | ExistingDemoAction;
+  action: NewDemoCloudAction | ExistingDemoCloudAction;
 }) {
   const body = await parseResponse(
     await fetch(`/api/demo/state/${input.profileId}`, {

@@ -6,6 +6,7 @@ import {
   type CoachToolName,
   type ProposalArguments,
 } from "@/ai/coach-agent";
+import { extractOnboardingFacts } from "@/ai/onboarding";
 import { existingReadyProfile } from "@/data/demo-fixtures";
 import type {
   AgentInteraction,
@@ -17,13 +18,17 @@ import type { CatalogFood } from "@/domain/catalog/types";
 import { calculateTargets } from "@/domain/nutrition/calculations";
 import {
   buildPlanValidationExplanation,
+  candidateFromPlan,
   getExpectedMealIds,
   getPlanNutritionRanges,
-  revalidatePlan,
   validateAndBuildPlan,
 } from "@/domain/plan/validation";
 import type { DraftCandidate, DraftProposal } from "@/domain/plan/types";
-import { isProfileReady } from "@/domain/profile/onboarding";
+import {
+  applyFactPatch,
+  getNextTurn,
+  isProfileReady,
+} from "@/domain/profile/onboarding";
 import type { StructuredProfile } from "@/domain/profile/types";
 import { evaluateWeightAdjustmentDecision } from "@/domain/weight/decision";
 import {
@@ -820,7 +825,8 @@ type Workflow = Extract<
 
 function interactionWorkflow(value: AgentInteraction): Workflow {
   if (value.type === "clarification") return value.workflow;
-  if (value.type === "draft_failure_review") return "draft";
+  if (value.type === "draft_failure_review" || value.type === "draft_approval")
+    return "draft";
   if (
     value.type === "food_candidates" ||
     value.type === "food_approval" ||
@@ -1038,24 +1044,103 @@ export async function executeCoachTurn(input: {
     activePlanVersion,
     hasDraft: Boolean(state.draft),
   });
+  if (
+    "profile" in state &&
+    !isProfileReady(state.profile) &&
+    !state.agentSession.pendingInteraction &&
+    input.request.input.type === "text"
+  ) {
+    const onboardingState = state;
+    const onboardingInput = input.request.input;
+    input.onStatus("thinking");
+    const extraction = await atTurnStage("onboarding_extraction", () =>
+      extractOnboardingFacts({
+        commandId: input.request.commandId,
+        message: onboardingInput.text,
+        profile: onboardingState.profile,
+      }),
+    );
+    if (Object.keys(extraction.patch).length > 0) {
+      const nextProfile = applyFactPatch(
+        onboardingState.profile,
+        extraction.patch,
+      );
+      const activeTurn = getNextTurn(nextProfile);
+      const measurements =
+        onboardingState.weightMeasurements.length > 0 ||
+        nextProfile.currentWeightKg === null
+          ? onboardingState.weightMeasurements
+          : [
+              {
+                id: `weight-onboarding-${input.request.commandId}`,
+                date: turnCurrentDate,
+                weightKg: nextProfile.currentWeightKg,
+                commandId: input.request.commandId,
+              },
+            ];
+      state = {
+        ...onboardingState,
+        profile: nextProfile,
+        activeTurn,
+        targets: calculateTargets(nextProfile),
+        weightMeasurements: measurements,
+        status: "idle",
+        pendingCommand: null,
+        pendingOperation: null,
+        processedCommandIds: onboardingState.processedCommandIds.includes(
+          input.request.commandId,
+        )
+          ? onboardingState.processedCommandIds
+          : [...onboardingState.processedCommandIds, input.request.commandId],
+        error: null,
+      };
+      const assistantText =
+        `${extraction.acknowledgement} ${activeTurn.prompt}`.trim();
+      input.onText(assistantText);
+      profile = await atTurnStage("profile_persist", () =>
+        mutateProfile({
+          profileId: input.request.profileId,
+          expectedVersion: profile.version,
+          commandId: input.request.commandId,
+          mutation: () => state,
+        }),
+      );
+      return { profile, assistantText };
+    }
+  }
   if (input.request.input.type === "interaction") {
     input.onStatus("validating");
     const action = input.request.input.action;
     const isSessionReview = action === "review_trend";
     const isAdjustmentGeneration = action === "generate_adjustment";
     if (action === "approve_draft" || action === "reject_draft") {
+      const pending = currentInteraction;
       if (
+        !pending ||
+        pending.type !== "draft_approval" ||
         !state.draft ||
-        state.draft.id !== input.request.input.interactionId
+        pending.id !== input.request.input.interactionId ||
+        pending.proposalId !== state.draft.id
       ) {
         throw new Error("That Draft is no longer awaiting review.");
       }
       if (action === "approve_draft") {
-        const plan = revalidatePlan(
-          state.draft.plan,
-          structuredProfileOf(state),
-          createCatalogSnapshot(catalog),
-        );
+        const authoritativeTargets =
+          state.activePlan?.plan.targetSnapshot ??
+          calculateTargets(structuredProfileOf(state));
+        if (!authoritativeTargets) {
+          throw new Error(
+            "The Draft is stale or failed deterministic validation.",
+          );
+        }
+        const plan = validateAndBuildPlan({
+          candidate: candidateFromPlan(state.draft.plan),
+          profile: structuredProfileOf(state),
+          targets: authoritativeTargets,
+          planId: state.draft.plan.id,
+          version: state.draft.plan.version,
+          catalog: createCatalogSnapshot(catalog),
+        });
         if (
           !plan.validation.valid ||
           state.draft.basePlanVersion !== (state.activePlan?.version ?? null)
@@ -1065,23 +1150,26 @@ export async function executeCoachTurn(input: {
           );
         }
         const nextVersion = (state.activePlan?.version ?? 0) + 1;
-        state = {
-          ...state,
-          draft: null,
-          agentSession: { ...state.agentSession, draftIntent: null },
-          activePlan: {
-            schemaVersion: 1,
-            version: nextVersion,
-            activatedAt: new Date().toISOString(),
-            maintenanceReferenceWeightKg:
-              state.activePlan?.maintenanceReferenceWeightKg ??
-              maintenanceReferenceWeightFromInitialMeasurements(
-                measurementsOf(state),
-              ) ??
-              structuredProfileOf(state).currentWeightKg,
-            plan,
+        state = setInteraction(
+          {
+            ...state,
+            draft: null,
+            agentSession: { ...state.agentSession, draftIntent: null },
+            activePlan: {
+              schemaVersion: 1,
+              version: nextVersion,
+              activatedAt: new Date().toISOString(),
+              maintenanceReferenceWeightKg:
+                state.activePlan?.maintenanceReferenceWeightKg ??
+                maintenanceReferenceWeightFromInitialMeasurements(
+                  measurementsOf(state),
+                ) ??
+                structuredProfileOf(state).currentWeightKg,
+              plan,
+            },
           },
-        };
+          null,
+        );
         actionSummary = {
           event: "draft_approved",
           activePlanVersion: nextVersion,
@@ -1268,15 +1356,21 @@ export async function executeCoachTurn(input: {
       if (
         !pending ||
         pending.type !== "adjustment_approval" ||
+        pending.id !== input.request.input.interactionId ||
         "profile" in state
       )
         throw new Error("There is no adjustment awaiting approval.");
       const draft = pending.draft;
-      const validatedPlan = revalidatePlan(
-        draft.plan,
-        structuredProfileOf(state),
-        createCatalogSnapshot(catalog),
-      );
+      const adjustment = adjustedTargetsFor(state);
+      if (!adjustment) throw new Error("The adjustment is stale or invalid.");
+      const validatedPlan = validateAndBuildPlan({
+        candidate: candidateFromPlan(draft.plan),
+        profile: structuredProfileOf(state),
+        targets: adjustment.targets,
+        planId: draft.plan.id,
+        version: draft.plan.version,
+        catalog: createCatalogSnapshot(catalog),
+      });
       if (
         draft.basePlanVersion !== state.activePlan.version ||
         !validatedPlan.validation.valid
@@ -1302,7 +1396,11 @@ export async function executeCoachTurn(input: {
       };
     } else if (action === "reject_adjustment") {
       const pending = currentInteraction;
-      if (!pending || pending.type !== "adjustment_approval")
+      if (
+        !pending ||
+        pending.type !== "adjustment_approval" ||
+        pending.id !== input.request.input.interactionId
+      )
         throw new Error("There is no adjustment awaiting review.");
       state = setInteraction(
         state,
@@ -1729,7 +1827,8 @@ export async function executeCoachTurn(input: {
       proposalAttempts += 1;
       input.onStatus(state.draft ? "revising_draft" : "creating_draft");
       const draftProfile = structuredProfileOf(state);
-      const targets = calculateTargets(draftProfile);
+      const targets =
+        state.activePlan?.plan.targetSnapshot ?? calculateTargets(draftProfile);
       if (!targets) throw new Error("The profile is not ready for a Draft.");
       const candidate = draftCandidateFromArguments(
         call.arguments as ProposalArguments,
@@ -1822,13 +1921,16 @@ export async function executeCoachTurn(input: {
         summary: candidate.summary,
         plan,
       };
-      state = finishNonInteractiveWorkflow(
+      state = setInteraction(
         {
           ...state,
           draft,
           agentSession: { ...state.agentSession, draftIntent: null },
         },
-        "draft",
+        interaction(draft.id, {
+          type: "draft_approval",
+          proposalId: draft.id,
+        }),
       );
       requiredCatalogFoodId = null;
       await appendConversationActivity({

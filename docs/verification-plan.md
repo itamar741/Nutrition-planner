@@ -206,7 +206,19 @@ Run `security:check`, inspect dependency and lockfile changes, and run `npm audi
 - **DP-05:** The Web Service reports searching, candidate-selection, review, and failure states without exposing USDA response bodies, source credentials, or database details.
 - **DP-06:** A Render staging deployment completes one approved candidate flow and one controlled failure flow.
 
-## Gate 8 — Human Merge-Readiness Review
+## Gate 8 — Security Remediation and Live Deployment
+
+- **SR-01:** Forged demo-state requests cannot submit an Active Plan, Draft, validation result, assistant message, or arbitrary profile patch. Server-side approval must still activate a current valid stored proposal exactly once.
+- **SR-02:** Every removed legacy AI route returns `404`; `/api/coach/message` remains access-controlled, rate-limited, and idempotent.
+- **SR-03:** In production, missing demo access secrets return a generic configuration failure without an access cookie. Five access-code attempts within 15 minutes cause `429` with `Retry-After`.
+- **SR-04:** Production page and API responses include the documented CSP, HSTS, MIME-sniffing, referrer, and permissions headers. Development does not claim production CSP enforcement.
+- **SR-05:** Both PostgreSQL pools reject conflicting TLS options embedded in `DATABASE_URL` and require certificate verification when `DATABASE_SSL=require`.
+- **SR-06:** The exact final submission ZIP passes `npm run security:archive -- <archive.zip>`; it contains neither `.git/` nor a local `.env*` file and does not match the bounded secret scan.
+- **SR-07:** For the live Render service, record the deployed commit, health response, public-edge TLS result, response-header result, and an authorized confirmation of the internal PostgreSQL certificate path. Do not use an unknown access code or a guessing test against the shared demo limit.
+
+Evidence belongs in `docs/verification-results/phase-3.md`, `phase-6.md`, and the deployment-specific result record. A missing live deployment check is an open deployment gate, not a passing result.
+
+## Gate 9 — Human Merge-Readiness Review
 
 The user reviews the change only after automated and end-to-end gates pass. The review records five evidence-backed conclusions:
 

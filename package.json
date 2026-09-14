@@ -17,6 +17,7 @@
     "test:e2e": "playwright test",
     "test:ai-live": "vitest run tests/live",
     "security:check": "node scripts/security-check.mjs",
+    "security:archive": "node scripts/security-check.mjs --archive",
     "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test:unit && npm run security:check && npm run build && npm run test:e2e"
   },
   "dependencies": {

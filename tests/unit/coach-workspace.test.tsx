@@ -24,45 +24,63 @@ afterEach(() => {
 });
 
 function successResponse() {
-  return {
-    ok: true,
-    json: async () => ({
-      ok: true,
-      commandId: expect.any(String),
-      profile: {
-        ...emptyProfile,
-        age: 30,
-        equationSex: "male",
-        heightCm: 180,
-        currentWeightKg: 80,
-      },
-      activeTurn: {
-        type: "closed_question",
-        id: "choose-goal",
-        field: "goal",
-        prompt: "Which nutrition goal should this fixed plan support?",
-        options: [
-          {
-            id: "goal-fat-loss",
-            label: "Fat Loss",
-            patch: { goal: "fat_loss" },
-          },
-          {
-            id: "goal-maintenance",
-            label: "Maintenance",
-            patch: { goal: "maintenance" },
-          },
-        ],
-      },
-      targets: null,
-      acknowledgement: "I captured those four details.",
-    }),
+  const initial = createNewDemoState();
+  const profile = {
+    ...emptyProfile,
+    age: 30,
+    equationSex: "male" as const,
+    heightCm: 180,
+    currentWeightKg: 80,
   };
+  const started = demoReducer(initial, {
+    type: "start_open",
+    command: {
+      id: "command-12345",
+      message: "I am a 30 year old man, 180 cm and 80 kg.",
+    },
+  });
+  const state = demoReducer(started, {
+    type: "complete_open",
+    commandId: "command-12345",
+    profile,
+    activeTurn: {
+      type: "closed_question",
+      id: "choose-goal",
+      field: "goal",
+      prompt: "Which nutrition goal should this fixed plan support?",
+      options: [
+        {
+          id: "goal-fat-loss",
+          label: "Fat Loss",
+          patch: { goal: "fat_loss" },
+        },
+        {
+          id: "goal-maintenance",
+          label: "Maintenance",
+          patch: { goal: "maintenance" },
+        },
+      ],
+    },
+    targets: null,
+    acknowledgement: "I captured those four details.",
+  });
+  const events = [
+    { type: "status", value: "thinking" },
+    { type: "text_delta", value: "I captured those four details." },
+    {
+      type: "state",
+      profile: { profileId: "new", version: 2, state },
+      activities: [],
+    },
+    { type: "done", turnId: "command-12345" },
+  ];
+  return new Response(
+    events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
+    { headers: { "Content-Type": "text/event-stream" } },
+  );
 }
 
-function installCloudFetch(
-  onboarding: () => Promise<{ ok: boolean; json: () => Promise<unknown> }>,
-) {
+function installCloudFetch(onboarding: () => Promise<Response>) {
   let state: DemoState = createNewDemoState();
   let version = 1;
   vi.stubGlobal(
@@ -93,7 +111,7 @@ function installCloudFetch(
           }),
         };
       }
-      if (url === "/api/coach/onboarding") {
+      if (url === "/api/coach/message") {
         return onboarding();
       }
       throw new Error(`Unexpected request: ${url}`);
@@ -111,12 +129,7 @@ describe("CoachWorkspace", () => {
 
   it("UI-02 switches to quick replies and disables free text", async () => {
     const user = userEvent.setup();
-    const payload = successResponse();
-    installCloudFetch(async () => {
-      const body = await payload.json();
-      body.commandId = "command-12345";
-      return { ok: true, json: async () => body };
-    });
+    installCloudFetch(async () => successResponse());
     render(<CoachWorkspace profileId="new" />);
 
     await user.type(
@@ -134,9 +147,7 @@ describe("CoachWorkspace", () => {
 
   it("UI-05 locks input while processing and keeps the submitted message visible", async () => {
     const user = userEvent.setup();
-    let resolveFetch:
-      | ((value: { ok: boolean; json: () => Promise<unknown> }) => void)
-      | undefined;
+    let resolveFetch: ((value: Response) => void) | undefined;
     installCloudFetch(
       () =>
         new Promise((resolve) => {
@@ -152,13 +163,11 @@ describe("CoachWorkspace", () => {
     expect(document.querySelector('[data-role="user"]')).toHaveTextContent(
       "I am 30.",
     );
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Reviewing your details",
-    );
+    expect(screen.getByRole("status")).toHaveTextContent("Thinking");
     expect(input).toBeDisabled();
 
     await act(async () => {
-      resolveFetch?.({ ok: true, json: async () => ({}) });
+      resolveFetch?.(successResponse());
     });
   });
 });

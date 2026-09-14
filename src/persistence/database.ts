@@ -1,4 +1,5 @@
 import { Pool, type PoolClient } from "pg";
+import { applicationPoolConfig } from "@/persistence/postgres-options";
 
 declare global {
   var nutritionCoachPool: Pool | undefined;
@@ -9,19 +10,8 @@ export function hasPostgresConfiguration() {
 }
 
 export function getPool() {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error("DATABASE_URL is not configured.");
-  }
   if (!globalThis.nutritionCoachPool) {
-    globalThis.nutritionCoachPool = new Pool({
-      connectionString,
-      max: 5,
-      ssl:
-        process.env.DATABASE_SSL === "require"
-          ? { rejectUnauthorized: false }
-          : undefined,
-    });
+    globalThis.nutritionCoachPool = new Pool(applicationPoolConfig());
   }
   return globalThis.nutritionCoachPool;
 }

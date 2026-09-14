@@ -72,10 +72,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         ok: false,
-        message:
-          error instanceof Error
-            ? error.message
-            : "Approval could not be saved.",
+        message: "Approval could not be saved.",
       },
       { status: 422 },
     );

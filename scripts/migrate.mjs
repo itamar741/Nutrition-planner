@@ -2,23 +2,14 @@ import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import pg from "pg";
-
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) throw new Error("DATABASE_URL is required.");
+import { migrationPoolConfig } from "../src/persistence/postgres-options.ts";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDirectory = path.join(currentDirectory, "../db/migrations");
 const migrationFiles = (await readdir(migrationsDirectory))
   .filter((file) => /^\d+_.+\.sql$/.test(file))
   .sort();
-const pool = new pg.Pool({
-  connectionString,
-  max: 1,
-  ssl:
-    process.env.DATABASE_SSL === "require"
-      ? { rejectUnauthorized: false }
-      : undefined,
-});
+const pool = new pg.Pool(migrationPoolConfig());
 try {
   await pool.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
     filename text PRIMARY KEY,

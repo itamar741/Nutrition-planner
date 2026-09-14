@@ -10,15 +10,6 @@ import {
   useState,
 } from "react";
 import {
-  onboardingFailureSchema,
-  onboardingSuccessSchema,
-} from "@/ai/contracts";
-import {
-  draftModificationSuccessSchema,
-  draftSuccessSchema,
-  planFailureSchema,
-} from "@/ai/plan-contracts";
-import {
   createNewDemoState,
   createExistingDemoState,
   demoProfileNames,
@@ -27,7 +18,6 @@ import {
 import { foodCatalog } from "@/data/food-catalog";
 import { getChecklist, isProfileReady } from "@/domain/profile/onboarding";
 import {
-  formatWeightKg,
   normalizeWeightKg,
   type WeightMeasurement,
 } from "@/domain/weight/trend";
@@ -39,11 +29,8 @@ import {
   resetCloudProfile,
   sendCloudAction,
 } from "@/store/cloud-demo-client";
-import {
-  demoReducer,
-  type DemoAction,
-  type PendingCommand,
-} from "@/store/demo-reducer";
+import { demoReducer, type DemoAction } from "@/store/demo-reducer";
+import type { NewDemoCloudAction } from "@/store/cloud-action-schemas";
 import {
   existingDemoReducer,
   type ExistingDemoAction,
@@ -258,9 +245,6 @@ function ExistingFoundation() {
     [existing.activePlan, existing.measurements, profile.goal],
   );
   const trend = weightDecision.trend;
-  function appendChat(role: "assistant" | "user", text: string) {
-    return { id: `${role}-${createCommandId()}`, role, text };
-  }
   async function sendExistingAgent(
     agentInput: CoachMessageRequest["input"],
     commandId = createCommandId(),
@@ -344,20 +328,12 @@ function ExistingFoundation() {
       action: "reject_draft",
     });
   }
-  function saveTodayWeight(weightKg: number, source: "chat" | "form") {
+  function saveTodayWeight(weightKg: number) {
     const date = new Date().toISOString().slice(0, 10);
     if (existing.measurements.some((item) => item.date === date)) {
-      const commandId = createCommandId();
-      dispatchExisting({
-        type: "add_messages",
-        commandId,
-        messages: [
-          appendChat(
-            "assistant",
-            "Today’s weight is already recorded. Select its chart point to edit it.",
-          ),
-        ],
-      });
+      setProposalError(
+        "Today’s weight is already recorded. Select its chart point to edit it.",
+      );
       return;
     }
     const commandId = createCommandId();
@@ -371,15 +347,6 @@ function ExistingFoundation() {
       type: "record_weight",
       commandId,
       measurement,
-      messages: [
-        ...(source === "chat"
-          ? [appendChat("user", `${formatWeightKg(weightKg)} kg`)]
-          : []),
-        appendChat(
-          "assistant",
-          `Recorded ${formatWeightKg(weightKg)} kg for today. Your trend was recalculated.`,
-        ),
-      ],
     });
     setProposalError("");
   }
@@ -393,20 +360,12 @@ function ExistingFoundation() {
     event.preventDefault();
     if (agentBusy) return;
     try {
-      saveTodayWeight(normalizeWeightKg(Number(weightInput)), "form");
+      saveTodayWeight(normalizeWeightKg(Number(weightInput)));
       setWeightInput("");
     } catch (error) {
-      const commandId = createCommandId();
-      dispatchExisting({
-        type: "add_messages",
-        commandId,
-        messages: [
-          appendChat(
-            "assistant",
-            error instanceof Error ? error.message : "Enter a valid weight.",
-          ),
-        ],
-      });
+      setProposalError(
+        error instanceof Error ? error.message : "Enter a valid weight.",
+      );
     }
   }
   function editExistingWeight(date: string, weightKg: number) {
@@ -417,12 +376,6 @@ function ExistingFoundation() {
       commandId,
       date,
       weightKg,
-      messages: [
-        appendChat(
-          "assistant",
-          `Updated ${date} to ${formatWeightKg(weightKg)} kg. Your trend was recalculated.`,
-        ),
-      ],
     });
     setProposalError("");
   }
@@ -433,12 +386,6 @@ function ExistingFoundation() {
       type: "delete_weight",
       commandId,
       date,
-      messages: [
-        appendChat(
-          "assistant",
-          `Deleted the weight recorded for ${date}. Your trend was recalculated.`,
-        ),
-      ],
     });
     setProposalError("");
   }
@@ -740,7 +687,6 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
   const cloudQueue = useRef<Promise<void>>(Promise.resolve());
   const [draftMessage, setDraftMessage] = useState("");
   const [selectedFoodIds, setSelectedFoodIds] = useState<string[]>([]);
-  const [isSlow, setIsSlow] = useState(false);
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentStatus, setAgentStatus] = useState<
     | "thinking"
@@ -803,6 +749,22 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
       return next;
     });
     if (profileId !== "new") return;
+    let cloudAction: NewDemoCloudAction | null = null;
+    switch (action.type) {
+      case "apply_closed":
+        cloudAction = {
+          type: "apply_closed",
+          optionId: action.optionId,
+        };
+        break;
+      case "apply_food_selection":
+      case "record_weight":
+      case "edit_weight":
+      case "delete_weight":
+        cloudAction = action;
+        break;
+    }
+    if (!cloudAction) return;
     cloudQueue.current = cloudQueue.current.then(async () => {
       try {
         const profile = await sendCloudAction<
@@ -813,7 +775,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
           commandId:
             globalThis.crypto?.randomUUID?.() ??
             `cloud-mutation-${Date.now()}-${Math.random()}`,
-          action,
+          action: cloudAction,
         });
         cloudVersion.current = profile.version;
         stateRef.current = profile.state;
@@ -929,166 +891,10 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
   const completeCount = checklist.filter((item) => item.complete).length;
   const progress = Math.round((completeCount / checklist.length) * 100);
 
-  async function sendOpenCommand(command: PendingCommand, retry = false) {
-    const confirmedState = stateRef.current;
-    if (turnLock.current || confirmedState.status === "processing") return;
-    turnLock.current = true;
-    setIsSlow(false);
-    if (retry) {
-      dispatch({ type: "retry_open", commandId: command.id });
-    } else {
-      dispatch({ type: "start_open", command });
-    }
-
-    const slowTimer = window.setTimeout(() => setIsSlow(true), 1_200);
-    try {
-      const response = await fetch("/api/coach/onboarding", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          commandId: command.id,
-          message: command.message,
-          profile: confirmedState.profile,
-        }),
-      });
-      const body: unknown = await response.json();
-
-      if (!response.ok) {
-        const failure = onboardingFailureSchema.safeParse(body);
-        throw new Error(
-          failure.success
-            ? failure.data.message
-            : "The coach could not process that message.",
-        );
-      }
-
-      const result = onboardingSuccessSchema.parse(body);
-      dispatch({
-        type: "complete_open",
-        commandId: command.id,
-        profile: result.profile,
-        activeTurn: result.activeTurn,
-        acknowledgement: result.acknowledgement,
-        targets: result.targets,
-      });
-      setDraftMessage("");
-    } catch (error) {
-      dispatch({
-        type: "fail_open",
-        commandId: command.id,
-        message:
-          error instanceof Error
-            ? error.message
-            : "The coach could not process that message.",
-      });
-    } finally {
-      window.clearTimeout(slowTimer);
-      setIsSlow(false);
-      turnLock.current = false;
-    }
-  }
-
-  async function sendPlanCommand(
-    command: PendingCommand,
-    operation: "draft" | "modification",
-    retry = false,
-    requiredCatalogFoodId?: string,
-  ) {
-    const confirmedState = stateRef.current;
-    if (turnLock.current || confirmedState.status === "processing") return;
-    turnLock.current = true;
-    setIsSlow(false);
-    if (retry) {
-      dispatch({ type: "retry_plan", commandId: command.id });
-    } else {
-      dispatch({ type: "start_plan", command, operation });
-    }
-
-    const slowTimer = window.setTimeout(() => setIsSlow(true), 1_200);
-    try {
-      const endpoint =
-        operation === "draft"
-          ? "/api/coach/draft"
-          : "/api/coach/draft-modification";
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          operation === "draft"
-            ? {
-                commandId: command.id,
-                message: command.message,
-                requiredCatalogFoodId,
-                profile: confirmedState.profile,
-              }
-            : {
-                commandId: command.id,
-                message: command.message,
-                requiredCatalogFoodId,
-                profile: confirmedState.profile,
-                draft: confirmedState.draft,
-              },
-        ),
-      });
-      const body: unknown = await response.json();
-      if (!response.ok) {
-        const failure = planFailureSchema.safeParse(body);
-        throw new Error(
-          failure.success
-            ? failure.data.message
-            : "The plan operation could not be completed.",
-        );
-      }
-
-      if (operation === "draft") {
-        const result = draftSuccessSchema.parse(body);
-        dispatch({
-          type: "complete_draft",
-          commandId: command.id,
-          draft: result.draft,
-        });
-      } else {
-        const result = draftModificationSuccessSchema.parse(body);
-        if (result.outcome === "modified") {
-          dispatch({
-            type: "complete_modification",
-            commandId: command.id,
-            draft: result.draft,
-            message: result.message,
-          });
-        } else {
-          dispatch({
-            type: "complete_unsupported",
-            commandId: command.id,
-            message: result.message,
-          });
-        }
-      }
-      setDraftMessage("");
-    } catch (error) {
-      dispatch({
-        type: "fail_plan",
-        commandId: command.id,
-        message:
-          error instanceof Error
-            ? error.message
-            : "The plan operation could not be completed.",
-      });
-    } finally {
-      window.clearTimeout(slowTimer);
-      setIsSlow(false);
-      turnLock.current = false;
-    }
-  }
-
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const message = draftMessage.trim();
     if (!message) return;
-    if (!isProfileReady(stateRef.current.profile)) {
-      void sendOpenCommand({ id: createCommandId(), message });
-      return;
-    }
     void sendFreshAgent({ type: "text", text: message });
   }
 
@@ -1104,6 +910,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
     dispatch({
       type: "apply_closed",
       commandId: createCommandId(),
+      optionId: option.id,
       label: option.label,
       patch: option.patch,
     });
@@ -1135,12 +942,11 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
   }
 
   function handleRetry() {
-    if (!state.pendingCommand || !state.pendingOperation) return;
-    if (state.pendingOperation === "onboarding") {
-      void sendOpenCommand(state.pendingCommand, true);
-    } else {
-      void sendPlanCommand(state.pendingCommand, state.pendingOperation, true);
-    }
+    if (!state.pendingCommand) return;
+    void sendFreshAgent(
+      { type: "text", text: state.pendingCommand.message },
+      state.pendingCommand.id,
+    );
   }
 
   async function handleReset() {
@@ -1247,16 +1053,10 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
   );
   const processingText =
     state.pendingOperation === "draft"
-      ? isSlow
-        ? "Still composing and validating your Draft—your request is safely queued."
-        : "Building and validating your Draft…"
+      ? "Building and validating your Draft…"
       : state.pendingOperation === "modification"
-        ? isSlow
-          ? "Still validating the change—the current Draft is unchanged."
-          : "Checking that Draft change…"
-        : isSlow
-          ? "Still reviewing your details—your answer is safely queued."
-          : "Reviewing your details…";
+        ? "Checking that Draft change…"
+        : "Reviewing your details…";
 
   return (
     <main className={styles.page}>
