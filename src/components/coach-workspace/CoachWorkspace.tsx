@@ -48,6 +48,10 @@ import {
 import { sendCoachMessage, AgentClientError } from "@/store/agent-client";
 import type { CoachMessageRequest } from "@/domain/agent/types";
 import type { ConversationActivity } from "@/domain/agent/types";
+import {
+  AGENT_RATE_LIMIT_MESSAGE,
+  isAgentRateLimitMessage,
+} from "@/domain/agent/rate-limit";
 import { AgentInteractionPanel } from "./AgentInteractionPanel";
 import { CatalogSection } from "./CatalogSection";
 import { FreshActiveDashboard } from "./FreshActiveDashboard";
@@ -175,6 +179,33 @@ function RateLimitCountdown({ remaining }: { remaining: number | null }) {
         ? `Available again in ${formatRateLimitCountdown(remaining)}.`
         : "The limit has reset. You can try again now."}
     </p>
+  );
+}
+
+function RateLimitChatMessage({
+  className,
+  disabled,
+  onRetry,
+  remaining,
+}: {
+  className: string;
+  disabled: boolean;
+  onRetry: () => void;
+  remaining: number | null;
+}) {
+  return (
+    <div className={`${className} ${styles.rateLimitMessage}`} role="alert">
+      <p>{AGENT_RATE_LIMIT_MESSAGE}</p>
+      <RateLimitCountdown remaining={remaining} />
+      <button
+        className={styles.retryButton}
+        disabled={disabled || (remaining ?? 0) > 0}
+        onClick={onRetry}
+        type="button"
+      >
+        Retry
+      </button>
+    </div>
   );
 }
 
@@ -480,7 +511,7 @@ function ExistingFoundation() {
         This fixed profile includes an Active Plan and a seeded two-month weight
         history. No additional account is created.
       </p>
-      {cloudError ? (
+      {cloudError && rateLimitWindow === null ? (
         <div className={styles.errorBox} role="alert">
           <div className={styles.errorCopy}>
             <p>{cloudError}</p>
@@ -645,18 +676,33 @@ function ExistingFoundation() {
             onSelect={setChatInput}
           />
           <div className={styles.weightMessages} aria-live="polite">
-            {existing.messages.map((message) => (
-              <div
-                className={
-                  message.role === "assistant"
-                    ? styles.weightAssistantMessage
-                    : styles.weightUserMessage
+            {existing.messages
+              .filter((message) => !isAgentRateLimitMessage(message.text))
+              .map((message) => (
+                <div
+                  className={
+                    message.role === "assistant"
+                      ? styles.weightAssistantMessage
+                      : styles.weightUserMessage
+                  }
+                  key={message.id}
+                >
+                  {message.text}
+                </div>
+              ))}
+            {rateLimitWindow && lastAgentRequest ? (
+              <RateLimitChatMessage
+                className={styles.weightAssistantMessage}
+                disabled={agentBusy}
+                onRetry={() =>
+                  void sendExistingAgent(
+                    lastAgentRequest.input,
+                    createCommandId(),
+                  )
                 }
-                key={message.id}
-              >
-                {message.text}
-              </div>
-            ))}
+                remaining={rateLimitRemaining}
+              />
+            ) : null}
             {pendingAgentText ? (
               <div className={styles.weightUserMessage}>{pendingAgentText}</div>
             ) : null}
@@ -1200,7 +1246,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                 />
               </header>
 
-              {cloudError ? (
+              {cloudError && rateLimitWindow === null ? (
                 <div className={styles.errorBox} role="alert">
                   <div className={styles.errorCopy}>
                     <p>{cloudError}</p>
@@ -1237,19 +1283,34 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
               ) : null}
 
               <div className={styles.messages} aria-live="polite">
-                {state.messages.map((message) => (
-                  <div
-                    className={`${styles.message} ${
-                      message.role === "assistant"
-                        ? styles.assistantMessage
-                        : styles.userMessage
-                    }`}
-                    data-role={message.role}
-                    key={message.id}
-                  >
-                    {message.text}
-                  </div>
-                ))}
+                {state.messages
+                  .filter((message) => !isAgentRateLimitMessage(message.text))
+                  .map((message) => (
+                    <div
+                      className={`${styles.message} ${
+                        message.role === "assistant"
+                          ? styles.assistantMessage
+                          : styles.userMessage
+                      }`}
+                      data-role={message.role}
+                      key={message.id}
+                    >
+                      {message.text}
+                    </div>
+                  ))}
+                {rateLimitWindow && lastAgentRequest ? (
+                  <RateLimitChatMessage
+                    className={`${styles.message} ${styles.assistantMessage}`}
+                    disabled={agentBusy}
+                    onRetry={() =>
+                      void sendFreshAgent(
+                        lastAgentRequest.input,
+                        createCommandId(),
+                      )
+                    }
+                    remaining={rateLimitRemaining}
+                  />
+                ) : null}
                 {pendingAgentText ? (
                   <div
                     className={`${styles.message} ${styles.userMessage}`}

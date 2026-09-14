@@ -331,6 +331,20 @@
   font-weight: 800;
 }
 
+.rateLimitMessage {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+
+.rateLimitMessage p {
+  margin: 0;
+}
+
+.rateLimitMessage .retryButton {
+  margin-top: 2px;
+}
+
 .retryButton {
   padding: 10px 14px;
   background: var(--error);
