@@ -66,14 +66,14 @@ The chain starts from local commit `5f7bd57` on
 `docs/final-submission-evidence`. That local branch itself contains three commits
 not yet present on `origin/docs/final-submission-evidence`.
 
-| Phase | Branch                                     | Parent                                        | Status               |
-| ----- | ------------------------------------------ | --------------------------------------------- | -------------------- |
-| 1     | `architecture/01-structured-turn-contract` | `docs/final-submission-evidence` at `5f7bd57` | Complete (`859c8c1`) |
-| 2     | `architecture/02-turn-fencing`             | Phase 1                                       | Complete (`cc75510`) |
-| 3     | `architecture/03-workflow-state`           | Phase 2                                       | Complete (`7f6fbf6`) |
-| 4     | `architecture/04-onboarding-routing`       | Phase 3                                       | Complete (`dd0ec01`) |
-| 5     | `architecture/05-contract-hardening`       | Phase 4                                       | Ready to commit      |
-| 6     | `architecture/06-final-verification`       | Phase 5                                       | Pending              |
+| Phase | Branch                                     | Parent                                        | Status                    |
+| ----- | ------------------------------------------ | --------------------------------------------- | ------------------------- |
+| 1     | `architecture/01-structured-turn-contract` | `docs/final-submission-evidence` at `5f7bd57` | Complete (`859c8c1`)      |
+| 2     | `architecture/02-turn-fencing`             | Phase 1                                       | Complete (`cc75510`)      |
+| 3     | `architecture/03-workflow-state`           | Phase 2                                       | Complete (`7f6fbf6`)      |
+| 4     | `architecture/04-onboarding-routing`       | Phase 3                                       | Complete (`dd0ec01`)      |
+| 5     | `architecture/05-contract-hardening`       | Phase 4                                       | Complete (`0aebf22`)      |
+| 6     | `architecture/06-final-verification`       | Phase 5                                       | Code complete (`6825994`) |
 
 Create each branch only after its parent phase is committed and verified. Push
 each branch with its explicit upstream. Do not rebase or squash the chain during
@@ -316,6 +316,59 @@ capability cards and the regression messages above. Record the exact deployed or
 local revision used for evidence. Final output should identify any residual
 model-dependent limitation honestly.
 
+Implemented Phase 6 checkpoint:
+
+- Added an explicit reference-scope dimension to the structured decision. A
+  mutating request must be supported by the current message, while a short answer
+  must be supported by the compatible persisted interaction. Conversation history
+  alone cannot authorize an action.
+- Added a fail-closed guard for a bare number while onboarding asks for multiple
+  facts, and separated nutrition-goal changes from meal-plan changes. A goal-change
+  request now returns the Reset/onboarding path deterministically and cannot expose
+  the Draft skill.
+- Aligned projected conversation-message limits with the 4,000-character assistant
+  persistence limit. User-visible success text is now emitted only after the
+  authoritative profile write succeeds, so a rejected or stale write cannot first
+  claim success.
+- Provider failures from the decision call are no longer retried or disguised as
+  malformed structured output. Contract repair remains limited to successful
+  provider responses that violate the decision schema or evidence rule.
+- Final automated verification on local revision `6825994`: formatting, lint,
+  typecheck, 36 unit files / 275 tests, security scan (178 project files), production
+  build, 23 Chromium tests, and diff checks passed.
+- The live decision/coach suite passed 2 files / 5 tests before the last hardening
+  changes. A later targeted live run confirmed the plan, goal-change, alternative,
+  and continuation classifications in its first two tests; the remaining onboarding
+  test and subsequent rerun were blocked when the configured external OpenAI project
+  returned HTTP 429 `no credits remaining`. Re-run `npm run test:ai-live` after that
+  external credit is restored.
+
+Manual local conversation matrix on the worktree committed as `6825994`:
+
+- The misspelled rice-alternative request offered only stored approved foods and
+  created no Draft. Choosing Pasta produced a server-valid Draft on Arnold's second
+  attempt, removed rice from the Draft, changed quantities across several foods,
+  and left Active Plan version 1 unchanged.
+- A whole-plan change made three observable Draft attempts and persisted a failure
+  review. `different mix of approved foods` opened a new attempt batch and produced
+  a valid persisted Draft on its third attempt instead of returning a prose plan.
+- `Do not change my meal plan` created neither a Draft nor a Plan Change workflow.
+  Fresh `30` and premature `Create my meal plan now` stayed in onboarding, while a
+  complete age/sex/height/weight answer advanced to the goal question.
+- Trend review returned the current deterministic increasing trend at +0.19 kg/week,
+  and the calculation explanation used the stored target snapshot without mutation.
+- Weight recording exposed a cross-layer message-length mismatch: the model said
+  the measurement was recorded before profile persistence failed. After the general
+  persistence-order and message-contract fix, the same request persisted 76.2 kg and
+  only then emitted its confirmation.
+- Goal change exposed an incorrect Draft route. The typed `goal_change` path and
+  deterministic no-mutation response were implemented and covered end-to-end by unit
+  tests; the direct live classifier assertion passed before external credits were
+  exhausted. A final HTTP conversation replay remains part of the live-suite rerun.
+- Food management and out-of-topic security flows remain covered by the passing
+  browser, unit, and security suites; additional real-model turns could not be sent
+  after the external-credit failure.
+
 ## Invariants That Must Never Regress
 
 - Client requests contain commands, never replacement profile state.
@@ -361,9 +414,15 @@ After any summary or interruption:
 
 ## Current Checkpoint
 
-- Current branch: `architecture/05-contract-hardening`.
-- Current phase: Phase 5, verified and ready for explicit-path commit and push.
-- Next action: commit and push Phase 5, then create
-  `architecture/06-final-verification` from it and run the complete automated and
-  manual conversation matrix. Record any residual model-dependent limitation.
+- Current branch: `architecture/06-final-verification`.
+- Current phase: Phase 6 implementation is committed as `6825994`; this file records
+  the final verification and handoff state.
+- Verification: every local deterministic, security, build, and browser check passed.
+  The final real-model rerun is externally blocked by exhausted OpenAI API credits;
+  it must be repeated when credits are restored.
+- Residual model dependency: natural-language classification and candidate-plan
+  composition can vary between model calls. Their effects remain bounded by explicit
+  reference scope, persisted workflow state, allowed-skill policy, strict schemas,
+  and server-side plan validation. A provider outage fails without mutating confirmed
+  state.
 - Merge/deploy status: not authorized; do neither.
