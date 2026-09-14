@@ -4,7 +4,7 @@ Date: 2026-09-02
 
 Branch: `turn-4-render-runtime-catalog`
 
-Status: local automated gates pass. Credentialed PostgreSQL/Render/ScrapingBee staging is pending and is tracked as B-03.
+Historical status: local automated gates passed. Credentialed PostgreSQL/Render/ScrapingBee staging was pending at this point. The ScrapingBee design was later replaced by USDA, and the current academic deployment status is consolidated in [Phase 6](phase-6.md).
 
 ## Implemented controls
 
@@ -33,7 +33,7 @@ The unit suite covers profile isolation, stale versions, command idempotency, re
 
 The browser suite covers the two original demos, conversational adjustment review, two-decimal weight behavior, candidate selection, source review, rejection and correction, approval, and the explicit AI-estimate offer.
 
-## Pending external controls
+## External Controls Pending at the Time
 
 The following cannot be claimed without the project owner's service credentials:
 

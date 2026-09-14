@@ -5,7 +5,7 @@
 - Date: 2026-08-30
 - Branch: `turn-2-catalog-and-plan`
 - Implementation commit under test: `50a75258b4d4a4c87479816497ad93d80561d0fc`
-- Result: Automated gates passed. Human review and acceptance are pending.
+- Historical result at the time of this record: automated gates passed; this file did not record a separate human acceptance. The branch was later merged and the implementation was superseded by the current server-owned architecture. This historical omission is not presented as a current deployment blocker.
 
 ## Scope Under Test
 
@@ -69,11 +69,11 @@ The browser runner emitted only its environment-level `NO_COLOR` notice, which d
 
 No live-model smoke check was run because no user API key was used. This remains optional and is not a deterministic acceptance gate. Fixed contract fixtures cover valid responses, malformed JSON, unsupported actions, invalid catalog references, repair, timeout, and repeated failure.
 
-## Human Review Gate
+## Human Review Gate at the Time of Turn 2
 
-Gate 7 is pending. The user should review Demo A in the local preview: select at least one food in every category, generate a Draft, request a supported portion or food replacement, reject or approve the exact displayed Draft, and confirm that only approval creates the persistent Active Plan.
+At the time this evidence was written, Gate 7 was still pending. The requested review was to select at least one food in every category, generate a Draft, request a supported portion or food replacement, reject or approve the exact displayed Draft, and confirm that only approval creates the persistent Active Plan.
 
-Until the user explicitly accepts Turn 2:
+The following were the contemporaneous stop instructions and are preserved as historical evidence rather than current instructions:
 
 1. Keep the work on `turn-2-catalog-and-plan`.
 2. Do not merge it to `main`.

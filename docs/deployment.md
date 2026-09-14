@@ -1,6 +1,6 @@
 # Render Deployment Guide
 
-Status: configuration is committed. The final staging checklist requires the project owner's Render, OpenAI, and data.gov USDA credentials.
+Status: the academic deployment checks were completed on 2026-09-14 and are recorded in [Phase 6](verification-results/phase-6.md). This guide remains the required procedure for any redeployment or for verifying a newer exact commit. Phase 6 identifies the precise deployed revision and does not claim deployment of a later revision without a recorded Render deployment identifier.
 
 ## Fast path: commit to a live demo
 

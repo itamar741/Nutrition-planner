@@ -2,7 +2,7 @@
 
 Date: 2026-09-03
 
-Status: local implementation and verification passed. Credentialed Render acceptance remains a deployment step.
+Historical status: local implementation and verification passed. Credentialed Render acceptance remained a deployment step at this point; the current academic deployment status is consolidated in [Phase 6](phase-6.md).
 
 ## Automated evidence
 
@@ -22,6 +22,6 @@ Status: local implementation and verification passed. Credentialed Render accept
 - Tests cover combined cottage-cheese/fat-percentage clarification, reload persistence, selecting the fifth cached USDA candidate by text without approving it, food approval and Draft continuation, weight recording and historical edits, adjustment continuation, and pause/resume of one unrelated workflow.
 - Reset keeps each demo profile isolated and preserves the central catalog and rate-limit history.
 
-## Remaining live gate
+## Live Gate Outstanding at the Time
 
 Deploy the Turn 7 build to Render with PostgreSQL, OpenAI, USDA, and access-code variables configured. Repeat the cooked jasmine rice, green bell pepper, cottage cheese, unavailable-food, stream-interruption, and independent-reset checks against the deployed service.

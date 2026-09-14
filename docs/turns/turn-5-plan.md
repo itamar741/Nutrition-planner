@@ -1,6 +1,6 @@
 # Turn 5 — Secure USDA Food Addition Through Main Coach Chat
 
-Status: implemented locally; final verification and credentialed Render staging are required before merge.
+Historical status: implemented locally; final verification and credentialed Render staging were still required when this plan was written. The current academic deployment status is consolidated in [Phase 6](../verification-results/phase-6.md).
 
 ## Intent and rationale
 

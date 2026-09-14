@@ -2,7 +2,7 @@
 
 Date: 2026-09-02
 
-Status: local implementation and verification passed. Credentialed Render staging remains the final pre-merge acceptance gate.
+Historical status: local implementation and verification passed. Credentialed Render staging was still the pre-merge acceptance gate at this point; the current academic deployment status is consolidated in [Phase 6](phase-6.md).
 
 ## Scope under test
 
@@ -48,6 +48,6 @@ Status: local implementation and verification passed. Credentialed Render stagin
 - Lookup records preserve auditable request, candidate, provenance, and failure data without storing raw IP addresses.
 - Manual review identified and fixed missing profile-ownership checks on candidate, rejection, and estimate operations, and expanded secret scanning to cover untracked files.
 
-## Remaining staging gate
+## Staging Gate Outstanding at the Time
 
 After setting `USDA_FDC_API_KEY` on Render and removing the obsolete ScrapingBee variable, run one deployed lookup each for cooked jasmine rice, tomato, and pasta. Record successful candidate selection and one approved detail card without copying any secret value into logs or screenshots.

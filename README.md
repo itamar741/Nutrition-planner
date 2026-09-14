@@ -33,7 +33,7 @@ Without `DATABASE_URL`, local development and automated tests use an in-memory r
 
 The project is configured as one Render Web Service plus one Render PostgreSQL database in `render.yaml`. See [docs/deployment.md](docs/deployment.md) for the required secrets, setup, and staging checklist.
 
-The live Render service passes the public health, edge-TLS, production-header, PostgreSQL-initialization, and authenticated-read checks. The history-free final submission ZIP also passed the separate archive inspection. Current evidence is recorded in [docs/verification-results/phase-6.md](docs/verification-results/phase-6.md); regenerate and reinspect the ZIP if the submitted tree changes.
+The live Render service passed the public health, edge-TLS, production-header, PostgreSQL-initialization, and authenticated-read checks for the exact deployment revision recorded in [docs/verification-results/phase-6.md](docs/verification-results/phase-6.md). The later conversational topic-boundary change is covered by [its own verification record](docs/verification-results/coach-topic-boundary.md). The final history-free submission ZIP passed the separate archive inspection; regenerate and reinspect it after any submitted-tree change.
 
 ## Safety boundary
 
