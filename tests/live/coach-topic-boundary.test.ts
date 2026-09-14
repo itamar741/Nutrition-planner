@@ -6,13 +6,14 @@ const hasLiveConfiguration = Boolean(
 );
 const liveDescribe = hasLiveConfiguration ? describe : describe.skip;
 
-async function askArnold(text: string) {
+async function askArnold(text: string, context: Record<string, unknown> = {}) {
   let streamed = "";
   const result = await runCoachAgent({
     getSystemPrompt: () =>
       buildArnoldSystemPrompt({
         profileId: "live-topic-boundary",
         allowedSkills: [],
+        ...context,
       }),
     conversation: [{ role: "user", content: text }],
     getAllowedTools: () => [],
@@ -53,5 +54,28 @@ liveDescribe("live Arnold topic boundary", () => {
       /activity|aerobic|exercise|fitness|movement|strength/i,
     );
     expect(fitness).not.toMatch(/diagnos|treatment|prescri/i);
+  }, 90_000);
+
+  it("offers approved alternatives for a disliked meal-plan food", async () => {
+    const response = await askArnold(
+      "i dont like rice. any other oprions for my meal plan?",
+      {
+        foodAlternativeRequest: {
+          responseMode: "offer_approved_options_only",
+        },
+        approvedFoods: [
+          { id: "white-rice-cooked", name: "White rice" },
+          { id: "quinoa-cooked", name: "Quinoa" },
+          { id: "sweet-potato-baked", name: "Sweet potato" },
+          { id: "pasta-cooked", name: "Pasta" },
+        ],
+      },
+    );
+
+    expect(response).toMatch(/quinoa|sweet potato|pasta/i);
+    expect(response).not.toMatch(
+      /what would you like to change about your meal plan/i,
+    );
+    expect(response).not.toMatch(/(?:try|choose|use)\s+white rice/i);
   }, 90_000);
 });
