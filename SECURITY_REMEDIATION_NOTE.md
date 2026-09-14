@@ -1,6 +1,6 @@
 # Security Remediation Note
 
-Status: security-remediation Phases 1–5 are implemented through PRs #9 and #10. The academic live-deployment checks pass; exact final-submission archive inspection remains open.
+Status: security-remediation Phases 1–5 are implemented through PRs #9–#11. Phase 6 live-deployment and exact-submission archive checks pass for the academic assignment.
 
 ## Phase 1 — Credential containment
 
@@ -43,17 +43,12 @@ The shared anonymous bucket is an accepted academic-demo tradeoff: one visitor c
 
 The latest local verification recorded formatting, lint, type checking, 219 passing unit tests, the project security scan, a production build, and 23 passing Chromium scenarios. Phase-specific evidence is stored under `docs/verification-results/`.
 
-## Phase 6 deployment evidence
+## Phase 6 completion evidence
 
-Read-only checks against `https://nutrition-coach-demo.onrender.com/` on 2026-09-14 found a healthy `/api/health` response, valid browser-to-Render TLS, and every required Phase 5 production header on both the page and health endpoint. That deployed health response predates the final production persistence guard and therefore does not independently prove that PostgreSQL was configured. After this branch is deployed, health returns `200` only after a configured PostgreSQL connection initializes successfully. The application does not expose a version endpoint, so the exact deployed commit SHA was not independently read from the public service.
+Read-only checks against `https://nutrition-coach-demo.onrender.com/` on 2026-09-14 found valid browser-to-Render TLS and every required Phase 5 production header on both the page and health endpoint. GitHub recorded Render deployment `6436916765` for merge commit `8457ba4` as successful. The following health request returned `200`; with the merged production persistence guard, that response requires a configured PostgreSQL connection to initialize successfully instead of using the memory adapter.
 
-Remaining gates:
-
-1. Recheck `/api/health` after deploying the production persistence guard; and
-2. run `npm run security:archive -- <final-submission.zip>` on the exact archive submitted.
+The history-free `nutrition-coach-submission-2026-09-14.zip` generated from the final merged tree passed `npm run security:archive`. It excludes Git history and local environment files; `.env.example` remains as the permitted non-secret template. Regenerate and reinspect the archive if the submitted tree changes.
 
 An authorized live access request returned `200`, issued the signed cookie, and allowed a read-only request to a protected profile-state endpoint. The code and cookie were neither printed nor stored in evidence.
 
-The expected deployed revision may also be recorded from Render or GitHub deployment metadata when available, but the application does not expose it and it is not a security acceptance gate for this assignment.
-
-Do not mark the complete security plan finished until the archive gate is recorded without secret values. For this academic submission, the private-network database exception is accepted and must remain visible in the final documentation.
+For this academic submission, the private-network database exception is accepted and remains visible in the final documentation. All defined security-remediation and delivery gates are complete.
