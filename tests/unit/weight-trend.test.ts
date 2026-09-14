@@ -57,6 +57,30 @@ describe("weight trend controls", () => {
     expect(trend.evidenceReason).toBe("active_plan_changed");
   });
 
+  it("uses enough post-activation evidence even when activation is inside the 35-day window", () => {
+    const trend = calculateWeightTrend(measurements(), {
+      now,
+      activePlanActivatedAt: "2026-07-28T12:00:00.000Z",
+    });
+
+    expect(trend.measurementCount).toBe(34);
+    expect(trend.spanDays).toBe(33);
+    expect(trend.evidence).toBe("sufficient");
+  });
+
+  it("excludes future measurements from the current evidence window", () => {
+    const future = {
+      id: "future-weight",
+      date: "2026-08-31",
+      weightKg: 120,
+      commandId: "future-command",
+    };
+    const trend = calculateWeightTrend([...measurements(), future], { now });
+
+    expect(trend.measurementCount).toBe(35);
+    expect(trend.meanWeightKg).toBeLessThan(82);
+  });
+
   it("anchors Maintenance to the first recorded weight and uses a seven-day average for gain or loss", () => {
     const history = Array.from({ length: 8 }, (_, index) => ({
       id: `policy-${index}`,

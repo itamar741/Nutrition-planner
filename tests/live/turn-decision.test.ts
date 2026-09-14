@@ -87,6 +87,35 @@ liveDescribe("live structured turn decisions", () => {
       planChangeStrategy: "different_approved_mix",
     });
 
+    const adjustmentRetry = await interpretTurnDecision({
+      ...baseContext,
+      message: "Try a different approved mix for the adjustment",
+      pendingInteraction: {
+        type: "draft_failure_review",
+        workflow: "adjustment",
+        offeredFoodNames: [],
+      },
+    });
+    expect(adjustmentRetry).toMatchObject({
+      intent: "adjustment_retry",
+      speechAct: "answer",
+    });
+
+    const fifthCandidate = await interpretTurnDecision({
+      ...baseContext,
+      message: "the fifth one",
+      pendingInteraction: {
+        type: "food_candidates",
+        workflow: "food",
+        offeredFoodNames: [],
+      },
+    });
+    expect(fifthCandidate).toMatchObject({
+      intent: "food_candidate_selection",
+      speechAct: "answer",
+      candidateOrdinal: 5,
+    });
+
     const staleTranscriptReply = await interpretTurnDecision({
       ...baseContext,
       message: "so add it",

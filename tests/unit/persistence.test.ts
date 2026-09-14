@@ -16,6 +16,8 @@ import {
   renewAgentTurnLease,
   reserveAgentTurn,
   finishAgentTurn,
+  findCatalogFood,
+  getAgentRateLimitStatus,
   listConversationMessages,
   listConversationActivities,
   appendConversationActivity,
@@ -250,6 +252,35 @@ describe("versioned demo persistence", () => {
           food.id === runtimeFood.id || food.id === "runtime-renamed-rice",
       ),
     ).toHaveLength(1);
+  });
+
+  it("deduplicates canonical food identity across punctuation and whitespace", async () => {
+    await approveCatalogFood({
+      food: runtimeFood,
+      sourceIdentifier: "fuder:canonical-first",
+      profileId: "new",
+      expectedVersion: 1,
+      commandId: "canonical-first-approval",
+    });
+    const duplicate = await approveCatalogFood({
+      food: {
+        ...runtimeFood,
+        id: "runtime-canonical-duplicate",
+        displayName: "  TEST—RICE ",
+      },
+      sourceIdentifier: "fuder:canonical-second",
+      profileId: "existing",
+      expectedVersion: 1,
+      commandId: "canonical-second-approval",
+    });
+
+    expect(duplicate.food.id).toBe(runtimeFood.id);
+    expect(
+      (await listCatalogFoods()).filter((food) =>
+        [runtimeFood.id, "runtime-canonical-duplicate"].includes(food.id),
+      ),
+    ).toHaveLength(1);
+    expect((await findCatalogFood("test rice"))?.id).toBe(runtimeFood.id);
   });
 });
 
@@ -582,6 +613,10 @@ describe("persisted agent turns", () => {
         allowed: false,
         retryAfterSeconds: 60,
       });
+      await expect(getAgentRateLimitStatus(identity)).resolves.toEqual({
+        limited: true,
+        retryAfterSeconds: 60,
+      });
 
       vi.advanceTimersByTime(30_000);
       await expect(recordAndCheckAgentRateLimit(identity)).resolves.toEqual({
@@ -590,6 +625,10 @@ describe("persisted agent turns", () => {
       });
 
       vi.advanceTimersByTime(30_001);
+      await expect(getAgentRateLimitStatus(identity)).resolves.toEqual({
+        limited: false,
+        retryAfterSeconds: 0,
+      });
       await expect(recordAndCheckAgentRateLimit(identity)).resolves.toEqual({
         allowed: true,
         retryAfterSeconds: 0,

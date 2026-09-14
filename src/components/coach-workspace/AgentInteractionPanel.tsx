@@ -119,16 +119,20 @@ export function AgentInteractionPanel({
     );
   }
   if (interaction.type === "draft_failure_review") {
+    const proposalLabel =
+      interaction.proposalKind === "adjustment" ? "adjustment Draft" : "Draft";
     return (
       <section
         className={`${styles.adjustmentChatProposal} ${styles.draftAttemptReview}`}
-        aria-label="Rejected Draft attempts"
+        aria-label={`Rejected ${proposalLabel} attempts`}
       >
-        <span>Deterministic Draft validation</span>
-        <h3>{interaction.attempts.length} Draft attempts were rejected</h3>
+        <span>Deterministic {proposalLabel} validation</span>
+        <h3>
+          {interaction.attempts.length} {proposalLabel} attempts were rejected
+        </h3>
         <p>
-          These are the exact proposals Arnold submitted. No Draft was saved and
-          your Active Plan was not changed.
+          These are the exact proposals Arnold submitted. No proposal was saved
+          and your Active Plan was not changed.
         </p>
         <div className={styles.draftAttemptList}>
           {interaction.attempts.map((attempt, index) => {

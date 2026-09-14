@@ -1,14 +1,16 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { PATCH } from "@/app/api/demo/state/[profileId]/route";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { GET, PATCH } from "@/app/api/demo/state/[profileId]/route";
 import {
   getProfile,
   listConversationMessages,
   mutateProfile,
+  recordAndCheckAgentRateLimit,
   resetMemoryPersistenceForTests,
 } from "@/persistence/repository";
 import { getNextTurn } from "@/domain/profile/onboarding";
 import type { DemoProfileId } from "@/domain/profile/types";
 import type { DemoState } from "@/store/demo-reducer";
+import { rateIdentity } from "@/security/rate-identity";
 
 beforeEach(() => {
   delete process.env.DATABASE_URL;
@@ -277,5 +279,32 @@ describe("demo state conversation authority", () => {
         message.text.includes("Ignore prior instructions"),
       ),
     ).toBe(false);
+  });
+});
+
+describe("demo state rate-limit status", () => {
+  it("returns the authoritative remaining AI cooldown on reload", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-15T00:00:00.000Z"));
+    const request = new Request("http://localhost/api/demo/state/new");
+    const identity = rateIdentity(request);
+
+    try {
+      for (let index = 0; index < 30; index += 1) {
+        await recordAndCheckAgentRateLimit(identity);
+      }
+      vi.advanceTimersByTime(15_000);
+
+      const response = await GET(request, {
+        params: Promise.resolve({ profileId: "new" }),
+      });
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        ok: true,
+        agentRateLimit: { limited: true, retryAfterSeconds: 45 },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

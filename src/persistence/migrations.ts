@@ -4,6 +4,7 @@ import {
   createNewDemoState,
 } from "@/data/demo-fixtures";
 import { getPool, hasPostgresConfiguration } from "./database";
+import { normalizedCatalogIdentity } from "@/domain/catalog/identity";
 
 const migrationSql = `
 CREATE TABLE IF NOT EXISTS schema_migrations (filename text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());
@@ -30,12 +31,6 @@ CREATE INDEX IF NOT EXISTS conversation_activity_profile_sequence_idx ON convers
 `;
 
 let initialization: Promise<void> | null = null;
-
-function normalizedIdentity(name: string, preparation: string, brand?: string) {
-  return `${name} ${preparation} ${brand ?? ""}`
-    .trim()
-    .toLocaleLowerCase("en-US");
-}
 
 function sourceIdentifier(food: (typeof foodCatalog)[number]) {
   if (food.source.provider === "USDA FoodData Central") {
@@ -175,13 +170,7 @@ async function initializePostgres() {
        ON CONFLICT (id) DO NOTHING`,
       [
         food.id,
-        normalizedIdentity(
-          food.displayName,
-          food.preparation,
-          "brand" in food && typeof food.brand === "string"
-            ? food.brand
-            : undefined,
-        ),
+        normalizedCatalogIdentity(food),
         sourceIdentifier(food),
         JSON.stringify({ ...food, kosherReview: "reviewed" }),
       ],

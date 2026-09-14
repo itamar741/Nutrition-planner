@@ -10,8 +10,9 @@ export function interactionWorkflow(
   value: AgentInteraction,
 ): InteractionWorkflow {
   if (value.type === "clarification") return value.workflow;
-  if (value.type === "draft_failure_review" || value.type === "draft_approval")
-    return "draft";
+  if (value.type === "draft_failure_review")
+    return value.proposalKind === "adjustment" ? "adjustment" : "draft";
+  if (value.type === "draft_approval") return "draft";
   if (
     value.type === "food_candidates" ||
     value.type === "food_approval" ||
@@ -46,6 +47,13 @@ function interactionIsCurrent(
     return Boolean(state.draft && value.proposalId === state.draft.id);
   }
   if (value.type === "draft_failure_review") {
+    if (value.proposalKind === "adjustment") {
+      return Boolean(
+        !("profile" in state) &&
+        !state.draft &&
+        value.basePlanVersion === state.activePlan.version,
+      );
+    }
     return Boolean(state.agentSession.planChange);
   }
   if (value.type === "adjustment_offer") {

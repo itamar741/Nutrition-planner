@@ -142,8 +142,17 @@ export function calculateWeightTrend(
   input: { now?: Date; activePlanActivatedAt?: string } = {},
 ): WeightTrend {
   const now = input.now ?? new Date();
+  const nowTime = now.getTime();
+  const activationDate = input.activePlanActivatedAt?.slice(0, 10);
   const recent = chronologicalUniqueMeasurements(measurements)
-    .filter((item) => now.getTime() - Date.parse(item.date) <= 35 * MS_PER_DAY)
+    .filter((item) => {
+      const age = nowTime - Date.parse(item.date);
+      return (
+        age >= 0 &&
+        age <= 35 * MS_PER_DAY &&
+        (!activationDate || item.date >= activationDate)
+      );
+    })
     .sort((a, b) => a.date.localeCompare(b.date));
   const unique = recent;
   const first = unique[0];
@@ -158,13 +167,12 @@ export function calculateWeightTrend(
   const windowStart = new Date(now.getTime() - 35 * MS_PER_DAY)
     .toISOString()
     .slice(0, 10);
-  const activationDate = input.activePlanActivatedAt?.slice(0, 10);
-  const activePlanChanged = Boolean(
+  const activePlanChangedWithinWindow = Boolean(
     activationDate &&
     activationDate >= windowStart &&
     activationDate <= now.toISOString().slice(0, 10),
   );
-  if (unique.length < 28 || spanDays < 28 || activePlanChanged) {
+  if (unique.length < 28 || spanDays < 28) {
     return {
       measurementCount: unique.length,
       spanDays,
@@ -173,7 +181,7 @@ export function calculateWeightTrend(
       weeklyKg: 0,
       weeklyPercent: 0,
       evidence: "insufficient",
-      evidenceReason: activePlanChanged
+      evidenceReason: activePlanChangedWithinWindow
         ? "active_plan_changed"
         : unique.length < 28
           ? "not_enough_measurements"

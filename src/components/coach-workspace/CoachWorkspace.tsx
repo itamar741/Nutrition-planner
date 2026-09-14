@@ -190,21 +190,23 @@ function RateLimitChatMessage({
 }: {
   className: string;
   disabled: boolean;
-  onRetry: () => void;
+  onRetry?: () => void;
   remaining: number | null;
 }) {
   return (
     <div className={`${className} ${styles.rateLimitMessage}`} role="alert">
       <p>{AGENT_RATE_LIMIT_MESSAGE}</p>
       <RateLimitCountdown remaining={remaining} />
-      <button
-        className={styles.retryButton}
-        disabled={disabled || (remaining ?? 0) > 0}
-        onClick={onRetry}
-        type="button"
-      >
-        Retry
-      </button>
+      {onRetry ? (
+        <button
+          className={styles.retryButton}
+          disabled={disabled || (remaining ?? 0) > 0}
+          onClick={onRetry}
+          type="button"
+        >
+          Retry
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -256,8 +258,19 @@ function ExistingFoundation() {
         setExisting(result.profile.state);
         setActivities(result.profile.activityEvents ?? []);
         if (result.catalog.length > 0) setCatalog(result.catalog);
+        if (result.agentRateLimit.limited) {
+          const observedAt = Date.now();
+          setRateLimitWindow({
+            observedAt,
+            retryAt:
+              observedAt + result.agentRateLimit.retryAfterSeconds * 1_000,
+          });
+        }
         const reviewKey = "arnold-trend-review:existing";
-        if (!window.sessionStorage.getItem(reviewKey)) {
+        if (
+          !result.agentRateLimit.limited &&
+          !window.sessionStorage.getItem(reviewKey)
+        ) {
           window.sessionStorage.setItem(reviewKey, "started");
           void sendExistingAgent(
             {
@@ -690,15 +703,18 @@ function ExistingFoundation() {
                   {message.text}
                 </div>
               ))}
-            {rateLimitWindow && lastAgentRequest ? (
+            {rateLimitWindow ? (
               <RateLimitChatMessage
                 className={styles.weightAssistantMessage}
                 disabled={agentBusy}
-                onRetry={() =>
-                  void sendExistingAgent(
-                    lastAgentRequest.input,
-                    createCommandId(),
-                  )
+                onRetry={
+                  lastAgentRequest
+                    ? () =>
+                        void sendExistingAgent(
+                          lastAgentRequest.input,
+                          createCommandId(),
+                        )
+                    : undefined
                 }
                 remaining={rateLimitRemaining}
               />
@@ -835,6 +851,14 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
         setState(result.profile.state);
         setActivities(result.profile.activityEvents ?? []);
         if (result.catalog.length > 0) setCatalog(result.catalog);
+        if (result.agentRateLimit.limited) {
+          const observedAt = Date.now();
+          setRateLimitWindow({
+            observedAt,
+            retryAt:
+              observedAt + result.agentRateLimit.retryAfterSeconds * 1_000,
+          });
+        }
       })
       .catch((error) => {
         if (!cancelled) {
@@ -1298,15 +1322,18 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                       {message.text}
                     </div>
                   ))}
-                {rateLimitWindow && lastAgentRequest ? (
+                {rateLimitWindow ? (
                   <RateLimitChatMessage
                     className={`${styles.message} ${styles.assistantMessage}`}
                     disabled={agentBusy}
-                    onRetry={() =>
-                      void sendFreshAgent(
-                        lastAgentRequest.input,
-                        createCommandId(),
-                      )
+                    onRetry={
+                      lastAgentRequest
+                        ? () =>
+                            void sendFreshAgent(
+                              lastAgentRequest.input,
+                              createCommandId(),
+                            )
+                        : undefined
                     }
                     remaining={rateLimitRemaining}
                   />

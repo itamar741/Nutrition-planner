@@ -44,25 +44,26 @@ function foodMatchingNames(foods: CatalogFood[], names: string[]) {
   );
 }
 
+function foodsMatchingNames(foods: CatalogFood[], names: string[]) {
+  const normalizedNames = names.map(normalizedFoodText).filter(Boolean);
+  return foods.filter((food) => {
+    const displayName = normalizedFoodText(food.displayName);
+    return normalizedNames.some(
+      (name) => displayName.includes(name) || name.includes(displayName),
+    );
+  });
+}
+
 function alternativeFoodsFor(
   state: PersistedDemoState,
   catalog: CatalogFood[],
-  excludedFood: CatalogFood | null,
+  excludedFoods: CatalogFood[],
 ) {
   const approved = approvedCatalog(catalog, approvedIdsOf(state));
-  const activeFoodIds = new Set(
-    state.activePlan?.plan.meals.flatMap((meal) =>
-      meal.items.map((item) => item.catalogFoodId),
-    ) ?? [],
-  );
-  const category = excludedFood?.category ?? "carbohydrate";
+  const excludedIds = new Set(excludedFoods.map((food) => food.id));
+  const category = excludedFoods[0]?.category ?? "carbohydrate";
   return approved
-    .filter(
-      (food) =>
-        food.id !== excludedFood?.id &&
-        food.category === category &&
-        !activeFoodIds.has(food.id),
-    )
+    .filter((food) => !excludedIds.has(food.id) && food.category === category)
     .sort((left, right) => left.displayName.localeCompare(right.displayName))
     .slice(0, 5);
 }
@@ -135,17 +136,32 @@ export function applyPlanChangeDecision(input: {
   let { state, currentInteraction } = input;
   let selectedAlternativeFood: CatalogFood | null = null;
   let planMutationAuthorized = false;
+  let currentAlternativeOfferIds: string[] | null = null;
 
   if (requestsFoodAlternativeOffer(input.decision)) {
     const approved = approvedCatalog(input.catalog, approvedIdsOf(state));
-    const excludedFood = foodMatchingNames(approved, input.decision.foodNames);
+    const excludedFoods = foodsMatchingNames(
+      approved,
+      input.decision.foodNames,
+    );
     const offeredFoods = alternativeFoodsFor(
       state,
       input.catalog,
-      excludedFood,
+      excludedFoods,
     );
+    currentAlternativeOfferIds = offeredFoods.map((food) => food.id);
+    if (offeredFoods.length === 0) {
+      return {
+        state,
+        currentInteraction,
+        selectedAlternativeFood,
+        requiredCatalogFoodId: null,
+        planMutationAuthorized,
+        currentAlternativeOfferIds,
+      };
+    }
     const planChange = startPlanChange(state, {
-      excludedCatalogFoodIds: excludedFood ? [excludedFood.id] : [],
+      excludedCatalogFoodIds: excludedFoods.map((food) => food.id),
       mustDiffer: true,
       scope: "food_replacement",
       offeredAlternativeFoodIds: offeredFoods.map((food) => food.id),
@@ -211,7 +227,8 @@ export function applyPlanChangeDecision(input: {
       input.decision.intent === "draft_retry" &&
       input.decision.speechAct === "answer" &&
       input.decision.planChangeStrategy &&
-      currentInteraction?.type === "draft_failure_review"
+      currentInteraction?.type === "draft_failure_review" &&
+      currentInteraction.proposalKind !== "adjustment"
     ) {
       const previous = state.agentSession.planChange ?? startPlanChange(state);
       state = setInteraction(
@@ -239,6 +256,7 @@ export function applyPlanChangeDecision(input: {
     selectedAlternativeFood,
     requiredCatalogFoodId: selectedAlternativeFood?.id ?? null,
     planMutationAuthorized,
+    currentAlternativeOfferIds,
   };
 }
 

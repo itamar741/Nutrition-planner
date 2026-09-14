@@ -8,6 +8,7 @@ export const turnIntentSchema = z.enum([
   "food_alternatives",
   "food_alternative_selection",
   "draft_retry",
+  "adjustment_retry",
   "weight_record",
   "weight_edit",
   "weight_delete",
@@ -41,6 +42,7 @@ export const turnDecisionSchema = z
     intent: turnIntentSchema,
     speechAct: turnSpeechActSchema,
     foodNames: z.array(z.string().trim().min(1).max(120)).max(8),
+    candidateOrdinal: z.number().int().min(1).max(5).nullable(),
     planChangeStrategy: planChangeStrategySchema.nullable(),
     evidence: z.string().trim().min(1).max(240).nullable(),
   })

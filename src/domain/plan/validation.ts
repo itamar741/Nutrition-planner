@@ -27,6 +27,20 @@ const zeroNutrients = (): NutrientAmounts => ({
   fiberG: 0,
 });
 
+const NUMERIC_TOLERANCE = 1e-9;
+
+function isBelow(value: number, minimum: number) {
+  return value < minimum - NUMERIC_TOLERANCE;
+}
+
+function isAbove(value: number, maximum: number) {
+  return value > maximum + NUMERIC_TOLERANCE;
+}
+
+function isWithin(value: number, minimum: number, maximum: number) {
+  return !isBelow(value, minimum) && !isAbove(value, maximum);
+}
+
 function isCatalogFoodAvailable(food: CatalogFood | undefined) {
   return Boolean(
     food && (food.kosherCatalogApproved || food.kosherReview === "not_checked"),
@@ -149,7 +163,7 @@ function validatePortion(food: CatalogFood, grams: number): string[] {
       `${food.displayName} must be between ${food.practicalGrams.min} g and ${food.practicalGrams.max} g.`,
     );
   }
-  if (grams % food.practicalGrams.step !== 0) {
+  if ((grams - food.practicalGrams.min) % food.practicalGrams.step !== 0) {
     issues.push(
       `${food.displayName} must use ${food.practicalGrams.step} g steps.`,
     );
@@ -215,38 +229,49 @@ function nutritionIssues(
   const percentages = macroPercentages(totals);
 
   if (
-    totals.energyKcal < ranges.energyKcal.minimum ||
-    totals.energyKcal > ranges.energyKcal.maximum
+    !isWithin(
+      totals.energyKcal,
+      ranges.energyKcal.minimum,
+      ranges.energyKcal.maximum,
+    )
   ) {
     issues.push(`Energy must be within ±5% of ${targets.energyKcal} kcal.`);
   }
   if (
-    totals.proteinG < ranges.proteinG.minimum ||
-    totals.proteinG > ranges.proteinG.maximum
+    !isWithin(totals.proteinG, ranges.proteinG.minimum, ranges.proteinG.maximum)
   ) {
     issues.push(
       `Protein must be between ${ranges.proteinG.minimum.toFixed(1)} g and ${ranges.proteinG.maximum.toFixed(1)} g.`,
     );
   }
   if (
-    percentages.protein < ranges.proteinPercent.minimum ||
-    percentages.protein > ranges.proteinPercent.maximum
+    !isWithin(
+      percentages.protein,
+      ranges.proteinPercent.minimum,
+      ranges.proteinPercent.maximum,
+    )
   ) {
     issues.push("Protein is outside the age-appropriate AMDR.");
   }
   if (
-    percentages.carbohydrate < ranges.carbohydratePercent.minimum ||
-    percentages.carbohydrate > ranges.carbohydratePercent.maximum
+    !isWithin(
+      percentages.carbohydrate,
+      ranges.carbohydratePercent.minimum,
+      ranges.carbohydratePercent.maximum,
+    )
   ) {
     issues.push("Carbohydrate is outside the 45–65% AMDR.");
   }
   if (
-    percentages.fat < ranges.fatPercent.minimum ||
-    percentages.fat > ranges.fatPercent.maximum
+    !isWithin(
+      percentages.fat,
+      ranges.fatPercent.minimum,
+      ranges.fatPercent.maximum,
+    )
   ) {
     issues.push("Fat is outside the age-appropriate AMDR.");
   }
-  if (totals.fiberG < ranges.fiberMinimumG) {
+  if (isBelow(totals.fiberG, ranges.fiberMinimumG)) {
     issues.push(`Fiber must be at least ${ranges.fiberMinimumG.toFixed(1)} g.`);
   }
   return issues;
@@ -278,19 +303,33 @@ export function buildPlanValidationExplanation(
   const ranges = getPlanNutritionRanges(profile, plan.targetSnapshot);
   if (!ranges) return [];
   const { totals, macroPercentages: percentages } = plan.validation;
-  const energyPassed =
-    totals.energyKcal >= ranges.energyKcal.minimum &&
-    totals.energyKcal <= ranges.energyKcal.maximum;
+  const energyPassed = isWithin(
+    totals.energyKcal,
+    ranges.energyKcal.minimum,
+    ranges.energyKcal.maximum,
+  );
   const proteinPassed =
-    totals.proteinG >= ranges.proteinG.minimum &&
-    totals.proteinG <= ranges.proteinG.maximum &&
-    percentages.protein >= ranges.proteinPercent.minimum &&
-    percentages.protein <= ranges.proteinPercent.maximum;
+    isWithin(
+      totals.proteinG,
+      ranges.proteinG.minimum,
+      ranges.proteinG.maximum,
+    ) &&
+    isWithin(
+      percentages.protein,
+      ranges.proteinPercent.minimum,
+      ranges.proteinPercent.maximum,
+    );
   const macrosPassed =
-    percentages.carbohydrate >= ranges.carbohydratePercent.minimum &&
-    percentages.carbohydrate <= ranges.carbohydratePercent.maximum &&
-    percentages.fat >= ranges.fatPercent.minimum &&
-    percentages.fat <= ranges.fatPercent.maximum;
+    isWithin(
+      percentages.carbohydrate,
+      ranges.carbohydratePercent.minimum,
+      ranges.carbohydratePercent.maximum,
+    ) &&
+    isWithin(
+      percentages.fat,
+      ranges.fatPercent.minimum,
+      ranges.fatPercent.maximum,
+    );
   const planRulesPassed = plan.validation.issues
     .map((issue) => issue.trim())
     .filter(Boolean)
@@ -323,7 +362,7 @@ export function buildPlanValidationExplanation(
       label: "Fiber",
       actual: `${totals.fiberG.toFixed(1)} g`,
       expected: `At least ${ranges.fiberMinimumG.toFixed(1)} g`,
-      passed: totals.fiberG >= ranges.fiberMinimumG,
+      passed: !isBelow(totals.fiberG, ranges.fiberMinimumG),
     },
     {
       key: "plan_rules",
@@ -401,6 +440,12 @@ export function validateAndBuildPlan(input: {
 
   const meals: PlanMeal[] = candidate.meals.map((meal) => {
     const resolvedFoods: CatalogFood[] = [];
+    const itemFoodIds = meal.items.map((item) => item.catalogFoodId);
+    if (new Set(itemFoodIds).size !== itemFoodIds.length) {
+      structuralIssues.push(
+        `${getMealName(meal.id)} contains the same food more than once.`,
+      );
+    }
     const items = meal.items.map((item, itemIndex) => {
       const itemId = `${meal.id}-item-${itemIndex + 1}`;
       const food = catalog.byId.get(item.catalogFoodId);
@@ -543,311 +588,6 @@ export function candidateFromPlan(plan: MealPlan): DraftCandidate {
       })),
     })),
   };
-}
-
-export function buildDeterministicSeedCandidate(
-  profile: StructuredProfile,
-  catalog: CatalogSnapshot = baselineCatalogSnapshot,
-): DraftCandidate | null {
-  if (!profile.mealPattern) return null;
-  const selected = catalog.foods.filter((food) =>
-    profile.approvedCatalogFoodIds.includes(food.id),
-  );
-  const foodsFor = (category: CatalogFood["category"]) =>
-    selected.filter((food) => food.category === category);
-  const carbohydrates = foodsFor("carbohydrate");
-  const proteins = foodsFor("protein");
-  const fats = foodsFor("fat");
-  const vegetables = foodsFor("vegetable");
-  const fruits = foodsFor("fruit");
-  if (
-    !carbohydrates.length ||
-    !proteins.length ||
-    !fats.length ||
-    !vegetables.length ||
-    !fruits.length
-  )
-    return null;
-
-  const mealIds = getExpectedMealIds(profile.mealPattern);
-  return {
-    summary: "A validated repeatable day built from your approved foods.",
-    meals: mealIds.map((id, index) => {
-      const foods = [
-        carbohydrates[index % carbohydrates.length],
-        fats[index % fats.length],
-      ];
-      if (index > 0) {
-        foods.push(
-          proteins[index % proteins.length],
-          vegetables[index % vegetables.length],
-        );
-      }
-      if (index === 0 || index === mealIds.length - 2) {
-        foods.push(fruits[index % fruits.length]);
-      }
-      return {
-        id,
-        items: foods.map((food) => ({
-          catalogFoodId: food.id,
-          grams: food.practicalGrams.min,
-          alternatives: [],
-        })),
-      };
-    }),
-  };
-}
-
-function isNutritionIssue(issue: string) {
-  return (
-    issue.startsWith("Energy must") ||
-    issue.startsWith("Protein must") ||
-    issue.startsWith("Protein is") ||
-    issue.startsWith("Carbohydrate is") ||
-    issue.startsWith("Fat is") ||
-    issue.startsWith("Fiber must") ||
-    issue.startsWith("Alternative ")
-  );
-}
-
-/**
- * Repairs a structurally valid but under-filled model candidate using only
- * approved catalog foods. This is a bounded deterministic safety net after
- * the model and its single repair attempt both miss the nutrition targets.
- */
-export function repairCandidateNutrition(input: {
-  candidate: DraftCandidate;
-  profile: StructuredProfile;
-  targets: NutritionTargets;
-  catalog?: CatalogSnapshot;
-}): DraftCandidate | null {
-  const catalog = input.catalog ?? baselineCatalogSnapshot;
-  const candidate: DraftCandidate = {
-    summary: input.candidate.summary,
-    meals: input.candidate.meals.map((meal) => ({
-      id: meal.id,
-      items: meal.items.map((item) => ({
-        ...item,
-        alternatives: [],
-        grams: item.grams,
-      })),
-    })),
-  };
-
-  for (const meal of candidate.meals) {
-    for (const item of meal.items) {
-      const food = catalog.byId.get(item.catalogFoodId);
-      if (!food || !input.profile.approvedCatalogFoodIds.includes(food.id)) {
-        return null;
-      }
-      const { min, max, step } = food.practicalGrams;
-      const bounded = Math.min(max, Math.max(min, item.grams));
-      item.grams = min + Math.floor((bounded - min) / step) * step;
-    }
-  }
-
-  const planFor = () =>
-    validateAndBuildPlan({
-      candidate,
-      profile: input.profile,
-      targets: input.targets,
-      planId: "deterministic-repair",
-      version: 1,
-      catalog,
-    });
-
-  const appendApprovedFood = (
-    category: CatalogFood["category"],
-    nutrient: keyof NutrientAmounts,
-  ) => {
-    const foods = catalog.foods
-      .filter(
-        (food) =>
-          food.category === category &&
-          input.profile.approvedCatalogFoodIds.includes(food.id),
-      )
-      .sort(
-        (left, right) =>
-          (right.nutrientsPer100g[nutrient] ?? 0) -
-          (left.nutrientsPer100g[nutrient] ?? 0),
-      );
-    for (const meal of [...candidate.meals].reverse()) {
-      if (meal.items.length >= 8) continue;
-      const classes = new Set(
-        meal.items
-          .map((item) => catalog.byId.get(item.catalogFoodId))
-          .filter((food): food is CatalogFood => Boolean(food))
-          .map((food) => food.mealClassification),
-      );
-      const food = foods.find(
-        (option) =>
-          !(
-            (option.mealClassification === "meat" && classes.has("dairy")) ||
-            (option.mealClassification === "dairy" && classes.has("meat"))
-          ),
-      );
-      if (!food) continue;
-      meal.items.push({
-        catalogFoodId: food.id,
-        grams: food.practicalGrams.min,
-        alternatives: [],
-      });
-      return true;
-    }
-    return false;
-  };
-
-  for (let iteration = 0; iteration < 800; iteration += 1) {
-    const plan = planFor();
-    if (plan.validation.valid) return candidate;
-    if (!plan.validation.issues.every(isNutritionIssue)) return null;
-
-    const proteinMinimum =
-      (input.profile.goal === "maintenance" ? 1.4 : 1.6) *
-      (input.profile.currentWeightKg ?? 0);
-    const proteinMaximum = 2 * (input.profile.currentWeightKg ?? 0);
-    const energyLow =
-      plan.validation.totals.energyKcal < input.targets.energyKcal * 0.95;
-    const energyHigh =
-      plan.validation.totals.energyKcal > input.targets.energyKcal * 1.05;
-    const proteinLow = plan.validation.totals.proteinG < proteinMinimum;
-    const proteinAboveMaximum =
-      plan.validation.totals.proteinG > proteinMaximum;
-    const fiberLow =
-      plan.validation.totals.fiberG < input.targets.fiberMinimumG;
-    const percentages = plan.validation.macroPercentages;
-    const proteinHigh =
-      percentages.protein > (input.profile.age === 18 ? 30 : 35);
-    const carbohydrateLow = percentages.carbohydrate < 45;
-    const carbohydrateHigh = percentages.carbohydrate > 65;
-    const fatLow = percentages.fat < (input.profile.age === 18 ? 25 : 20);
-    const fatHigh = percentages.fat > 35;
-
-    const refs = [...candidate.meals].reverse().flatMap((meal) =>
-      meal.items.flatMap((item) => {
-        const food = catalog.byId.get(item.catalogFoodId);
-        return food ? [{ item, food }] : [];
-      }),
-    );
-
-    if (proteinAboveMaximum) {
-      const reducibleProtein = refs
-        .filter(
-          ({ item, food }) =>
-            food.category === "protein" &&
-            item.grams - food.practicalGrams.step >= food.practicalGrams.min,
-        )
-        .sort(
-          (left, right) =>
-            right.food.nutrientsPer100g.proteinG -
-            left.food.nutrientsPer100g.proteinG,
-        );
-      const selected = reducibleProtein[0];
-      if (!selected) return null;
-      selected.item.grams -= selected.food.practicalGrams.step;
-      continue;
-    }
-
-    if (energyHigh) {
-      const categoryToReduce = fatHigh
-        ? "fat"
-        : proteinHigh
-          ? "protein"
-          : carbohydrateHigh
-            ? "carbohydrate"
-            : null;
-      const reducible = refs
-        .filter(
-          ({ item, food }) =>
-            item.grams - food.practicalGrams.step >= food.practicalGrams.min,
-        )
-        .sort((left, right) => {
-          const leftPreferred = categoryToReduce === left.food.category ? 1 : 0;
-          const rightPreferred =
-            categoryToReduce === right.food.category ? 1 : 0;
-          if (leftPreferred !== rightPreferred)
-            return rightPreferred - leftPreferred;
-          return (
-            right.food.nutrientsPer100g.energyKcal -
-            left.food.nutrientsPer100g.energyKcal
-          );
-        });
-      const selected = reducible[0];
-      if (!selected) return null;
-      selected.item.grams -= selected.food.practicalGrams.step;
-      continue;
-    }
-
-    const eligible = refs.filter(
-      ({ item, food }) =>
-        item.grams + food.practicalGrams.step <= food.practicalGrams.max,
-    );
-
-    let ranked = eligible;
-    let appendCategory: CatalogFood["category"] | null = null;
-    let appendNutrient: keyof NutrientAmounts = "energyKcal";
-    if (proteinLow) {
-      appendCategory = "protein";
-      appendNutrient = "proteinG";
-      ranked = [...eligible].sort(
-        (left, right) =>
-          right.food.nutrientsPer100g.proteinG -
-          left.food.nutrientsPer100g.proteinG,
-      );
-    } else if (fiberLow) {
-      appendCategory = "vegetable";
-      appendNutrient = "fiberG";
-      ranked = [...eligible].sort(
-        (left, right) =>
-          (right.food.nutrientsPer100g.fiberG ?? 0) -
-          (left.food.nutrientsPer100g.fiberG ?? 0),
-      );
-    } else if (
-      energyLow ||
-      proteinHigh ||
-      carbohydrateLow ||
-      carbohydrateHigh ||
-      fatLow ||
-      fatHigh
-    ) {
-      const preferredCategory =
-        fatLow || carbohydrateHigh
-          ? "fat"
-          : carbohydrateLow || fatHigh || proteinHigh
-            ? "carbohydrate"
-            : null;
-      appendCategory = preferredCategory ?? "carbohydrate";
-      ranked = [...eligible].sort((left, right) => {
-        const leftPreferred = preferredCategory === left.food.category ? 1 : 0;
-        const rightPreferred =
-          preferredCategory === right.food.category ? 1 : 0;
-        if (leftPreferred !== rightPreferred)
-          return rightPreferred - leftPreferred;
-        return (
-          right.food.nutrientsPer100g.energyKcal -
-          left.food.nutrientsPer100g.energyKcal
-        );
-      });
-    } else return null;
-
-    const preferred = appendCategory
-      ? ranked.filter(({ food }) => food.category === appendCategory)
-      : ranked;
-    if (preferred.length === 0) {
-      if (
-        !appendCategory ||
-        !appendApprovedFood(appendCategory, appendNutrient)
-      ) {
-        return null;
-      }
-      continue;
-    }
-
-    const selected = preferred[0];
-    selected.item.grams += selected.food.practicalGrams.step;
-  }
-
-  return null;
 }
 
 export function revalidatePlan(

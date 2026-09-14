@@ -20,6 +20,7 @@ import {
   ActiveAgentTurnError,
   assertNoActiveAgentTurn,
   getProfile,
+  getAgentRateLimitStatus,
   listCatalogFoods,
   mutateProfile,
   resetProfile,
@@ -27,6 +28,7 @@ import {
 } from "@/persistence/repository";
 import { requestHasAccess } from "@/security/demo-access";
 import { createCatalogSnapshot } from "@/domain/catalog/snapshot";
+import { rateIdentity } from "@/security/rate-identity";
 
 export const runtime = "nodejs";
 
@@ -106,11 +108,12 @@ export async function GET(
   if (!requestHasAccess(request)) return unauthorized();
   const profileId = profileIdFrom((await context.params).profileId);
   if (!profileId) return NextResponse.json({ ok: false }, { status: 404 });
-  const [profile, catalog] = await Promise.all([
+  const [profile, catalog, agentRateLimit] = await Promise.all([
     getProfile(profileId),
     listCatalogFoods(),
+    getAgentRateLimitStatus(rateIdentity(request)),
   ]);
-  return NextResponse.json({ ok: true, profile, catalog });
+  return NextResponse.json({ ok: true, profile, catalog, agentRateLimit });
 }
 
 export async function PATCH(

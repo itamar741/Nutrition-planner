@@ -6,6 +6,11 @@ import {
   createNewDemoState,
 } from "@/data/demo-fixtures";
 import type { CatalogFood } from "@/domain/catalog/types";
+import {
+  catalogFoodMatchesQuery,
+  normalizedCatalogIdentity,
+} from "@/domain/catalog/identity";
+import { catalogFoodSchema } from "@/domain/catalog/schemas";
 import type { ConversationActivity } from "@/domain/agent/types";
 import {
   AGENT_RATE_LIMIT_WINDOW_SECONDS,
@@ -639,27 +644,20 @@ export async function resetProfile(input: {
 
 export async function listCatalogFoods(): Promise<CatalogFood[]> {
   if (!hasPostgresConfiguration()) {
-    return [...memoryStore().catalog.values()].map(clone);
+    return [...memoryStore().catalog.values()].map((food) =>
+      catalogFoodSchema.parse(clone(food)),
+    );
   }
   await ensurePersistenceInitialized();
   const result = await getPool().query<{ data: CatalogFood }>(
     "SELECT data FROM catalog_foods ORDER BY created_at, id",
   );
-  return result.rows.map((row) => row.data);
+  return result.rows.map((row) => catalogFoodSchema.parse(row.data));
 }
 
 export async function findCatalogFood(query: string) {
-  const normalized = query.trim().toLocaleLowerCase("en-US");
   const foods = await listCatalogFoods();
-  return (
-    foods.find(
-      (food) =>
-        food.displayName.toLocaleLowerCase("en-US") === normalized ||
-        `${food.displayName} ${food.preparation}`
-          .toLocaleLowerCase("en-US")
-          .includes(normalized),
-    ) ?? null
-  );
+  return foods.find((food) => catalogFoodMatchesQuery(food, query)) ?? null;
 }
 
 export async function createLookup(
@@ -1704,6 +1702,57 @@ export async function recordAndCheckAgentRateLimit(input: {
   });
 }
 
+export async function getAgentRateLimitStatus(input: {
+  sessionHash: string;
+  ipHash: string;
+}): Promise<{ limited: boolean; retryAfterSeconds: number }> {
+  const now = Date.now();
+  const windowMs = AGENT_RATE_LIMIT_WINDOW_SECONDS * 1_000;
+  if (!hasPostgresConfiguration()) {
+    const recent = memoryStore().rateEvents.filter(
+      (event) =>
+        event.action === "agent_turn" &&
+        event.createdAt > now - windowMs &&
+        (event.sessionHash === input.sessionHash ||
+          event.ipHash === input.ipHash),
+    );
+    if (recent.length < AGENT_TURN_RATE_LIMIT) {
+      return { limited: false, retryAfterSeconds: 0 };
+    }
+    const oldestEventAt = Math.min(...recent.map((event) => event.createdAt));
+    return {
+      limited: true,
+      retryAfterSeconds: Math.max(
+        1,
+        Math.ceil((oldestEventAt + windowMs - now) / 1_000),
+      ),
+    };
+  }
+  await ensurePersistenceInitialized();
+  const counts = await getPool().query<{
+    recent: string;
+    retry_after_seconds: string | null;
+  }>(
+    `SELECT
+       count(*) AS recent,
+       ceil(extract(epoch FROM
+         (min(created_at) + ($3 * interval '1 second') - now())
+       )) AS retry_after_seconds
+     FROM rate_limit_events
+     WHERE action = 'agent_turn'
+       AND created_at > now() - ($3 * interval '1 second')
+       AND (session_hash = $1 OR ip_hash = $2)`,
+    [input.sessionHash, input.ipHash, AGENT_RATE_LIMIT_WINDOW_SECONDS],
+  );
+  const limited = Number(counts.rows[0]?.recent ?? 0) >= AGENT_TURN_RATE_LIMIT;
+  return {
+    limited,
+    retryAfterSeconds: limited
+      ? Math.max(1, Number(counts.rows[0]?.retry_after_seconds ?? 1))
+      : 0,
+  };
+}
+
 export async function recordAndCheckDemoAccessRateLimit(input: {
   sessionHash: string;
   ipHash: string;
@@ -1803,10 +1852,8 @@ export async function approveCatalogFood(input: {
   commandId: string;
   agentTurnLease?: AgentTurnLease;
 }) {
-  const normalizedIdentity =
-    `${input.food.displayName} ${input.food.preparation} ${input.food.brand ?? ""}`
-      .trim()
-      .toLocaleLowerCase("en-US");
+  const submittedFood = catalogFoodSchema.parse(input.food);
+  const normalizedIdentity = normalizedCatalogIdentity(submittedFood);
   const addToState = (
     state: PersistedDemoState,
     approvedFoodId: string,
@@ -1842,14 +1889,12 @@ export async function approveCatalogFood(input: {
       (sourceDuplicateId ? store.catalog.get(sourceDuplicateId) : undefined) ??
       [...store.catalog.values()].find(
         (food) =>
-          `${food.displayName} ${food.preparation} ${food.brand ?? ""}`
-            .trim()
-            .toLocaleLowerCase("en-US") === normalizedIdentity ||
+          normalizedCatalogIdentity(food) === normalizedIdentity ||
           (food.source.provider === "Fuder" &&
             (food.source.url === input.sourceIdentifier ||
               `fuder:${food.source.url}` === input.sourceIdentifier)),
       );
-    const food = duplicate ?? input.food;
+    const food = duplicate ?? submittedFood;
     const profile = await mutateProfile({
       profileId: input.profileId,
       expectedVersion: input.expectedVersion,
@@ -1865,12 +1910,24 @@ export async function approveCatalogFood(input: {
   await ensurePersistenceInitialized();
   return withTransaction(async (client) => {
     await lockPostgresProfileAgentState(client, input.profileId);
-    const existing = await client.query<{ data: CatalogFood }>(
-      "SELECT data FROM catalog_foods WHERE normalized_identity = $1 OR source_identifier = $2 LIMIT 1",
-      [normalizedIdentity, input.sourceIdentifier],
+    await client.query("SELECT pg_advisory_xact_lock(740032)");
+    const existing = await client.query<{
+      normalized_identity: string;
+      source_identifier: string;
+      data: CatalogFood;
+    }>(
+      "SELECT normalized_identity, source_identifier, data FROM catalog_foods ORDER BY created_at, id",
     );
-    const food = existing.rows[0]?.data ?? input.food;
-    if (!existing.rows[0]) {
+    const duplicate = existing.rows.find(
+      (row) =>
+        row.source_identifier === input.sourceIdentifier ||
+        normalizedCatalogIdentity(catalogFoodSchema.parse(row.data)) ===
+          normalizedIdentity,
+    );
+    const food = duplicate
+      ? catalogFoodSchema.parse(duplicate.data)
+      : submittedFood;
+    if (!duplicate) {
       await client.query(
         `INSERT INTO catalog_foods (id, normalized_identity, source_identifier, data)
          VALUES ($1, $2, $3, $4::jsonb)`,

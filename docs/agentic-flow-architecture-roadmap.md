@@ -1,6 +1,6 @@
 # Agentic Flow Architecture Roadmap and Recovery Anchor
 
-Last updated: 2026-09-14
+Last updated: 2026-09-15
 
 This is the durable source of truth for the multi-phase Arnold agentic-flow
 work. Read this file before continuing after a context summary, interruption, or
@@ -71,8 +71,8 @@ not yet present on `origin/docs/final-submission-evidence`.
 | 1     | `architecture/01-structured-turn-contract` | `docs/final-submission-evidence` at `5f7bd57` | Complete (`859c8c1`) |
 | 2     | `architecture/02-turn-fencing`             | Phase 1                                       | Complete (`cc75510`) |
 | 3     | `architecture/03-workflow-state`           | Phase 2                                       | Complete (`7f6fbf6`) |
-| 4     | `architecture/04-onboarding-routing`       | Phase 3                                       | Ready to commit      |
-| 5     | `architecture/05-contract-hardening`       | Phase 4                                       | Pending              |
+| 4     | `architecture/04-onboarding-routing`       | Phase 3                                       | Complete (`dd0ec01`) |
+| 5     | `architecture/05-contract-hardening`       | Phase 4                                       | Ready to commit      |
 | 6     | `architecture/06-final-verification`       | Phase 5                                       | Pending              |
 
 Create each branch only after its parent phase is committed and verified. Push
@@ -265,6 +265,38 @@ Implement fixes as reusable contracts or transitions. Do not add phrase-specific
 regular expressions to the main orchestrator when the condition can be represented
 as typed state or policy.
 
+Implemented Phase 5 checkpoint:
+
+- Removed the dormant legacy plan generator and its hidden deterministic seed and
+  portion-repair paths. Arnold remains the only candidate-plan author; the server
+  only resolves catalog facts, calculates totals, and accepts or rejects proposals.
+- Hardened portion validation with minimum-offset integer steps, numerical boundary
+  tolerance, valid practical-range metadata, and same-meal duplicate rejection while
+  preserving intentional reuse across meals.
+- Made trend evidence exclude future and pre-activation measurements. A recent
+  activation blocks adjustment only until enough post-activation evidence exists,
+  and insufficient zero values are explicitly treated as sentinels. Newly approved
+  Active Plans snapshot the latest seven measurements as their maintenance reference.
+- Added canonical catalog identity and validated reads so punctuation, case, and
+  whitespace variants cannot create duplicate foods. PostgreSQL approval serializes
+  global identity decisions, including rows stored with the legacy normalization.
+- Bound weight values/dates, food removal, search/inspection queries, and candidate
+  ordinals to the current structured decision instead of trusting model tool
+  arguments. Explicit preferences and other mutations are forced through their
+  bounded skill before Arnold may claim success.
+- Persisted complete observable failure reviews for both ordinary and adjustment
+  Drafts. Adjustment retry is a distinct typed intent; a retry opens a new
+  three-attempt batch and must call the adjustment proposal skill before prose.
+- Empty replacement sets now produce a typed no-options response without inventing
+  foods or leaving a dead workflow. Existing approved foods remain eligible as
+  replacements even when they already appear elsewhere in the Active Plan.
+- The server state endpoint now returns the authoritative one-minute AI cooldown.
+  Fresh and Existing restore its countdown after reload, and automatic Existing
+  trend review does not consume a turn while limited. Documentation now matches the
+  implemented rolling one-minute window.
+- Verification result: 36 unit files and 269 tests passed; formatting, lint,
+  typecheck, security scan (182 files), production build, and diff checks passed.
+
 ## Phase 6 — Final Verification and Handoff
 
 Required checks:
@@ -329,9 +361,9 @@ After any summary or interruption:
 
 ## Current Checkpoint
 
-- Current branch: `architecture/04-onboarding-routing`.
-- Current phase: Phase 4, verified and ready for explicit-path commit and push.
-- Next action: commit and push Phase 4, then create
-  `architecture/05-contract-hardening` from it and audit the remaining trend,
-  catalog, portion, Draft, security, rate-limit, and failure contracts.
+- Current branch: `architecture/05-contract-hardening`.
+- Current phase: Phase 5, verified and ready for explicit-path commit and push.
+- Next action: commit and push Phase 5, then create
+  `architecture/06-final-verification` from it and run the complete automated and
+  manual conversation matrix. Record any residual model-dependent limitation.
 - Merge/deploy status: not authorized; do neither.

@@ -14,6 +14,7 @@ const planReplacement: TurnDecision = {
   intent: "plan_replace",
   speechAct: "request",
   foodNames: [],
+  candidateOrdinal: null,
   planChangeStrategy: null,
   evidence: "change the whole meal plan",
 };
@@ -48,6 +49,7 @@ describe("structured turn decision", () => {
       intent: "food_alternatives",
       speechAct: "question",
       foodNames: ["rice"],
+      candidateOrdinal: null,
       planChangeStrategy: null,
       evidence: "any other oprions",
     });
@@ -55,6 +57,7 @@ describe("structured turn decision", () => {
       intent: "food_alternative_selection",
       speechAct: "answer",
       foodNames: ["couscous"],
+      candidateOrdinal: null,
       planChangeStrategy: null,
       evidence: "couscous",
     });
@@ -69,6 +72,7 @@ describe("structured turn decision", () => {
       intent: "onboarding_answer",
       speechAct: "answer",
       foodNames: [],
+      candidateOrdinal: null,
       planChangeStrategy: null,
       evidence: "I am 30",
     };

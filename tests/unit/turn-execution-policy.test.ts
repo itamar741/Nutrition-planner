@@ -27,6 +27,7 @@ function decision(
   return {
     speechAct: "request",
     foodNames: [],
+    candidateOrdinal: null,
     planChangeStrategy: null,
     evidence: "supporting text",
     ...input,
@@ -117,5 +118,30 @@ describe("turn execution policy", () => {
     expect(
       allowedToolsForDecision(allTools, draftRetry, foodClarification),
     ).toEqual([]);
+  });
+
+  it("routes an adjustment retry only through an adjustment failure review", () => {
+    const retry = decision({
+      intent: "adjustment_retry",
+      speechAct: "answer",
+    });
+    const adjustmentReview: AgentInteraction = {
+      id: "adjustment-failures",
+      type: "draft_failure_review",
+      proposalKind: "adjustment",
+      basePlanVersion: 1,
+      attempts: [],
+      prompt: "How should I retry?",
+    };
+    const draftReview: AgentInteraction = {
+      ...adjustmentReview,
+      id: "draft-failures",
+      proposalKind: "draft",
+    };
+
+    expect(allowedToolsForDecision(allTools, retry, adjustmentReview)).toEqual([
+      "submit_adjustment_proposal",
+    ]);
+    expect(allowedToolsForDecision(allTools, retry, draftReview)).toEqual([]);
   });
 });

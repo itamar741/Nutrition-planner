@@ -82,6 +82,7 @@ describe("plan change workflow", () => {
         intent: "food_alternative_selection",
         speechAct: "answer",
         foodNames: ["Potato"],
+        candidateOrdinal: null,
         planChangeStrategy: null,
         evidence: "Potato",
       },

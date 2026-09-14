@@ -11,6 +11,7 @@ const toolsByIntent: Record<TurnDecision["intent"], CoachToolName[]> = {
   food_alternatives: [],
   food_alternative_selection: ["submit_draft_proposal"],
   draft_retry: ["submit_draft_proposal"],
+  adjustment_retry: ["submit_adjustment_proposal"],
   weight_record: ["record_weight"],
   weight_edit: ["edit_weight"],
   weight_delete: ["delete_weight"],
@@ -28,6 +29,7 @@ const toolsByIntent: Record<TurnDecision["intent"], CoachToolName[]> = {
 const answerIntents = new Set<TurnDecision["intent"]>([
   "food_alternative_selection",
   "draft_retry",
+  "adjustment_retry",
   "food_search",
   "food_candidate_selection",
   "weight_record",
@@ -57,7 +59,17 @@ export function decisionAuthorizesIntent(
         pendingInteraction.workflow === "draft"
       );
     case "draft_retry":
-      return pendingInteraction?.type === "draft_failure_review";
+      return (
+        pendingInteraction?.type === "draft_failure_review" &&
+        pendingInteraction.proposalKind !== "adjustment"
+      );
+    case "adjustment_retry":
+      return (
+        (pendingInteraction?.type === "clarification" &&
+          pendingInteraction.workflow === "adjustment") ||
+        (pendingInteraction?.type === "draft_failure_review" &&
+          pendingInteraction.proposalKind === "adjustment")
+      );
     case "food_search":
       return (
         pendingInteraction?.type === "clarification" &&

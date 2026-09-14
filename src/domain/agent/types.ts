@@ -124,6 +124,8 @@ export type AgentInteraction =
   | {
       id: string;
       type: "draft_failure_review";
+      proposalKind?: "draft" | "adjustment";
+      basePlanVersion?: number;
       attempts: DraftAttemptReview[];
       prompt: string;
     };
@@ -302,6 +304,8 @@ export const agentInteractionSchema = z.discriminatedUnion("type", [
     .object({
       id: z.string().min(1).max(100),
       type: z.literal("draft_failure_review"),
+      proposalKind: z.enum(["draft", "adjustment"]).default("draft"),
+      basePlanVersion: z.number().int().positive().optional(),
       attempts: z.array(draftAttemptReviewSchema).min(1).max(3),
       prompt: z.string().min(1).max(500),
     })

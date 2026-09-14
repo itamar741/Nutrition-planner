@@ -32,6 +32,7 @@ async function parseResponse(response: Response) {
     message?: string;
     profile?: CloudProfile;
     catalog?: CatalogFood[];
+    agentRateLimit?: { limited: boolean; retryAfterSeconds: number };
   } | null;
   if (!response.ok || !body?.ok) {
     throw new CloudStateError(
@@ -51,6 +52,10 @@ export async function loadCloudProfile<T extends ClientDemoState>(
   return {
     profile: body.profile as CloudProfile<T>,
     catalog: body.catalog ?? [],
+    agentRateLimit: body.agentRateLimit ?? {
+      limited: false,
+      retryAfterSeconds: 0,
+    },
   };
 }
 
