@@ -1,5 +1,7 @@
 # Turn 2 Draft Generation Fix
 
+> **Historical evidence:** This diagnosis and repair describe the Turn 2 implementation. Draft generation now runs inside the protected coach flow and activation is recalculated from the current server-stored proposal. See the current [implementation plan](../implementation-plan.md) and [Phase 6 result](phase-6.md).
+
 - Date: 2026-08-30
 - Branch: `turn-2-catalog-and-plan`
 - Fix commits: `c20b82c`, `f0588a6`, `54e53d5`, `7680f5d`, and `f9fbd7d`

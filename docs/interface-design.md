@@ -7,6 +7,7 @@ This document specifies behavior and ordering rather than colors, typography, or
 ### Entry and Profile Selection
 
 1. When deployed protection is enabled, the first view asks for one shared course-demo access code. It does not present an account, username, registration, or password-recovery flow.
+   If production access secrets are missing or invalid, the entry request fails with a generic unavailable state and does not issue a cookie. Repeated incorrect codes receive a temporary rate-limit response rather than unlimited retries.
 2. After access, the view identifies the product as a conversational nutrition coach and offers exactly two choices: **New Demo Profile** and **Existing Demo Profile**.
 3. Selecting a profile loads its current versioned cloud state and opens the coaching workspace.
 4. No sign-up, profile creation, or user-management path is shown.
@@ -87,6 +88,7 @@ The coaching product uses these bounded interaction primitives:
 - The Food Grid disables text input and unrelated conversation actions until its current step is submitted or explicitly cancelled where cancellation is supported.
 - Submitting any action immediately locks every control belonging to that turn.
 - One turn accepts at most one user action.
+- The browser sends only the selected action or option identifier with profile/version/idempotency metadata. Labels, profile patches, plan bodies, validation results, and assistant messages are derived or created by the server.
 - One server-owned agent turn can be active per shared profile. A repeated command returns the stored result and a concurrent tab receives a recoverable conflict.
 - All input remains disabled while the system processes the action.
 - A selected quick reply becomes a normal user message in the transcript so the conversation remains legible.
@@ -159,6 +161,7 @@ Feedback must make the current state, accepted action, and next available action
 - If approval fails, the Active Plan remains unchanged and the proposal remains clearly marked as pending or failed rather than active.
 - If another browser changed the shared profile, show a stale-state message, load the current cloud version, and ask the user to retry.
 - A source or agent failure may reveal only a collapsible safe stage, failure code, turn ID, and lookup ID; credentials, SQL, raw source payloads, and model internals are never rendered.
+- A configuration or database failure uses a fixed public message and stable code. Raw exception text and environment values never reach JSON or streamed responses.
 - If a source request times out, is blocked, returns no food record, or fails parsing, preserve confirmed state and offer refinement or the explicitly labelled AI-estimate path.
 - If the rate limit is reached, explain that lookup is temporarily unavailable without disabling the rest of the demo.
 - Recovery controls follow the same one-action-per-turn lock and cannot create duplicate messages, measurements, or approvals.

@@ -1,5 +1,7 @@
 # Phase 3 Security Verification Result
 
+> **Historical phase evidence:** This file preserves the exact Phase 3 checks before the later access, TLS, header, error, and archive changes. Current deployment status is recorded in [Phase 6](phase-6.md).
+
 Date: 2026-09-14
 
 Starting commit: `af119e25e6335a0f7c8e1a17d984c6f13705a764`

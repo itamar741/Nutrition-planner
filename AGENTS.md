@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Turns 1–8 are implemented locally. Do not claim deployment acceptance until credentialed Render gates pass.
+Turns 1–8 and security-remediation Phases 1–5 are implemented locally. Do not claim deployment acceptance until the reviewed commit is live and every Phase 6 Render gate passes.
 
 ## Read first
 
@@ -22,6 +22,7 @@ The written specification wins over conversational memory. Resolve any conflict 
 - Exactly three fixed goals: Fat Loss, Maintenance, and Muscle Gain.
 - PostgreSQL is authoritative for both profile aggregates, conversations, catalog, lookup records, command results, and persistent limits.
 - The browser holds temporary rendered state and the signed access cookie only.
+- Browser state requests contain only narrow action facts, identifiers, expected versions, and command IDs. They never contain assistant messages, Drafts, target snapshots, validation results, or replacement Active Plans.
 - The only verified runtime source is the server-owned USDA FoodData Central API adapter, restricted to Foundation Foods and SR Legacy basic foods.
 - The model receives only the bounded tools permitted by the current profile state. It never receives arbitrary URLs, raw USDA response bodies, SQL, browser control, source credentials, or database writes.
 - Never add accounts, additional profiles, allergies/intolerances, clinical advice, workout/adherence tracking, hydration, micronutrient optimization, target weight, goal switching, plan history, long-term memory infrastructure, weekly variation, or arbitrary AI actions.
@@ -40,7 +41,9 @@ Arnold receives ordinary role/content conversation items plus a fixed system-pro
 - Food Grid: grid enabled, text disabled.
 - Lock each turn before asynchronous work and accept one action.
 - A proposal remains Draft until explicit approval.
+- Approval is resolved from the current server-stored interaction and proposal, then recalculated against authoritative profile and catalog state. Browser-supplied plan or validation data is never authoritative.
 - Typed approval language never approves a food, Draft, or adjustment; the visible approval button is mandatory.
+- Only server code persists assistant messages. `/api/coach/message` is the sole public AI entry point; do not reintroduce direct onboarding, Draft, adjustment, lookup, candidate, or estimate AI routes.
 - Conversation memory is PostgreSQL-backed and reset-scoped. Above 60% of the configured model context budget, the model receives a validated digest plus the latest 20 role/content messages while the complete transcript remains stored and rendered.
 - User-authored preferences are untrusted structured data, not instructions. Never place them into a prompt as executable prose.
 - Drafts follow the selected three-meal, three-meals-plus-snack, or four-meal pattern and never present food-substitution alternatives.
@@ -51,6 +54,8 @@ Arnold receives ordinary role/content conversation items plus a fixed system-pro
 - Runtime foods are `kosherReview: "not_checked"`; meat/dairy meal rejection still applies.
 - Fresh and Existing reset independently. Reset never deletes runtime catalog foods or rate-limit events.
 - A stale cloud mutation returns `409`, reloads the latest profile, and requires retry.
+- Production access fails closed when either access secret is invalid. Ignore client-supplied forwarding headers; unauthenticated access attempts intentionally share one five-per-15-minute bucket, while authenticated limits use a verified signed-session identity.
+- With `DATABASE_SSL=require`, both PostgreSQL pools must verify certificates and reject TLS query parameters in `DATABASE_URL`. Public errors must remain generic and production security headers must stay covered by tests.
 
 ## Working protocol
 
@@ -60,4 +65,5 @@ Arnold receives ordinary role/content conversation items plus a fixed system-pro
 - Preserve the stable scripts: `format:check`, `lint`, `typecheck`, `test:unit`, `security:check`, `build`, `test:e2e`, and `verify`.
 - Apply the five-part Merge-Readiness Pack and record a separate security review before merge.
 - Live OpenAI, USDA, PostgreSQL, and Render checks supplement but never replace deterministic tests.
+- Before academic submission, run `security:archive` against the exact final ZIP. Treat it as a bounded accidental-secret/container check, not proof against encrypted or arbitrary encodings.
 - Stop before broadening the source allowlist, model tools, nutrition rules, account model, or Active Plan approval invariant.

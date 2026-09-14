@@ -9,6 +9,14 @@ Turn 4 added PostgreSQL-backed shared state, one shared access code, and indepen
 
 Every free-text coach message reaches the server-owned Arnold agent with authoritative profile context and reset-scoped conversation history. Arnold can request only state-dependent bounded skills; deterministic code validates and executes them. Food insertion and Active Plan changes still require visible approval buttons.
 
+## Security architecture
+
+- The browser submits text or a narrow action with identifiers and optimistic-version metadata. It cannot submit an assistant message, replacement profile, Draft, target snapshot, validation result, or Active Plan.
+- `/api/coach/message` is the only public AI entry point. The server loads stored proposals and authoritative profile/catalog state before validating any approval.
+- Production access fails closed unless the shared code and a signing secret of at least 32 characters are configured. Five access-code attempts within 15 minutes exhaust the shared anonymous pre-access bucket; authenticated limits use only a verified signed-session identity.
+- Production adds browser security headers, verifies PostgreSQL TLS certificates, and returns fixed public errors rather than raw internal messages.
+- The submission ZIP must be checked separately with `npm run security:archive -- <archive.zip>`.
+
 ## Local verification
 
 ```bash
@@ -21,6 +29,8 @@ Without `DATABASE_URL`, local development and automated tests use an in-memory r
 ## Deployment
 
 The project is configured as one Render Web Service plus one Render PostgreSQL database in `render.yaml`. See [docs/deployment.md](docs/deployment.md) for the required secrets, setup, and staging checklist.
+
+The current live Render service must not be considered security-verified until it serves the reviewed commit with the documented production headers and its internal PostgreSQL certificate path is confirmed. Current evidence is recorded in [docs/verification-results/phase-6.md](docs/verification-results/phase-6.md).
 
 ## Safety boundary
 
