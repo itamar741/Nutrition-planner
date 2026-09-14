@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { executeCoachTurn } from "@/application/coach-turn";
+import { coachInputRequiresModel } from "@/application/turn-execution-policy";
 import {
   coachMessageRequestSchema,
   type AgentStreamEvent,
@@ -178,8 +179,10 @@ export async function POST(request: Request) {
     }
     throw error;
   }
-  const rateLimit = await recordAndCheckAgentRateLimit(identity);
-  if (!rateLimit.allowed) {
+  const rateLimit = coachInputRequiresModel(input.input)
+    ? await recordAndCheckAgentRateLimit(identity)
+    : null;
+  if (rateLimit && !rateLimit.allowed) {
     await finishAgentTurn({
       profileId: input.profileId,
       commandId: input.commandId,

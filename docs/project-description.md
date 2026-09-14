@@ -120,7 +120,7 @@ The AI is limited to:
 - Classifying a food-addition request, requesting only missing food context, and requesting one server-controlled lookup action from a closed action set.
 - Conversationally continuing after approval or rejection without gaining authority to perform the protected approval itself.
 
-The interaction follows two governing principles: **open language, closed actions** and **approved catalog data**. The AI cannot browse freely, introduce new action types, write to the database, directly mutate an Active Plan, or operate arbitrary tools. User-authored preferences remain untrusted data even after persistence; they are structured values, never instructions.
+The interaction follows two governing principles: **open language, closed actions** and **approved catalog data**. A strict structured decision interprets open language, while deterministic server policy authorizes only the action matching that decision and the current persisted workflow. Questions, hypotheticals, negations, and unknown classifications cannot expose a mutating skill. The AI cannot browse freely, introduce new action types, write to the database, directly mutate an Active Plan, or operate arbitrary tools. User-authored preferences remain untrusted data even after persistence; they are structured values, never instructions.
 
 ## Deployed Runtime Architecture
 

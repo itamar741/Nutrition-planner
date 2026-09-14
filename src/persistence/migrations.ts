@@ -71,9 +71,46 @@ async function initializePostgres() {
   );
   await pool.query(
     `UPDATE demo_profiles
-     SET state = jsonb_set(state, '{agentSession,draftIntent}', 'null'::jsonb, true),
+     SET state = jsonb_set(
+           state #- '{agentSession,draftIntent}',
+           '{agentSession,planChange}',
+           CASE
+             WHEN jsonb_typeof(state->'agentSession'->'draftIntent') = 'object'
+             THEN jsonb_build_object(
+               'mode', CASE WHEN jsonb_typeof(state->'draft') = 'object' THEN 'revise_pending' ELSE 'replace_active' END,
+               'basePlanVersion', state->'agentSession'->'draftIntent'->'basePlanVersion',
+               'baseDraftId', CASE WHEN jsonb_typeof(state->'draft') = 'object' THEN COALESCE(state->'draft'->'id', 'null'::jsonb) ELSE 'null'::jsonb END,
+               'requiredCatalogFoodIds', CASE
+                 WHEN jsonb_typeof(state->'agentSession'->'draftIntent'->'requiredCatalogFoodId') <> 'string' THEN '[]'::jsonb
+                 ELSE jsonb_build_array(state->'agentSession'->'draftIntent'->'requiredCatalogFoodId')
+               END,
+               'excludedCatalogFoodIds', '[]'::jsonb,
+               'mustDiffer', true,
+               'scope', 'unspecified',
+               'portionRecalculation', 'whole_draft',
+               'strategy', 'null'::jsonb,
+               'offeredAlternativeFoodIds', '[]'::jsonb,
+               'selectedAlternativeFoodId', 'null'::jsonb,
+               'attemptBatch', 1
+             )
+             ELSE 'null'::jsonb
+           END,
+           true
+         ),
          updated_at = now()
-     WHERE NOT (state->'agentSession' ? 'draftIntent')`,
+     WHERE NOT (state->'agentSession' ? 'planChange')`,
+  );
+  await pool.query(
+    `UPDATE demo_profiles
+     SET state = jsonb_set(
+           state,
+           '{agentSession,planChange,portionRecalculation}',
+           '"whole_draft"'::jsonb,
+           true
+         ),
+         updated_at = now()
+     WHERE jsonb_typeof(state->'agentSession'->'planChange') = 'object'
+       AND NOT (state->'agentSession'->'planChange' ? 'portionRecalculation')`,
   );
   await pool.query(
     `UPDATE demo_profiles

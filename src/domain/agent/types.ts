@@ -168,21 +168,33 @@ export const conversationActivitySchema = z
 
 export type ConversationActivity = z.infer<typeof conversationActivitySchema>;
 
-export const draftIntentSchema = z
+export const planChangeWorkflowSchema = z
   .object({
+    mode: z.enum(["create_initial", "replace_active", "revise_pending"]),
     basePlanVersion: z.number().int().positive().nullable(),
-    requiredCatalogFoodId: z.string().min(1).max(100).nullable(),
+    baseDraftId: z.string().min(1).max(200).nullable(),
+    requiredCatalogFoodIds: z.array(z.string().min(1).max(100)).max(8),
+    excludedCatalogFoodIds: z.array(z.string().min(1).max(100)).max(8),
+    mustDiffer: z.boolean(),
+    scope: z.enum(["whole_plan", "food_replacement", "unspecified"]),
+    portionRecalculation: z.literal("whole_draft").default("whole_draft"),
+    strategy: z
+      .enum(["preserve_structure", "different_approved_mix"])
+      .nullable(),
+    offeredAlternativeFoodIds: z.array(z.string().min(1).max(100)).max(12),
+    selectedAlternativeFoodId: z.string().min(1).max(100).nullable(),
+    attemptBatch: z.number().int().positive(),
   })
   .strict();
 
-export type DraftIntent = z.infer<typeof draftIntentSchema>;
+export type PlanChangeWorkflow = z.infer<typeof planChangeWorkflowSchema>;
 
 export interface AgentSessionState {
   summary: string | null;
   preferences: ConversationPreference[];
   pendingInteraction: AgentInteraction | null;
   pausedInteraction: AgentInteraction | null;
-  draftIntent: DraftIntent | null;
+  planChange: PlanChangeWorkflow | null;
 }
 
 export const emptyAgentSession = (): AgentSessionState => ({
@@ -190,7 +202,7 @@ export const emptyAgentSession = (): AgentSessionState => ({
   preferences: [],
   pendingInteraction: null,
   pausedInteraction: null,
-  draftIntent: null,
+  planChange: null,
 });
 
 const foodApprovalCandidateSchema = z
@@ -302,7 +314,7 @@ export const agentSessionSchema = z
     preferences: z.array(conversationPreferenceSchema).max(100).default([]),
     pendingInteraction: agentInteractionSchema.nullable(),
     pausedInteraction: agentInteractionSchema.nullable(),
-    draftIntent: draftIntentSchema.nullable().default(null),
+    planChange: planChangeWorkflowSchema.nullable().default(null),
   })
   .strict();
 

@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { executeCoachTurn } from "@/application/coach-turn";
 import { createExistingDemoState } from "@/data/demo-fixtures";
-import type { AgentInteraction } from "@/domain/agent/types";
+import type {
+  AgentInteraction,
+  PlanChangeWorkflow,
+} from "@/domain/agent/types";
 import type {
   FoodApprovalCandidate,
   FoodSearchCandidate,
@@ -51,6 +54,183 @@ const foodSearch = vi.hoisted(() => ({
 vi.mock("@/ai/onboarding", () => ({
   extractOnboardingFacts: () =>
     Promise.resolve({ patch: {}, acknowledgement: "" }),
+}));
+
+vi.mock("@/ai/turn-decision", () => ({
+  interpretTurnDecision: vi.fn(
+    async (input: {
+      message: string;
+      hasDraft: boolean;
+      recentConversation: Array<{
+        role: "assistant" | "user";
+        content: string;
+      }>;
+      pendingInteraction: {
+        type: string;
+        workflow?: string | null;
+        offeredFoodNames: string[];
+      } | null;
+    }) => {
+      const text = input.message.toLocaleLowerCase("en-US");
+      const base = {
+        foodNames: [] as string[],
+        planChangeStrategy: null as
+          null | "preserve_structure" | "different_approved_mix",
+        evidence: input.message,
+      };
+      if (
+        /(?:do not|don't|never).{0,40}(?:change|create|make|build|replace|update)/.test(
+          text,
+        ) &&
+        /plan|draft/.test(text)
+      ) {
+        return { ...base, intent: "plan_revise", speechAct: "negated" };
+      }
+      if (/different mix|fresh mix/.test(text)) {
+        return {
+          ...base,
+          intent: "draft_retry",
+          speechAct: "answer",
+          planChangeStrategy: "different_approved_mix",
+        };
+      }
+      if (
+        input.pendingInteraction?.type === "draft_failure_review" &&
+        /try|again|smaller|portion|structure/.test(text)
+      ) {
+        return {
+          ...base,
+          intent: "draft_retry",
+          speechAct: "answer",
+          planChangeStrategy: "preserve_structure",
+        };
+      }
+      const selected = input.pendingInteraction?.offeredFoodNames.find((name) =>
+        text.includes(name.toLocaleLowerCase("en-US")),
+      );
+      if (selected) {
+        return {
+          ...base,
+          intent: "food_alternative_selection",
+          speechAct: "answer",
+          foodNames: [selected],
+        };
+      }
+      if (/option|oprion|alternative|replacement|substitute/.test(text)) {
+        return {
+          ...base,
+          intent: "food_alternatives",
+          speechAct: "question",
+          foodNames: text.includes("rice") ? ["rice"] : [],
+        };
+      }
+      if (/what would|what if|if i/.test(text) && /plan|draft/.test(text)) {
+        return {
+          ...base,
+          intent: "plan_replace",
+          speechAct: "hypothetical",
+        };
+      }
+      if (
+        /what would|what if|if i/.test(text) &&
+        /weigh|weight|kg/.test(text)
+      ) {
+        return {
+          ...base,
+          intent: "weight_record",
+          speechAct: "hypothetical",
+        };
+      }
+      if (
+        /(?:do not|don't|never).{0,40}(?:record|edit|delete|weight|weigh)/.test(
+          text,
+        )
+      ) {
+        return {
+          ...base,
+          intent: "weight_record",
+          speechAct: "negated",
+        };
+      }
+      if (/remove/.test(text) && /food|rice|future draft/.test(text)) {
+        return {
+          ...base,
+          intent: "food_remove",
+          speechAct: "request",
+          foodNames: text.includes("rice") ? ["rice"] : [],
+        };
+      }
+      const recentText = input.recentConversation
+        .map((message) => message.content)
+        .join(" ")
+        .toLocaleLowerCase("en-US");
+      if (/edit it/.test(text) && /today|todays/.test(recentText)) {
+        return { ...base, intent: "weight_record", speechAct: "answer" };
+      }
+      if (
+        /add it/.test(text) &&
+        /yesterday|\d{4}-\d{2}-\d{2}/.test(recentText)
+      ) {
+        return { ...base, intent: "weight_edit", speechAct: "answer" };
+      }
+      if (
+        input.pendingInteraction?.type === "food_candidates" &&
+        /\b(?:first|second|third|fourth|fifth|[1-5])\b/.test(text)
+      ) {
+        return {
+          ...base,
+          intent: "food_candidate_selection",
+          speechAct: "answer",
+        };
+      }
+      if (
+        /\b(?:add|find|search|lookup|look up)\b/.test(text) ||
+        (input.pendingInteraction?.type === "clarification" &&
+          input.pendingInteraction.workflow === "food")
+      ) {
+        return {
+          ...base,
+          intent: "food_search",
+          speechAct:
+            input.pendingInteraction?.type === "clarification"
+              ? "answer"
+              : "request",
+        };
+      }
+      if (
+        /\b(?:delete|erase|remove)\b/.test(text) &&
+        /weight|measurement|entry/.test(text)
+      ) {
+        return { ...base, intent: "weight_delete", speechAct: "request" };
+      }
+      if (
+        /yesterday|\d{4}-\d{2}-\d{2}|^-\d{1,2}\.\d{1,2}/.test(text) &&
+        /weight|weigh|kg|record|edit|update|change/.test(text)
+      ) {
+        return { ...base, intent: "weight_edit", speechAct: "request" };
+      }
+      if (/\b\d{1,3}(?:[.,]\d{1,2})?\s*kg\b|\bweigh\b|weight is/.test(text)) {
+        return { ...base, intent: "weight_record", speechAct: "request" };
+      }
+      if (/remember|save.*preference/.test(text)) {
+        return { ...base, intent: "preference_save", speechAct: "request" };
+      }
+      if (/change the whole|replace the whole|new whole/.test(text)) {
+        return { ...base, intent: "plan_replace", speechAct: "request" };
+      }
+      if (
+        /create|generate|make|build|prepare|propose|draft|plan/.test(text) &&
+        !/how would you|what would|could you explain/.test(text)
+      ) {
+        return {
+          ...base,
+          intent: input.hasDraft ? "plan_revise" : "plan_create",
+          speechAct: "request",
+        };
+      }
+      return { ...base, intent: "unknown", speechAct: "unknown" };
+    },
+  ),
 }));
 
 vi.mock("@/sources/usda", () => ({
@@ -138,6 +318,26 @@ function turnInput(
     turnId: commandId,
     onStatus: vi.fn(),
     onText: vi.fn(),
+  };
+}
+
+function planChangeWorkflow(
+  input: Partial<PlanChangeWorkflow> = {},
+): PlanChangeWorkflow {
+  return {
+    mode: "replace_active",
+    basePlanVersion: 1,
+    baseDraftId: null,
+    requiredCatalogFoodIds: [],
+    excludedCatalogFoodIds: [],
+    mustDiffer: true,
+    scope: "unspecified",
+    portionRecalculation: "whole_draft",
+    strategy: null,
+    offeredAlternativeFoodIds: [],
+    selectedAlternativeFoodId: null,
+    attemptBatch: 1,
+    ...input,
   };
 }
 
@@ -469,6 +669,34 @@ describe("unified coach orchestration", () => {
     expect(deleteRequest.onText).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    "If I weigh 76 kg today, how would my trend change?",
+    "Do not record this: I weigh 76 kg today",
+  ])("does not write weight for non-mutating language: %s", async (message) => {
+    const initial = await getProfile("existing");
+    if (!("measurements" in initial.state))
+      throw new Error("Expected Existing state.");
+    const measurementsBefore = structuredClone(initial.state.measurements);
+    agent.tool = { name: "record_weight", arguments: { weightKg: 76 } };
+
+    const result = await executeCoachTurn(
+      turnInput(
+        "existing",
+        initial.version,
+        `non-mutating-weight-${message.length}`,
+        message,
+      ),
+    );
+
+    expect(agent.requiredFirstTools.at(-1)).toBeNull();
+    expect(agent.allowedAfterCalls.at(-1)).toEqual([]);
+    expect(
+      "measurements" in result.profile.state
+        ? result.profile.state.measurements
+        : [],
+    ).toEqual(measurementsBefore);
+  });
+
   it("does not treat typed approval language as an Active Plan approval", async () => {
     const initial = await getProfile("existing");
     const result = await executeCoachTurn(
@@ -771,7 +999,7 @@ describe("unified coach orchestration", () => {
     expect(foodSearch.searchSummaries).toHaveBeenCalledOnce();
   });
 
-  it("pauses one unrelated workflow in server-owned context", async () => {
+  it("preserves an unrelated workflow across a completed weight write", async () => {
     const initial = await getProfile("existing");
     const foodQuestion: AgentInteraction = {
       id: "food-clarification",
@@ -802,14 +1030,12 @@ describe("unified coach orchestration", () => {
         "Before that, record 80.25 kg today",
       ),
     );
-    expect(
-      interrupted.profile.state.agentSession.pendingInteraction,
-    ).toBeNull();
-    expect(interrupted.profile.state.agentSession.pausedInteraction).toEqual(
+    expect(interrupted.profile.state.agentSession.pendingInteraction).toEqual(
       foodQuestion,
     );
+    expect(interrupted.profile.state.agentSession.pausedInteraction).toBeNull();
 
-    expect(agent.systemPrompts.at(-1)).toContain("pausedInteraction");
+    expect(agent.systemPrompts.at(-1)).toContain("pendingInteraction");
   });
 
   it("sends a bounded digest plus the latest twenty messages above the transcript cap", async () => {
@@ -1017,7 +1243,7 @@ describe("unified coach orchestration", () => {
             catalogFoodId: item.catalogFoodId,
             grams:
               item.catalogFoodId === "chicken-breast-roasted"
-                ? 200
+                ? 195
                 : item.grams,
           })),
         })),
@@ -1053,7 +1279,7 @@ describe("unified coach orchestration", () => {
         validation: { valid: true },
       },
     });
-    expect(drafted.profile.state.agentSession.draftIntent).toBeNull();
+    expect(drafted.profile.state.agentSession.planChange).toBeNull();
     expect(drafted.profile.state.agentSession.pendingInteraction).toEqual({
       id: drafted.profile.state.draft!.id,
       type: "draft_approval",
@@ -1066,6 +1292,7 @@ describe("unified coach orchestration", () => {
     );
 
     agent.tool = null;
+    const modelCallsBeforeApproval = agent.requiredFirstTools.length;
     const activated = await executeCoachTurn({
       ...turnInput(
         "existing",
@@ -1091,6 +1318,10 @@ describe("unified coach orchestration", () => {
     expect(
       activated.profile.state.activePlan.maintenanceReferenceWeightKg,
     ).toBe(activated.profile.state.measurements[0].weightKg);
+    expect(agent.requiredFirstTools).toHaveLength(modelCallsBeforeApproval);
+    expect(activated.assistantText).toBe(
+      "The Draft was approved and is now your Active Plan.",
+    );
 
     await expect(
       executeCoachTurn({
@@ -1175,6 +1406,12 @@ describe("unified coach orchestration", () => {
     });
 
     expect(agent.requiredFirstTools).toEqual(["submit_draft_proposal"]);
+    expect(agent.systemPrompts.at(-1)).toContain(
+      '"portionRecalculation":"whole_draft"',
+    );
+    expect(agent.systemPrompts.at(-1)).toContain(
+      "Recalculate portions across every meal in the complete Draft",
+    );
     expect(agent.toolResults[0]).toMatchObject({
       accepted: false,
       issues: expect.arrayContaining([
@@ -1199,10 +1436,10 @@ describe("unified coach orchestration", () => {
         ...state,
         agentSession: {
           ...state.agentSession,
-          draftIntent: {
+          planChange: planChangeWorkflow({
             basePlanVersion: state.activePlan?.version ?? null,
-            requiredCatalogFoodId: "tofu-firm",
-          },
+            requiredCatalogFoodIds: ["tofu-firm"],
+          }),
         },
       }),
     });
@@ -1508,6 +1745,25 @@ describe("unified coach orchestration", () => {
     expect(result.profile.state.agentSession.preferences).toEqual(
       preferencesBefore,
     );
+    expect(result.profile.state.agentSession.planChange).toMatchObject({
+      scope: "food_replacement",
+      excludedCatalogFoodIds: ["white-rice-cooked"],
+      requiredCatalogFoodIds: [],
+      selectedAlternativeFoodId: null,
+    });
+    const offeredIds =
+      result.profile.state.agentSession.planChange?.offeredAlternativeFoodIds ??
+      [];
+    expect(offeredIds).toContain("potato-baked");
+    expect(offeredIds).not.toContain("white-rice-cooked");
+    expect(offeredIds.every((foodId) => approvedBefore.includes(foodId))).toBe(
+      true,
+    );
+    expect(result.profile.state.agentSession.pendingInteraction).toMatchObject({
+      type: "clarification",
+      workflow: "draft",
+      quickReplies: expect.arrayContaining(["Potato"]),
+    });
   });
 
   it("distinguishes a disliked food from an explicit instruction not to change a plan", async () => {
@@ -1535,6 +1791,128 @@ describe("unified coach orchestration", () => {
     expect(agent.requiredFirstTools.at(-1)).toBeNull();
   });
 
+  it("routes a whole-plan change through one Draft-only execution plan", async () => {
+    const initial = await getProfile("existing");
+    const activeBefore = structuredClone(
+      "measurements" in initial.state ? initial.state.activePlan : null,
+    );
+
+    const result = await executeCoachTurn(
+      turnInput(
+        "existing",
+        initial.version,
+        "replace-whole-meal-plan",
+        "I want to change the whole meal plan",
+      ),
+    );
+
+    expect(agent.requiredFirstTools.at(-1)).toBe("submit_draft_proposal");
+    expect(agent.allowedAfterCalls.at(-1)).toEqual(["submit_draft_proposal"]);
+    expect(result.profile.state.activePlan).toEqual(activeBefore);
+    expect(result.profile.state.agentSession.planChange).toMatchObject({
+      mode: "replace_active",
+      scope: "whole_plan",
+      mustDiffer: true,
+    });
+  });
+
+  it("does not authorize a Draft for a hypothetical plan question", async () => {
+    const initial = await getProfile("existing");
+    await executeCoachTurn(
+      turnInput(
+        "existing",
+        initial.version,
+        "hypothetical-plan-question",
+        "What would happen if I changed my meal plan?",
+      ),
+    );
+
+    expect(agent.requiredFirstTools.at(-1)).toBeNull();
+    expect(agent.allowedAfterCalls.at(-1)).not.toContain(
+      "submit_draft_proposal",
+    );
+  });
+
+  it("rejects an unchanged proposal for a whole-plan change", async () => {
+    const initial = await getProfile("existing");
+    if (!("measurements" in initial.state))
+      throw new Error("Expected Existing state.");
+    agent.tool = {
+      name: "submit_draft_proposal",
+      arguments: {
+        summary: "The same plan again.",
+        meals: initial.state.activePlan.plan.meals.map((meal) => ({
+          id: meal.id,
+          items: meal.items.map(({ catalogFoodId, grams }) => ({
+            catalogFoodId,
+            grams,
+          })),
+        })),
+      },
+    };
+
+    const result = await executeCoachTurn(
+      turnInput(
+        "existing",
+        initial.version,
+        "reject-unchanged-whole-plan",
+        "I want to change the whole meal plan",
+      ),
+    );
+
+    expect(agent.toolResults[0]).toMatchObject({
+      accepted: false,
+      issues: expect.arrayContaining([
+        "The requested plan change must differ from the current plan.",
+      ]),
+    });
+    expect(result.profile.state.draft).toBeNull();
+    expect(result.profile.state.activePlan).toEqual(initial.state.activePlan);
+  });
+
+  it("allows a requested revision of the currently pending Draft", async () => {
+    const initial = await getProfile("new");
+    const pendingDraft = makeValidDraft("pending-revision");
+    const seeded = await mutateProfile({
+      profileId: "new",
+      expectedVersion: initial.version,
+      commandId: "seed-pending-draft-revision",
+      mutation: () => {
+        const ready = makeReadyState();
+        return {
+          ...ready,
+          draft: pendingDraft,
+          agentSession: {
+            ...ready.agentSession,
+            pendingInteraction: {
+              id: pendingDraft.id,
+              type: "draft_approval",
+              proposalId: pendingDraft.id,
+            },
+          },
+        };
+      },
+    });
+
+    const result = await executeCoachTurn(
+      turnInput(
+        "new",
+        seeded.version,
+        "revise-pending-draft",
+        "Please change the whole meal plan",
+      ),
+    );
+
+    expect(agent.requiredFirstTools.at(-1)).toBe("submit_draft_proposal");
+    expect(agent.allowedAfterCalls.at(-1)).toEqual(["submit_draft_proposal"]);
+    expect(result.profile.state.draft).toEqual(pendingDraft);
+    expect(result.profile.state.agentSession.planChange).toMatchObject({
+      mode: "revise_pending",
+      baseDraftId: pendingDraft.id,
+      scope: "whole_plan",
+    });
+  });
+
   it("turns a selected offered alternative into a Draft while preserving the Active Plan", async () => {
     const initial = await getProfile("existing");
     if (!("measurements" in initial.state))
@@ -1546,6 +1924,21 @@ describe("unified coach orchestration", () => {
       commandId: "seed-rice-alternative-conversation",
       mutation: (state) => ({
         ...state,
+        agentSession: {
+          ...state.agentSession,
+          pendingInteraction: {
+            id: "choose-rice-alternative",
+            type: "clarification",
+            workflow: "draft",
+            prompt: "Which approved alternative would you like to use?",
+            quickReplies: ["Potato", "Couscous"],
+          },
+          planChange: planChangeWorkflow({
+            excludedCatalogFoodIds: ["white-rice-cooked"],
+            scope: "food_replacement",
+            offeredAlternativeFoodIds: ["potato-baked", "couscous-cooked"],
+          }),
+        },
         messages: [
           ...state.messages,
           {
@@ -1824,10 +2217,10 @@ describe("unified coach orchestration", () => {
         ...state,
         agentSession: {
           ...state.agentSession,
-          draftIntent: {
+          planChange: planChangeWorkflow({
             basePlanVersion,
-            requiredCatalogFoodId: "white-rice-cooked",
-          },
+            requiredCatalogFoodIds: ["white-rice-cooked"],
+          }),
         },
       }),
     });
@@ -1855,9 +2248,60 @@ describe("unified coach orchestration", () => {
     if (!("measurements" in result.profile.state))
       throw new Error("Expected Existing state.");
     expect(result.profile.state.draft).toBeNull();
-    expect(result.profile.state.agentSession.draftIntent).toEqual({
-      basePlanVersion: 1,
-      requiredCatalogFoodId: "white-rice-cooked",
+    expect(result.profile.state.agentSession.planChange).toEqual(
+      planChangeWorkflow({ requiredCatalogFoodIds: ["white-rice-cooked"] }),
+    );
+  });
+
+  it("starts a new Draft-attempt batch after the user chooses a different mix", async () => {
+    const initial = await getProfile("new");
+    const seeded = await mutateProfile({
+      profileId: "new",
+      expectedVersion: initial.version,
+      commandId: "seed-retry-batch-profile",
+      mutation: () => makeReadyState(),
     });
+    const invalid = {
+      name: "submit_draft_proposal",
+      arguments: {
+        summary: "Invalid rice-only Draft.",
+        meals: ["breakfast", "lunch", "snack", "dinner"].map((id) => ({
+          id,
+          items: [{ catalogFoodId: "white-rice-cooked", grams: 300 }],
+        })),
+      },
+    };
+    agent.toolSequence = [invalid, invalid, invalid];
+    const failed = await executeCoachTurn(
+      turnInput(
+        "new",
+        seeded.version,
+        "first-invalid-draft-batch",
+        "Create a Draft.",
+      ),
+    );
+    expect(failed.profile.state.agentSession.pendingInteraction?.type).toBe(
+      "draft_failure_review",
+    );
+
+    agent.toolResults = [];
+    agent.toolSequence = [invalid];
+    const retried = await executeCoachTurn(
+      turnInput(
+        "new",
+        failed.profile.version,
+        "retry-with-different-mix",
+        "different mix of approved foods",
+      ),
+    );
+
+    expect(agent.requiredFirstTools.at(-1)).toBe("submit_draft_proposal");
+    expect(agent.toolResults).toHaveLength(1);
+    expect(agent.toolResults[0]).toMatchObject({ attempt: 1, accepted: false });
+    expect(retried.profile.state.agentSession.planChange).toMatchObject({
+      strategy: "different_approved_mix",
+      attemptBatch: 2,
+    });
+    expect(retried.profile.state.draft).toBeNull();
   });
 });
