@@ -121,7 +121,7 @@ describe("protected coach route", () => {
     }
   });
 
-  it("rejects the thirty-first hourly AI turn before model execution", async () => {
+  it("rejects the thirty-first AI turn for one minute before model execution", async () => {
     for (let index = 0; index < 30; index += 1) {
       const response = await POST(
         coachRequest(`protected-rate-command-${index}`),
@@ -131,8 +131,16 @@ describe("protected coach route", () => {
     }
 
     const blocked = await POST(coachRequest("protected-rate-command-30"));
+    const body = await blocked.json();
 
     expect(blocked.status).toBe(429);
+    expect(blocked.headers.get("Retry-After")).toBe("60");
+    expect(body).toMatchObject({
+      code: "rate_limited",
+      message:
+        "The AI conversation limit has been reached. It resets within 1 minute.",
+      retryAfterSeconds: 60,
+    });
     expect(executeCoachTurn).toHaveBeenCalledTimes(30);
   });
 });

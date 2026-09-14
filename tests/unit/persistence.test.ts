@@ -337,14 +337,20 @@ describe("persisted agent turns", () => {
       result: { answer: "done" },
     });
     for (let index = 0; index < 30; index += 1) {
-      await expect(recordAndCheckAgentRateLimit(identity)).resolves.toBe(true);
+      await expect(recordAndCheckAgentRateLimit(identity)).resolves.toEqual({
+        allowed: true,
+        retryAfterSeconds: 0,
+      });
     }
     await resetProfile({
       profileId: "new",
       expectedVersion: 1,
       commandId: "reset-agent-state",
     });
-    await expect(recordAndCheckAgentRateLimit(identity)).resolves.toBe(false);
+    await expect(recordAndCheckAgentRateLimit(identity)).resolves.toEqual({
+      allowed: false,
+      retryAfterSeconds: 60,
+    });
     await expect(
       reserveAgentTurn({
         profileId: "new",
@@ -353,6 +359,36 @@ describe("persisted agent turns", () => {
         request: { input: "new turn after reset" },
       }),
     ).resolves.toMatchObject({ outcome: "reserved" });
+  });
+
+  it("reopens AI conversations when the one-minute window expires", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-14T12:00:00.000Z"));
+    const identity = { sessionHash: "cooldown-session", ipHash: "cooldown-ip" };
+
+    try {
+      for (let index = 0; index < 30; index += 1) {
+        await recordAndCheckAgentRateLimit(identity);
+      }
+      await expect(recordAndCheckAgentRateLimit(identity)).resolves.toEqual({
+        allowed: false,
+        retryAfterSeconds: 60,
+      });
+
+      vi.advanceTimersByTime(30_000);
+      await expect(recordAndCheckAgentRateLimit(identity)).resolves.toEqual({
+        allowed: false,
+        retryAfterSeconds: 30,
+      });
+
+      vi.advanceTimersByTime(30_001);
+      await expect(recordAndCheckAgentRateLimit(identity)).resolves.toEqual({
+        allowed: true,
+        retryAfterSeconds: 0,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("persists user, partial, failed, and retry assistant output without duplicating the user", async () => {

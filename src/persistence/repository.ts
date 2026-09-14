@@ -7,6 +7,10 @@ import {
 } from "@/data/demo-fixtures";
 import type { CatalogFood } from "@/domain/catalog/types";
 import type { ConversationActivity } from "@/domain/agent/types";
+import {
+  AGENT_RATE_LIMIT_WINDOW_SECONDS,
+  AGENT_TURN_RATE_LIMIT,
+} from "@/domain/agent/rate-limit";
 import type { DemoProfileId } from "@/domain/profile/types";
 import type { DemoState } from "@/store/demo-reducer";
 import {
@@ -1375,48 +1379,66 @@ export async function recordAgentSkillCall(input: StoredAgentSkillCall) {
 export async function recordAndCheckAgentRateLimit(input: {
   sessionHash: string;
   ipHash: string;
-}) {
+}): Promise<{ allowed: boolean; retryAfterSeconds: number }> {
   const now = Date.now();
+  const windowMs = AGENT_RATE_LIMIT_WINDOW_SECONDS * 1_000;
   if (!hasPostgresConfiguration()) {
     const store = memoryStore();
     store.rateEvents = store.rateEvents.filter(
       (event) => event.createdAt > now - 24 * 60 * 60 * 1_000,
     );
-    const events = store.rateEvents.filter(
-      (event) => event.action === "agent_turn",
-    );
-    const hourly = events.filter(
+    const recent = store.rateEvents.filter(
       (event) =>
-        event.createdAt > now - 60 * 60 * 1_000 &&
+        event.action === "agent_turn" &&
+        event.createdAt > now - windowMs &&
         (event.sessionHash === input.sessionHash ||
           event.ipHash === input.ipHash),
-    ).length;
-    if (hourly >= 30 || events.length >= 100) return false;
+    );
+    if (recent.length >= AGENT_TURN_RATE_LIMIT) {
+      const oldestEventAt = Math.min(...recent.map((event) => event.createdAt));
+      return {
+        allowed: false,
+        retryAfterSeconds: Math.max(
+          1,
+          Math.ceil((oldestEventAt + windowMs - now) / 1_000),
+        ),
+      };
+    }
     store.rateEvents.push({ ...input, action: "agent_turn", createdAt: now });
-    return true;
+    return { allowed: true, retryAfterSeconds: 0 };
   }
   await ensurePersistenceInitialized();
   return withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(740031)");
-    const counts = await client.query<{ hourly: string; daily: string }>(
+    const counts = await client.query<{
+      recent: string;
+      retry_after_seconds: string | null;
+    }>(
       `SELECT
-         count(*) FILTER (WHERE created_at > now() - interval '1 hour' AND (session_hash = $1 OR ip_hash = $2)) AS hourly,
-         count(*) FILTER (WHERE created_at > now() - interval '1 day') AS daily
+         count(*) AS recent,
+         ceil(extract(epoch FROM
+           (min(created_at) + ($3 * interval '1 second') - now())
+         )) AS retry_after_seconds
        FROM rate_limit_events
-       WHERE action = 'agent_turn' AND created_at > now() - interval '1 day'`,
-      [input.sessionHash, input.ipHash],
+       WHERE action = 'agent_turn'
+         AND created_at > now() - ($3 * interval '1 second')
+         AND (session_hash = $1 OR ip_hash = $2)`,
+      [input.sessionHash, input.ipHash, AGENT_RATE_LIMIT_WINDOW_SECONDS],
     );
-    if (
-      Number(counts.rows[0]?.hourly ?? 0) >= 30 ||
-      Number(counts.rows[0]?.daily ?? 0) >= 100
-    ) {
-      return false;
+    if (Number(counts.rows[0]?.recent ?? 0) >= AGENT_TURN_RATE_LIMIT) {
+      return {
+        allowed: false,
+        retryAfterSeconds: Math.max(
+          1,
+          Number(counts.rows[0]?.retry_after_seconds ?? 1),
+        ),
+      };
     }
     await client.query(
       "INSERT INTO rate_limit_events (session_hash, ip_hash, action) VALUES ($1, $2, 'agent_turn')",
       [input.sessionHash, input.ipHash],
     );
-    return true;
+    return { allowed: true, retryAfterSeconds: 0 };
   });
 }
 

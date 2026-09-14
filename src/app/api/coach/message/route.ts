@@ -20,6 +20,7 @@ import {
 import { requestHasAccess } from "@/security/demo-access";
 import { rateIdentity } from "@/security/rate-identity";
 import { sanitizeDiagnosticText } from "@/security/safe-diagnostics";
+import { AGENT_RATE_LIMIT_MESSAGE } from "@/domain/agent/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -177,7 +178,8 @@ export async function POST(request: Request) {
     }
     throw error;
   }
-  if (!(await recordAndCheckAgentRateLimit(identity))) {
+  const rateLimit = await recordAndCheckAgentRateLimit(identity);
+  if (!rateLimit.allowed) {
     await finishAgentTurn({
       profileId: input.profileId,
       commandId: input.commandId,
@@ -187,14 +189,20 @@ export async function POST(request: Request) {
     await updateAssistantMessage({
       profileId: input.profileId,
       messageId: reservation.assistantMessageId,
-      content:
-        "The AI conversation limit has been reached. Try again after the limit window resets.",
+      content: AGENT_RATE_LIMIT_MESSAGE,
       status: "failed",
     });
-    return jsonError(
-      "The AI conversation limit has been reached. Try again after the limit window resets.",
-      429,
-      { code: "rate_limited" },
+    return NextResponse.json(
+      {
+        ok: false,
+        code: "rate_limited",
+        message: AGENT_RATE_LIMIT_MESSAGE,
+        retryAfterSeconds: rateLimit.retryAfterSeconds,
+      },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rateLimit.retryAfterSeconds) },
+      },
     );
   }
 

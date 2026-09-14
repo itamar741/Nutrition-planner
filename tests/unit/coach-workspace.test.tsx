@@ -1,7 +1,10 @@
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CoachWorkspace } from "@/components/coach-workspace/CoachWorkspace";
+import {
+  CoachWorkspace,
+  formatRateLimitCountdown,
+} from "@/components/coach-workspace/CoachWorkspace";
 import { createNewDemoState, emptyProfile } from "@/data/demo-fixtures";
 import { foodCatalog } from "@/data/food-catalog";
 import { demoReducer, type DemoState } from "@/store/demo-reducer";
@@ -120,6 +123,12 @@ function installCloudFetch(onboarding: () => Promise<Response>) {
 }
 
 describe("CoachWorkspace", () => {
+  it("formats the one-minute rate-limit countdown", () => {
+    expect(formatRateLimitCountdown(60)).toBe("01:00");
+    expect(formatRateLimitCountdown(31)).toBe("00:31");
+    expect(formatRateLimitCountdown(0)).toBe("00:00");
+  });
+
   it("UI-01 starts with text enabled and no quick replies", () => {
     render(<CoachWorkspace profileId="new" />);
 
