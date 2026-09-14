@@ -34,7 +34,7 @@ Review the complete `nutrition-coach` repository and its trust boundaries before
 - **Phase 3 — AI and transcript trust boundary:** browser actions cannot write assistant messages or arbitrary closed-answer labels and patches. `/api/coach/message` is the only public AI entry point; seven direct AI routes were removed.
 - **Phase 4 — access and identity:** production access fails closed, access-code attempts are limited, forged cookies do not create identities, and client-controlled forwarding headers are ignored.
 - **Phase 5 — deployment safeguards:** production security headers, certificate verification whenever database TLS is enabled, rejection of conflicting database URL options, generic public errors, bounded final-archive inspection, and fail-closed production persistence were added. The academic Render deployment uses its same-region private-network database URL without TLS as an explicit exception.
-- **Phase 6 — live verification:** the public health endpoint, browser-to-Render TLS, production headers, and one authorized authenticated read passed on 2026-09-14. The production persistence fix must be deployed and rechecked before the internal database gate passes; exact final-submission archive inspection is also pending.
+- **Phase 6 — live verification:** the exact merged revision was reported successfully deployed, after which the public health endpoint, PostgreSQL initialization guard, browser-to-Render TLS, production headers, and one authorized authenticated read passed. The exact history-free submission ZIP also passed archive inspection on 2026-09-14.
 
 ## Control coverage
 
@@ -45,4 +45,4 @@ Review the complete `nutrition-coach` repository and its trust boundaries before
 - **Least privilege and auditability:** browser requests carry only narrow facts and identifiers, AI helpers have no independent public routes, detailed diagnostics remain server-side, and command IDs, profile versions, stored interactions, test records, and Git commits provide the review trail.
 - **Legacy-code containment:** historical design and verification records remain labelled as historical evidence. Removed AI routes stay absent, and tests assert that they return `404`.
 
-No Critical finding remains. High findings have an implemented remediation or, for the historical credential, an owner-confirmed containment record and a history-free submission control. Known academic-demo tradeoffs and the remaining deployment and archive gates are documented in `SECURITY_REMEDIATION_NOTE.md` and `docs/verification-results/phase-6.md`.
+No Critical finding remains. High findings have an implemented remediation or, for the historical credential, an owner-confirmed containment record and a history-free submission control. Known academic-demo tradeoffs and completed deployment and archive evidence are documented in `SECURITY_REMEDIATION_NOTE.md` and `docs/verification-results/phase-6.md`.

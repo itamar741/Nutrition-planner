@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Turns 1–8 and security-remediation Phases 1–5 are implemented, merged, and deployed. The final persistence guard is implemented on the current branch; its Render health recheck and exact final submission archive remain Phase 6 gates.
+Turns 1–8 and security-remediation Phases 1–5 are implemented, merged, and deployed. Phase 6 live verification and exact final-archive inspection passed for the academic assignment. Regenerate and reinspect the archive if the submitted tree changes.
 
 ## Read first
 

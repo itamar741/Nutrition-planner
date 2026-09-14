@@ -31,7 +31,7 @@ Without `DATABASE_URL`, local development and automated tests use an in-memory r
 
 The project is configured as one Render Web Service plus one Render PostgreSQL database in `render.yaml`. See [docs/deployment.md](docs/deployment.md) for the required secrets, setup, and staging checklist.
 
-The live Render service passes the public health, edge-TLS, production-header, and authenticated-read checks. After this branch is deployed, health must be rechecked against the new fail-closed persistence guard; the exact final submission ZIP also remains open until the final commit is merged. Current evidence is recorded in [docs/verification-results/phase-6.md](docs/verification-results/phase-6.md).
+The live Render service passes the public health, edge-TLS, production-header, PostgreSQL-initialization, and authenticated-read checks. The history-free final submission ZIP also passed the separate archive inspection. Current evidence is recorded in [docs/verification-results/phase-6.md](docs/verification-results/phase-6.md); regenerate and reinspect the ZIP if the submitted tree changes.
 
 ## Safety boundary
 
