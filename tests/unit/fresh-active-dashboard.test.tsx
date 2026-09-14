@@ -3,20 +3,22 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { FreshActiveDashboard } from "@/components/coach-workspace/FreshActiveDashboard";
 import { foodCatalog } from "@/data/food-catalog";
-import { demoReducer } from "@/store/demo-reducer";
+import type { DemoState } from "@/store/demo-reducer";
 import { makeReadyState, makeValidDraft } from "../fixtures/turn-2";
 
-function activeState() {
+function activeState(): DemoState {
   const draft = makeValidDraft("fresh-dashboard");
-  return demoReducer(
-    { ...makeReadyState(), draft },
-    {
-      type: "activate_draft",
-      commandId: "activate-dashboard",
-      proposalId: draft.id,
+  return {
+    ...makeReadyState(),
+    draft: null,
+    activePlan: {
+      schemaVersion: 1 as const,
+      version: 1,
       activatedAt: "2026-09-10T08:00:00.000Z",
+      maintenanceReferenceWeightKg: null,
+      plan: draft.plan,
     },
-  );
+  };
 }
 
 function renderDashboard(state = activeState(), overrides = {}) {

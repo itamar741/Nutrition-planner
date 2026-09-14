@@ -1,12 +1,15 @@
 import OpenAI from "openai";
 import { ZodError } from "zod";
 import { getMissingFactKeys } from "@/domain/profile/onboarding";
-import type { ProfileFactKey, ProfileFactPatch } from "@/domain/profile/types";
+import type {
+  ProfileFactKey,
+  ProfileFactPatch,
+  StructuredProfile,
+} from "@/domain/profile/types";
 import {
   modelFactExtractionJsonSchema,
   modelFactExtractionSchema,
   type ModelFactExtraction,
-  type OnboardingRequest,
 } from "./contracts";
 
 export class OpenAIConfigurationError extends Error {}
@@ -95,7 +98,11 @@ async function defaultResponseCreator(input: {
 }
 
 export async function extractOnboardingFacts(
-  request: OnboardingRequest,
+  request: {
+    commandId: string;
+    message: string;
+    profile: StructuredProfile;
+  },
   createResponse: ResponseCreator = defaultResponseCreator,
 ): Promise<{ patch: ProfileFactPatch; acknowledgement: string }> {
   const allowedKeys = getMissingFactKeys(request.profile);

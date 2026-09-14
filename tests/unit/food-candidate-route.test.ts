@@ -1,10 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { prepareFoodCandidate } from "@/application/food-candidates";
 
-const replaceCandidate = vi.fn();
-
-vi.mock("@/security/demo-access", () => ({
-  requestHasAccess: () => true,
-}));
+const replaceCandidate = vi.hoisted(() => vi.fn());
 
 vi.mock("@/ai/food-catalog", () => ({
   classifySourcedFood: () =>
@@ -55,22 +52,12 @@ describe("cached USDA candidate selection", () => {
 
   it("builds the approval record without another USDA request", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
-    const { POST } = await import("@/app/api/coach/catalog/candidate/route");
+    const candidate = await prepareFoodCandidate({
+      profileId: "new",
+      candidateId: "11111111-1111-4111-8111-111111111111",
+    });
 
-    const response = await POST(
-      new Request("http://localhost/api/coach/catalog/candidate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          profileId: "new",
-          candidateId: "11111111-1111-4111-8111-111111111111",
-        }),
-      }),
-    );
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body.candidate).toMatchObject({
+    expect(candidate).toMatchObject({
       sourceLabel: "USDA FoodData Central verified",
       food: {
         source: {

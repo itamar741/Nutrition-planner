@@ -203,6 +203,7 @@ export function AgentInteractionPanel({
       </section>
     );
   }
+  if (interaction.type === "draft_approval") return null;
   if (interaction.type === "food_candidates") {
     return (
       <div

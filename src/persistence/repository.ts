@@ -1420,6 +1420,48 @@ export async function recordAndCheckAgentRateLimit(input: {
   });
 }
 
+export async function recordAndCheckDemoAccessRateLimit(input: {
+  sessionHash: string;
+  ipHash: string;
+}) {
+  const now = Date.now();
+  const windowStart = now - 15 * 60 * 1_000;
+  if (!hasPostgresConfiguration()) {
+    const store = memoryStore();
+    store.rateEvents = store.rateEvents.filter(
+      (event) => event.createdAt > now - 24 * 60 * 60 * 1_000,
+    );
+    const attempts = store.rateEvents.filter(
+      (event) =>
+        event.action === "demo_access" &&
+        event.createdAt > windowStart &&
+        (event.sessionHash === input.sessionHash ||
+          event.ipHash === input.ipHash),
+    ).length;
+    if (attempts >= 5) return false;
+    store.rateEvents.push({ ...input, action: "demo_access", createdAt: now });
+    return true;
+  }
+  await ensurePersistenceInitialized();
+  return withTransaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(740032)");
+    const counts = await client.query<{ attempts: string }>(
+      `SELECT count(*) AS attempts
+       FROM rate_limit_events
+       WHERE action = 'demo_access'
+         AND created_at > now() - interval '15 minutes'
+         AND (session_hash = $1 OR ip_hash = $2)`,
+      [input.sessionHash, input.ipHash],
+    );
+    if (Number(counts.rows[0]?.attempts ?? 0) >= 5) return false;
+    await client.query(
+      "INSERT INTO rate_limit_events (session_hash, ip_hash, action) VALUES ($1, $2, 'demo_access')",
+      [input.sessionHash, input.ipHash],
+    );
+    return true;
+  });
+}
+
 export async function recordAndCheckRateLimit(input: {
   sessionHash: string;
   ipHash: string;

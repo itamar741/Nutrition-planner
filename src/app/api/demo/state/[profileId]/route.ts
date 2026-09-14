@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import type { DemoProfileId } from "@/domain/profile/types";
-import { demoReducer, type DemoState } from "@/store/demo-reducer";
+import {
+  demoReducer,
+  type DemoAction,
+  type DemoState,
+} from "@/store/demo-reducer";
+import { applyFactPatch } from "@/domain/profile/onboarding";
 import {
   existingDemoReducer,
   type ExistingDemoAction,
@@ -68,6 +73,32 @@ function activeTurnResponse() {
   );
 }
 
+function resolveClosedAction(
+  state: DemoState,
+  optionId: string,
+  commandId: string,
+): DemoAction {
+  const turn = state.activeTurn;
+  if (turn.type !== "closed_question") {
+    throw new Error("No closed question is active.");
+  }
+  const option = turn.options.find((candidate) => candidate.id === optionId);
+  if (!option) throw new Error("The option was not offered.");
+
+  const nextProfile = applyFactPatch(state.profile, option.patch);
+  if (JSON.stringify(nextProfile) === JSON.stringify(state.profile)) {
+    throw new Error("The option does not change the profile.");
+  }
+
+  return {
+    type: "apply_closed",
+    commandId,
+    optionId: option.id,
+    label: option.label,
+    patch: option.patch,
+  };
+}
+
 export async function GET(
   request: Request,
   context: { params: Promise<{ profileId: string }> },
@@ -99,7 +130,14 @@ export async function PATCH(
         profileId,
         expectedVersion: envelope.expectedVersion,
         commandId: envelope.commandId,
-        mutation: (state) => demoReducer(state, action, catalog),
+        mutation: (state) =>
+          demoReducer(
+            state,
+            action.type === "apply_closed"
+              ? resolveClosedAction(state, action.optionId, envelope.commandId)
+              : action,
+            catalog,
+          ),
       });
       return NextResponse.json({ ok: true, profile });
     }

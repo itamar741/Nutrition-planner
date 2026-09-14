@@ -48,6 +48,11 @@ const foodSearch = vi.hoisted(() => ({
   searchSummaries: vi.fn(),
 }));
 
+vi.mock("@/ai/onboarding", () => ({
+  extractOnboardingFacts: () =>
+    Promise.resolve({ patch: {}, acknowledgement: "" }),
+}));
+
 vi.mock("@/sources/usda", () => ({
   searchUsdaFoodSummaries: (...args: unknown[]) => {
     foodSearch.searchSummaries(...args);
@@ -479,6 +484,68 @@ describe("unified coach orchestration", () => {
         ? result.profile.state.activePlan.version
         : null,
     ).toBe(1);
+  });
+
+  it("rejects adjustment approval from a noncurrent interaction", async () => {
+    const initial = await getProfile("existing");
+    if (!("measurements" in initial.state))
+      throw new Error("Expected Existing state.");
+    const draft = {
+      schemaVersion: 1 as const,
+      id: "stored-adjustment-proposal",
+      basePlanVersion: initial.state.activePlan.version,
+      reason: "modification" as const,
+      summary: "A stored adjustment proposal.",
+      plan: {
+        ...initial.state.activePlan.plan,
+        id: "stored-adjustment-plan",
+        version: initial.state.activePlan.version + 1,
+      },
+    };
+    const seeded = await mutateProfile({
+      profileId: "existing",
+      expectedVersion: initial.version,
+      commandId: "seed-adjustment-approval",
+      mutation: (state) => ({
+        ...state,
+        agentSession: {
+          ...state.agentSession,
+          pendingInteraction: {
+            id: "current-adjustment-interaction",
+            type: "adjustment_approval" as const,
+            draft,
+          },
+        },
+      }),
+    });
+
+    await expect(
+      executeCoachTurn({
+        ...turnInput(
+          "existing",
+          seeded.version,
+          "approve-noncurrent-adjustment",
+          "unused",
+        ),
+        request: {
+          profileId: "existing",
+          expectedVersion: seeded.version,
+          commandId: "approve-noncurrent-adjustment",
+          input: {
+            type: "interaction",
+            interactionId: "different-adjustment-interaction",
+            action: "approve_adjustment",
+          },
+        },
+      }),
+    ).rejects.toThrow("interaction is no longer active");
+
+    const unchanged = await getProfile("existing");
+    expect(unchanged.version).toBe(seeded.version);
+    expect(unchanged.state.activePlan).toEqual(initial.state.activePlan);
+    expect(unchanged.state.agentSession.pendingInteraction).toEqual(
+      seeded.state.agentSession.pendingInteraction,
+    );
   });
 
   it("offers a Maintenance adjustment for sustained 700 g drift even when the rate is stable", async () => {
@@ -957,6 +1024,16 @@ describe("unified coach orchestration", () => {
       },
     });
     expect(drafted.profile.state.agentSession.draftIntent).toBeNull();
+    expect(drafted.profile.state.agentSession.pendingInteraction).toEqual({
+      id: drafted.profile.state.draft!.id,
+      type: "draft_approval",
+      proposalId: drafted.profile.state.draft!.id,
+    });
+    const persistedDraft = await getProfile("existing");
+    expect(persistedDraft.state.draft).toEqual(drafted.profile.state.draft);
+    expect(persistedDraft.state.agentSession.pendingInteraction).toEqual(
+      drafted.profile.state.agentSession.pendingInteraction,
+    );
 
     agent.tool = null;
     const activated = await executeCoachTurn({
@@ -984,6 +1061,29 @@ describe("unified coach orchestration", () => {
     expect(
       activated.profile.state.activePlan.maintenanceReferenceWeightKg,
     ).toBe(activated.profile.state.measurements[0].weightKg);
+
+    await expect(
+      executeCoachTurn({
+        ...turnInput(
+          "existing",
+          activated.profile.version,
+          "existing-approve-ordinary-draft-again",
+          "unused",
+        ),
+        request: {
+          profileId: "existing",
+          expectedVersion: activated.profile.version,
+          commandId: "existing-approve-ordinary-draft-again",
+          input: {
+            type: "interaction",
+            interactionId: drafted.profile.state.draft!.id,
+            action: "approve_draft",
+          },
+        },
+      }),
+    ).rejects.toThrow("no longer awaiting review");
+    const activatedOnce = await getProfile("existing");
+    expect(activatedOnce.state.activePlan?.version).toBe(2);
   });
 
   it("forces a complete rebalanced Draft when an approved food is added to an Existing plan", async () => {
@@ -1115,6 +1215,14 @@ describe("unified coach orchestration", () => {
         ...state,
         activePlan: currentActivePlan,
         draft: staleDraft,
+        agentSession: {
+          ...state.agentSession,
+          pendingInteraction: {
+            id: staleDraft.id,
+            type: "draft_approval" as const,
+            proposalId: staleDraft.id,
+          },
+        },
       }),
     });
 
@@ -1144,6 +1252,144 @@ describe("unified coach orchestration", () => {
       throw new Error("Expected Existing state.");
     expect(unchanged.state.activePlan).toEqual(currentActivePlan);
     expect(unchanged.state.draft).toEqual(staleDraft);
+  });
+
+  it("rejects Draft approval unless it names the current pending interaction", async () => {
+    const initial = await getProfile("existing");
+    if (!("measurements" in initial.state))
+      throw new Error("Expected Existing state.");
+    const draft = {
+      schemaVersion: 1 as const,
+      id: "stored-current-draft",
+      basePlanVersion: initial.state.activePlan.version,
+      reason: "modification" as const,
+      summary: "A stored ordinary Draft.",
+      plan: {
+        ...initial.state.activePlan.plan,
+        id: "stored-current-plan",
+        version: initial.state.activePlan.version + 1,
+      },
+    };
+    const seeded = await mutateProfile({
+      profileId: "existing",
+      expectedVersion: initial.version,
+      commandId: "seed-current-draft-mismatch",
+      mutation: (state) => ({
+        ...state,
+        draft,
+        agentSession: {
+          ...state.agentSession,
+          pendingInteraction: {
+            id: "different-current-interaction",
+            type: "draft_approval" as const,
+            proposalId: draft.id,
+          },
+        },
+      }),
+    });
+
+    await expect(
+      executeCoachTurn({
+        ...turnInput(
+          "existing",
+          seeded.version,
+          "approve-noncurrent-draft",
+          "unused",
+        ),
+        request: {
+          profileId: "existing",
+          expectedVersion: seeded.version,
+          commandId: "approve-noncurrent-draft",
+          input: {
+            type: "interaction",
+            interactionId: draft.id,
+            action: "approve_draft",
+          },
+        },
+      }),
+    ).rejects.toThrow("no longer awaiting review");
+
+    const unchanged = await getProfile("existing");
+    expect(unchanged.version).toBe(seeded.version);
+    expect(unchanged.state.activePlan).toEqual(initial.state.activePlan);
+    expect(unchanged.state.draft).toEqual(draft);
+  });
+
+  it("recalculates a stored Draft instead of trusting its validation result", async () => {
+    const initial = await getProfile("existing");
+    if (!("measurements" in initial.state))
+      throw new Error("Expected Existing state.");
+    const draft = {
+      schemaVersion: 1 as const,
+      id: "forged-validation-draft",
+      basePlanVersion: initial.state.activePlan.version,
+      reason: "modification" as const,
+      summary: "A Draft with forged validation.",
+      plan: {
+        ...initial.state.activePlan.plan,
+        id: "forged-validation-plan",
+        version: initial.state.activePlan.version + 1,
+        targetSnapshot: {
+          ...initial.state.activePlan.plan.targetSnapshot,
+          energyKcal: 9_999,
+        },
+        meals: initial.state.activePlan.plan.meals.map((meal, mealIndex) => ({
+          ...meal,
+          items: meal.items.map((item, itemIndex) => ({
+            ...item,
+            grams: mealIndex === 0 && itemIndex === 0 ? 1 : item.grams,
+          })),
+        })),
+        validation: {
+          ...initial.state.activePlan.plan.validation,
+          valid: true,
+          issues: [],
+        },
+      },
+    };
+    const seeded = await mutateProfile({
+      profileId: "existing",
+      expectedVersion: initial.version,
+      commandId: "seed-forged-validation-draft",
+      mutation: (state) => ({
+        ...state,
+        draft,
+        agentSession: {
+          ...state.agentSession,
+          pendingInteraction: {
+            id: draft.id,
+            type: "draft_approval" as const,
+            proposalId: draft.id,
+          },
+        },
+      }),
+    });
+
+    await expect(
+      executeCoachTurn({
+        ...turnInput(
+          "existing",
+          seeded.version,
+          "approve-forged-validation",
+          "unused",
+        ),
+        request: {
+          profileId: "existing",
+          expectedVersion: seeded.version,
+          commandId: "approve-forged-validation",
+          input: {
+            type: "interaction",
+            interactionId: draft.id,
+            action: "approve_draft",
+          },
+        },
+      }),
+    ).rejects.toThrow("stale or failed deterministic validation");
+
+    const unchanged = await getProfile("existing");
+    expect(unchanged.version).toBe(seeded.version);
+    expect(unchanged.state.activePlan).toEqual(initial.state.activePlan);
+    expect(unchanged.state.draft).toEqual(draft);
   });
 
   it("stores an explicit preference as reset-scoped structured data", async () => {

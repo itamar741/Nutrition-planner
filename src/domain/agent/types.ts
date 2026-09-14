@@ -113,6 +113,11 @@ export type AgentInteraction =
     }
   | {
       id: string;
+      type: "draft_approval";
+      proposalId: string;
+    }
+  | {
+      id: string;
       type: "adjustment_approval";
       draft: DraftProposal;
     }
@@ -265,6 +270,13 @@ export const agentInteractionSchema = z.discriminatedUnion("type", [
       basePlanVersion: z.number().int().positive(),
       direction: z.enum(["increase", "decrease"]),
       adjustmentKcal: z.number().int().min(100).max(200),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1).max(100),
+      type: z.literal("draft_approval"),
+      proposalId: z.string().min(1).max(200),
     })
     .strict(),
   z

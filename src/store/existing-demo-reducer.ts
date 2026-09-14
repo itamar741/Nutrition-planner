@@ -1,50 +1,37 @@
-import type { DraftProposal } from "@/domain/plan/types";
-import type { WeightMeasurement } from "@/domain/weight/trend";
-import type {
-  ExistingChatMessage,
-  ExistingDemoState,
-} from "./existing-demo-store";
+import { formatWeightKg, type WeightMeasurement } from "@/domain/weight/trend";
+import type { ExistingDemoState } from "./existing-demo-store";
 
 export type ExistingDemoAction =
-  | {
-      type: "add_messages";
-      commandId: string;
-      messages: ExistingChatMessage[];
-    }
   | {
       type: "record_weight";
       commandId: string;
       measurement: WeightMeasurement;
-      messages: ExistingChatMessage[];
     }
   | {
       type: "edit_weight";
       commandId: string;
       date: string;
       weightKg: number;
-      messages: ExistingChatMessage[];
     }
   | {
       type: "delete_weight";
       commandId: string;
       date: string;
-      messages: ExistingChatMessage[];
-    }
-  | {
-      type: "approve_adjustment";
-      commandId: string;
-      draft: DraftProposal;
-      activatedAt: string;
-      messages: ExistingChatMessage[];
     };
+
+function assistantMessage(commandId: string, text: string) {
+  return {
+    id: `assistant-${commandId}`,
+    role: "assistant" as const,
+    text,
+  };
+}
 
 export function existingDemoReducer(
   state: ExistingDemoState,
   action: ExistingDemoAction,
 ): ExistingDemoState {
   switch (action.type) {
-    case "add_messages":
-      return { ...state, messages: [...state.messages, ...action.messages] };
     case "record_weight":
       if (
         state.measurements.some(
@@ -58,7 +45,13 @@ export function existingDemoReducer(
       return {
         ...state,
         measurements: [...state.measurements, action.measurement],
-        messages: [...state.messages, ...action.messages],
+        messages: [
+          ...state.messages,
+          assistantMessage(
+            action.commandId,
+            `Recorded ${formatWeightKg(action.measurement.weightKg)} kg for today. Your trend was recalculated.`,
+          ),
+        ],
       };
     case "edit_weight":
       return {
@@ -72,7 +65,13 @@ export function existingDemoReducer(
               }
             : item,
         ),
-        messages: [...state.messages, ...action.messages],
+        messages: [
+          ...state.messages,
+          assistantMessage(
+            action.commandId,
+            `Updated ${action.date} to ${formatWeightKg(action.weightKg)} kg. Your trend was recalculated.`,
+          ),
+        ],
       };
     case "delete_weight":
       if (!state.measurements.some((item) => item.date === action.date)) {
@@ -83,27 +82,13 @@ export function existingDemoReducer(
         measurements: state.measurements.filter(
           (item) => item.date !== action.date,
         ),
-        messages: [...state.messages, ...action.messages],
-      };
-    case "approve_adjustment":
-      if (
-        action.draft.basePlanVersion !== state.activePlan.version ||
-        !action.draft.plan.validation.valid
-      ) {
-        return state;
-      }
-      return {
-        ...state,
-        draft: null,
-        activePlan: {
-          ...state.activePlan,
-          version: action.draft.plan.version,
-          activatedAt: action.activatedAt,
-          maintenanceReferenceWeightKg:
-            state.activePlan.maintenanceReferenceWeightKg,
-          plan: action.draft.plan,
-        },
-        messages: [...state.messages, ...action.messages],
+        messages: [
+          ...state.messages,
+          assistantMessage(
+            action.commandId,
+            `Deleted the weight recorded for ${action.date}. Your trend was recalculated.`,
+          ),
+        ],
       };
   }
 }

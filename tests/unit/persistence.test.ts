@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CatalogFood } from "@/domain/catalog/types";
 import {
   StaleProfileError,
@@ -8,6 +8,7 @@ import {
   getProfile,
   listCatalogFoods,
   mutateProfile,
+  recordAndCheckDemoAccessRateLimit,
   recordAndCheckRateLimit,
   recordAndCheckAgentRateLimit,
   reserveAgentTurn,
@@ -259,6 +260,32 @@ describe("persistent lookup limits", () => {
       commandId: "reset-does-not-clear-rate-limit",
     });
     await expect(recordAndCheckRateLimit(identity)).resolves.toBe(false);
+  });
+});
+
+describe("persistent demo access limits", () => {
+  it("allows five attempts, blocks the sixth, and expires after 15 minutes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-14T12:00:00.000Z"));
+    const identity = { sessionHash: "anonymous", ipHash: "anonymous" };
+
+    try {
+      for (let index = 0; index < 5; index += 1) {
+        await expect(recordAndCheckDemoAccessRateLimit(identity)).resolves.toBe(
+          true,
+        );
+      }
+      await expect(recordAndCheckDemoAccessRateLimit(identity)).resolves.toBe(
+        false,
+      );
+
+      vi.setSystemTime(new Date("2026-09-14T12:15:00.001Z"));
+      await expect(recordAndCheckDemoAccessRateLimit(identity)).resolves.toBe(
+        true,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

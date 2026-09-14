@@ -7,6 +7,7 @@ import {
   type DemoAction,
   type DemoState,
 } from "@/store/demo-reducer";
+import { newDemoCloudActionSchema } from "@/store/cloud-action-schemas";
 
 export async function installNewCloudProfile(
   page: Page,
@@ -37,8 +38,9 @@ export async function installNewCloudProfile(
       const body = route.request().postDataJSON() as {
         expectedVersion: number;
         commandId: string;
-        action: DemoAction;
+        action: unknown;
       };
+      const action = newDemoCloudActionSchema.parse(body.action);
       const duplicate = commandResults.get(body.commandId);
       if (duplicate) {
         await route.fulfill({
@@ -61,9 +63,27 @@ export async function installNewCloudProfile(
         });
         return;
       }
+      let reducerAction: DemoAction;
+      if (action.type === "apply_closed") {
+        const turn = state.activeTurn;
+        const option =
+          turn.type === "closed_question"
+            ? turn.options.find((candidate) => candidate.id === action.optionId)
+            : undefined;
+        if (!option) throw new Error("The option was not offered.");
+        reducerAction = {
+          type: "apply_closed",
+          commandId: body.commandId,
+          optionId: option.id,
+          label: option.label,
+          patch: option.patch,
+        };
+      } else {
+        reducerAction = action;
+      }
       state = demoReducer(
         state,
-        body.action,
+        reducerAction,
         createCatalogSnapshot(foodCatalog),
       );
       version += 1;

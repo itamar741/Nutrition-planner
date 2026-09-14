@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createAccessToken,
+  demoAccessConfigurationAvailable,
   verifyAccessCode,
   verifyAccessToken,
 } from "@/security/demo-access";
@@ -24,6 +25,7 @@ afterEach(() => {
   else process.env.DEMO_ACCESS_CODE = originalCode;
   if (originalSecret === undefined) delete process.env.COOKIE_SIGNING_SECRET;
   else process.env.COOKIE_SIGNING_SECRET = originalSecret;
+  vi.unstubAllEnvs();
 });
 
 describe("shared demo access", () => {
@@ -39,20 +41,72 @@ describe("shared demo access", () => {
     expect(verifyAccessToken(`${token.slice(0, -1)}x`)).toBe(false);
   });
 
-  it("produces stable hashes without retaining the raw address", () => {
+  it.each(["DEMO_ACCESS_CODE", "COOKIE_SIGNING_SECRET"] as const)(
+    "fails closed when production is missing %s",
+    (missingSecret) => {
+      const token = createAccessToken();
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env[missingSecret];
+
+      expect(demoAccessConfigurationAvailable()).toBe(false);
+      expect(verifyAccessCode("lecturer-demo")).toBe(false);
+      expect(verifyAccessToken(token)).toBe(false);
+      expect(() => createAccessToken()).toThrow(
+        "Demo access is not configured.",
+      );
+    },
+  );
+
+  it("rejects a short production signing secret", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    process.env.COOKIE_SIGNING_SECRET = "too-short";
+
+    expect(demoAccessConfigurationAvailable()).toBe(false);
+    expect(verifyAccessCode("lecturer-demo")).toBe(false);
+  });
+
+  it("ignores forwarding headers before access is granted", () => {
+    const first = rateIdentity(
+      new Request("https://demo.example", {
+        headers: { "x-forwarded-for": "203.0.113.42" },
+      }),
+    );
+    const second = rateIdentity(
+      new Request("https://demo.example", {
+        headers: {
+          cookie: "nutrition_demo_access=forged-token",
+          "x-forwarded-for": "198.51.100.9",
+        },
+      }),
+    );
+
+    expect(first).toEqual(second);
+    expect(first.sessionHash).toBe(first.ipHash);
+    expect(first.sessionHash).toHaveLength(64);
+  });
+
+  it("derives a stable identity only from a verified access token", () => {
+    const token = createAccessToken();
     const request = new Request("https://demo.example", {
       headers: {
-        cookie: "nutrition_demo_access=test-session",
+        cookie: `nutrition_demo_access=${token}`,
         "x-forwarded-for": "203.0.113.42, 10.0.0.1",
       },
     });
     const first = rateIdentity(request);
-    const second = rateIdentity(request);
+    const second = rateIdentity(
+      new Request("https://demo.example", {
+        headers: {
+          cookie: `nutrition_demo_access=${token}`,
+          "x-forwarded-for": "198.51.100.9",
+        },
+      }),
+    );
+    const anonymous = rateIdentity(new Request("https://demo.example"));
 
     expect(first).toEqual(second);
-    expect(first.ipHash).not.toContain("203.0.113.42");
-    expect(first.sessionHash).not.toContain("test-session");
-    expect(first.ipHash).toHaveLength(64);
+    expect(first).not.toEqual(anonymous);
+    expect(first.sessionHash).toBe(first.ipHash);
   });
 
   it("requires profile ownership on every candidate follow-up", () => {

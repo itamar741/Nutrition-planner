@@ -6,16 +6,14 @@ import {
   exerciseTypeSchema,
   goalSchema,
   mealPatternSchema,
-  nutritionTargetsSchema,
-  structuredProfileSchema,
-  assistantTurnSchema,
 } from "@/domain/profile/schemas";
 
 export const onboardingRequestSchema = z
   .object({
+    profileId: z.literal("new"),
+    expectedVersion: z.number().int().positive(),
     commandId: z.string().min(8).max(100),
     message: z.string().trim().min(1).max(1_000),
-    profile: structuredProfileSchema,
   })
   .strict();
 
@@ -45,10 +43,13 @@ export const onboardingSuccessSchema = z
   .object({
     ok: z.literal(true),
     commandId: z.string(),
-    profile: structuredProfileSchema,
-    activeTurn: assistantTurnSchema,
-    targets: nutritionTargetsSchema.nullable(),
-    acknowledgement: z.string(),
+    profile: z
+      .object({
+        profileId: z.literal("new"),
+        version: z.number().int().positive(),
+        state: z.unknown(),
+      })
+      .strict(),
   })
   .strict();
 

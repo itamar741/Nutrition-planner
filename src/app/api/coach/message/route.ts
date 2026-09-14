@@ -37,23 +37,33 @@ function safeCoachErrorMessage(error: unknown) {
     return "The coach proposed an invalid action. Your confirmed state was preserved.";
   }
   const message = error instanceof Error ? error.message : "";
-  const safePrefixes = [
-    "That ",
-    "There is no ",
-    "Choose one ",
-    "Select one ",
-    "No weight is recorded ",
-    "Today's weight already exists",
-    "Weight history is available ",
-    "Draft creation is available ",
-    "The deterministic trend ",
-    "The adjustment is stale ",
-    "The Draft is stale ",
-    "The catalog food no longer exists",
-    "An AI estimate is available ",
-    "The food-search limit has been reached",
-  ];
-  if (safePrefixes.some((prefix) => message.startsWith(prefix))) return message;
+  const publicMessages = new Set([
+    "The food-search limit has been reached. Try again later.",
+    "That Draft is no longer awaiting review.",
+    "The Draft is stale or failed deterministic validation.",
+    "That interaction is no longer active. Reload and try again.",
+    "That session review is no longer current.",
+    "There is no current adjustment offer.",
+    "Choose one displayed candidate.",
+    "There is no food awaiting approval.",
+    "There is no food awaiting review.",
+    "There is no catalog food awaiting selection.",
+    "There is no adjustment awaiting approval.",
+    "The adjustment is stale or invalid.",
+    "There is no adjustment awaiting review.",
+    "There is no food continuation awaiting confirmation.",
+    "There is no Draft continuation awaiting confirmation.",
+    "There is no failed source lookup awaiting confirmation.",
+    "There is no food search awaiting refinement.",
+    "That preference is not supported by a stored user message.",
+    "That food is not approved for this profile.",
+    "No weight is recorded for that date.",
+    "Select one of the currently displayed candidates.",
+    "The deterministic trend does not support an adjustment.",
+    "The catalog food no longer exists.",
+    "An AI estimate is available only after a failed source lookup.",
+  ]);
+  if (publicMessages.has(message)) return message;
   return "The coach could not complete this turn. Your confirmed state was preserved.";
 }
 
@@ -157,7 +167,13 @@ export async function POST(request: Request) {
       );
     }
     if (error instanceof AgentTurnReplayError) {
-      return jsonError(error.message, 409, { code: "command_replay_mismatch" });
+      return jsonError(
+        "A repeated command must use the original request.",
+        409,
+        {
+          code: "command_replay_mismatch",
+        },
+      );
     }
     throw error;
   }
