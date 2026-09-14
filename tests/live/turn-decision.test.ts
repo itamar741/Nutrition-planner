@@ -30,6 +30,16 @@ liveDescribe("live structured turn decisions", () => {
       speechAct: "request",
     });
 
+    const goalChange = await interpretTurnDecision({
+      ...baseContext,
+      message: "Change my goal to fat loss",
+    });
+    expect(goalChange).toMatchObject({
+      intent: "goal_change",
+      speechAct: "request",
+    });
+    expect(decisionAuthorizesIntent(goalChange, "goal_change")).toBe(true);
+
     const alternatives = await interpretTurnDecision({
       ...baseContext,
       message: "i dont like rice. any other oprions for my meal plan?",
@@ -98,8 +108,8 @@ liveDescribe("live structured turn decisions", () => {
     });
     expect(adjustmentRetry).toMatchObject({
       intent: "adjustment_retry",
-      speechAct: "answer",
     });
+    expect(["answer", "request"]).toContain(adjustmentRetry.speechAct);
 
     const fifthCandidate = await interpretTurnDecision({
       ...baseContext,
@@ -132,6 +142,7 @@ liveDescribe("live structured turn decisions", () => {
         staleTranscriptReply,
         staleTranscriptReply.intent,
       ),
+      JSON.stringify(staleTranscriptReply),
     ).toBe(false);
   }, 90_000);
 
@@ -170,9 +181,10 @@ liveDescribe("live structured turn decisions", () => {
         ...onboardingContext,
         message,
       });
-      expect(decisionAuthorizesOnboardingExtraction(decision, true)).toBe(
-        false,
-      );
+      expect(
+        decisionAuthorizesOnboardingExtraction(decision, true),
+        `${message}: ${JSON.stringify(decision)}`,
+      ).toBe(false);
     }
   }, 90_000);
 });

@@ -8,6 +8,7 @@ const toolsByIntent: Record<TurnDecision["intent"], CoachToolName[]> = {
   plan_create: ["submit_draft_proposal"],
   plan_replace: ["submit_draft_proposal"],
   plan_revise: ["submit_draft_proposal"],
+  goal_change: [],
   food_alternatives: [],
   food_alternative_selection: ["submit_draft_proposal"],
   draft_retry: ["submit_draft_proposal"],
@@ -47,11 +48,19 @@ export function decisionAuthorizesIntent(
   if (!decision || decision.intent !== intent || !decision.evidence) {
     return false;
   }
-  if (decision.speechAct === "request") return true;
-  if (decision.speechAct === "question") return questionIntents.has(intent);
+  if (decision.speechAct === "request") {
+    return decision.referenceScope === "explicit_current";
+  }
+  if (decision.speechAct === "question") {
+    return (
+      decision.referenceScope === "explicit_current" &&
+      questionIntents.has(intent)
+    );
+  }
   if (decision.speechAct !== "answer" || !answerIntents.has(intent)) {
     return false;
   }
+  if (decision.referenceScope !== "persisted_interaction") return false;
   switch (intent) {
     case "food_alternative_selection":
       return (
@@ -111,6 +120,7 @@ export function decisionAuthorizesOnboardingExtraction(
     onboardingRequired &&
     decision?.intent === "onboarding_answer" &&
     decision.evidence &&
+    decision.referenceScope === "explicit_current" &&
     (decision.speechAct === "answer" || decision.speechAct === "request"),
   );
 }

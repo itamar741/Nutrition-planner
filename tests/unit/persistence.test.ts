@@ -117,6 +117,23 @@ describe("versioned demo persistence", () => {
     expect(upgraded.messages).toEqual(current.messages);
   });
 
+  it("accepts projected assistant replies up to the conversation persistence limit", () => {
+    const current = createExistingDemoState(
+      new Date("2026-09-05T00:00:00.000Z"),
+    );
+    const assistantText = "a".repeat(4_000);
+
+    const parsed = parseExistingState({
+      ...current,
+      messages: [
+        ...current.messages,
+        { id: "long-assistant-reply", role: "assistant", text: assistantText },
+      ],
+    });
+
+    expect(parsed.messages.at(-1)?.text).toBe(assistantText);
+  });
+
   it("isolates profile changes and rejects stale versions", async () => {
     const existingBefore = await getProfile<ExistingDemoState>("existing");
     const fresh = await getProfile<DemoState>("new");

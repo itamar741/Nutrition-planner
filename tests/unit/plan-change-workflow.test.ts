@@ -83,6 +83,7 @@ describe("plan change workflow", () => {
         speechAct: "answer",
         foodNames: ["Potato"],
         candidateOrdinal: null,
+        referenceScope: "persisted_interaction",
         planChangeStrategy: null,
         evidence: "Potato",
       },

@@ -36,6 +36,8 @@ beforeEach(() => {
     intent: "onboarding_answer",
     speechAct: "answer",
     foodNames: [],
+    candidateOrdinal: null,
+    referenceScope: "explicit_current",
     planChangeStrategy: null,
     evidence: "I am 30",
   });
@@ -174,6 +176,8 @@ describe("protected onboarding", () => {
       intent: "onboarding_answer",
       speechAct: "answer",
       foodNames: [],
+      candidateOrdinal: null,
+      referenceScope: "explicit_current",
       planChangeStrategy: null,
       evidence: "Actually, I am 31",
     });
@@ -224,6 +228,8 @@ describe("protected onboarding", () => {
       intent: "onboarding_answer",
       speechAct: "answer",
       foodNames: [],
+      candidateOrdinal: null,
+      referenceScope: "explicit_current",
       planChangeStrategy: null,
       evidence: "Actually, I weigh 78 kg",
     });

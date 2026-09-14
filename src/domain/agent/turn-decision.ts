@@ -5,6 +5,7 @@ export const turnIntentSchema = z.enum([
   "plan_create",
   "plan_replace",
   "plan_revise",
+  "goal_change",
   "food_alternatives",
   "food_alternative_selection",
   "draft_retry",
@@ -37,12 +38,20 @@ export const planChangeStrategySchema = z.enum([
   "different_approved_mix",
 ]);
 
+export const turnReferenceScopeSchema = z.enum([
+  "explicit_current",
+  "persisted_interaction",
+  "conversation_only",
+  "none",
+]);
+
 export const turnDecisionSchema = z
   .object({
     intent: turnIntentSchema,
     speechAct: turnSpeechActSchema,
     foodNames: z.array(z.string().trim().min(1).max(120)).max(8),
     candidateOrdinal: z.number().int().min(1).max(5).nullable(),
+    referenceScope: turnReferenceScopeSchema,
     planChangeStrategy: planChangeStrategySchema.nullable(),
     evidence: z.string().trim().min(1).max(240).nullable(),
   })
@@ -59,6 +68,10 @@ const directPlanMutationIntents = new Set<TurnDecision["intent"]>([
 export function requestsPlanMutation(decision: TurnDecision) {
   return (
     decision.evidence !== null &&
+    ((decision.referenceScope === "explicit_current" &&
+      decision.speechAct === "request") ||
+      (decision.referenceScope === "persisted_interaction" &&
+        decision.speechAct === "answer")) &&
     ((directPlanMutationIntents.has(decision.intent) &&
       decision.speechAct === "request") ||
       (decision.intent === "food_alternative_selection" &&
@@ -71,6 +84,7 @@ export function requestsFoodAlternativeOffer(decision: TurnDecision) {
   return (
     decision.intent === "food_alternatives" &&
     decision.evidence !== null &&
+    decision.referenceScope === "explicit_current" &&
     (decision.speechAct === "request" || decision.speechAct === "question")
   );
 }

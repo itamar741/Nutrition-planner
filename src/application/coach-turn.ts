@@ -1248,7 +1248,6 @@ export async function executeCoachTurn(input: {
       };
       const assistantText =
         `${extraction.acknowledgement} ${activeTurn.prompt}`.trim();
-      input.onText(assistantText);
       profile = await atTurnStage("profile_persist", () =>
         mutateProfile({
           profileId: input.request.profileId,
@@ -1258,8 +1257,27 @@ export async function executeCoachTurn(input: {
           mutation: () => state,
         }),
       );
+      input.onText(assistantText);
       return { profile, assistantText };
     }
+  }
+  if (
+    input.request.input.type === "text" &&
+    decisionAuthorizesIntent(turnDecision, "goal_change")
+  ) {
+    const assistantText =
+      "To choose a different nutrition goal, use Reset and complete onboarding again. Your current goal and Active Plan were not changed.";
+    profile = await atTurnStage("profile_persist", () =>
+      mutateProfile({
+        profileId: input.request.profileId,
+        expectedVersion: profile.version,
+        commandId: input.request.commandId,
+        agentTurnLease: turnLease,
+        mutation: () => state,
+      }),
+    );
+    input.onText(assistantText);
+    return { profile, assistantText };
   }
   if (input.request.input.type === "interaction") {
     input.onStatus("validating");
@@ -1668,7 +1686,6 @@ export async function executeCoachTurn(input: {
         "The interaction did not produce a deterministic result.",
       );
     }
-    input.onText(assistantText);
     profile = await atTurnStage("profile_persist", () =>
       mutateProfile({
         profileId: input.request.profileId,
@@ -1678,6 +1695,7 @@ export async function executeCoachTurn(input: {
         mutation: () => state,
       }),
     );
+    input.onText(assistantText);
     return { profile, catalogFood: approvedCatalogFood, assistantText };
   }
 
@@ -2586,7 +2604,6 @@ export async function executeCoachTurn(input: {
     (weightConfirmation ?? finalAgentText.trim()) ||
     result.text.trim() ||
     "Done. What would you like to do next?";
-  input.onText(assistantText);
   state = {
     ...state,
     agentSession: {
@@ -2606,6 +2623,7 @@ export async function executeCoachTurn(input: {
       mutation: () => state,
     }),
   );
+  input.onText(assistantText);
   console.info("coach_turn_persisted", {
     turnId: input.turnId,
     commandId: input.request.commandId,

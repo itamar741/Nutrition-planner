@@ -322,6 +322,23 @@ export const agentSessionSchema = z
   })
   .strict();
 
+export const projectedConversationMessageSchema = z.discriminatedUnion("role", [
+  z
+    .object({
+      id: z.string(),
+      role: z.literal("user"),
+      text: z.string().min(1).max(1_000),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string(),
+      role: z.literal("assistant"),
+      text: z.string().min(1).max(4_000),
+    })
+    .strict(),
+]);
+
 export const coachMessageRequestSchema = z
   .object({
     profileId: z.enum(["new", "existing"]),

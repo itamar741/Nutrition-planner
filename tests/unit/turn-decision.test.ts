@@ -15,6 +15,7 @@ const planReplacement: TurnDecision = {
   speechAct: "request",
   foodNames: [],
   candidateOrdinal: null,
+  referenceScope: "explicit_current",
   planChangeStrategy: null,
   evidence: "change the whole meal plan",
 };
@@ -50,6 +51,7 @@ describe("structured turn decision", () => {
       speechAct: "question",
       foodNames: ["rice"],
       candidateOrdinal: null,
+      referenceScope: "explicit_current",
       planChangeStrategy: null,
       evidence: "any other oprions",
     });
@@ -58,6 +60,7 @@ describe("structured turn decision", () => {
       speechAct: "answer",
       foodNames: ["couscous"],
       candidateOrdinal: null,
+      referenceScope: "persisted_interaction",
       planChangeStrategy: null,
       evidence: "couscous",
     });
@@ -73,6 +76,7 @@ describe("structured turn decision", () => {
       speechAct: "answer",
       foodNames: [],
       candidateOrdinal: null,
+      referenceScope: "explicit_current",
       planChangeStrategy: null,
       evidence: "I am 30",
     };
@@ -105,6 +109,45 @@ describe("structured turn decision", () => {
     expect(createResponse.mock.calls[0]?.[0].instructions).toContain(
       "Do not relabel them as onboarding answers",
     );
+  });
+
+  it("fails closed on a bare number for a multi-field onboarding question", async () => {
+    const createResponse = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        intent: "onboarding_answer",
+        speechAct: "answer",
+        foodNames: [],
+        candidateOrdinal: null,
+        referenceScope: "explicit_current",
+        planChangeStrategy: null,
+        evidence: "30",
+      }),
+    );
+
+    await expect(
+      interpretTurnDecision(
+        {
+          message: "30",
+          hasActivePlan: false,
+          hasDraft: false,
+          onboardingRequired: true,
+          onboardingTurn: {
+            id: "collect-basics",
+            type: "open_question",
+            field: "multiple",
+            prompt: "Tell me your age, sex, height, and current weight.",
+            optionLabels: [],
+          },
+          recentConversation: [],
+          pendingInteraction: null,
+        },
+        createResponse,
+      ),
+    ).resolves.toMatchObject({
+      intent: "unknown",
+      speechAct: "unknown",
+      evidence: null,
+    });
   });
 
   it.each(["question", "hypothetical", "negated", "answer"] as const)(
@@ -162,5 +205,26 @@ describe("structured turn decision", () => {
       ),
     ).rejects.toBeInstanceOf(TurnDecisionContractError);
     expect(invalid).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not disguise a provider failure as a structured-contract retry", async () => {
+    const providerError = new Error("provider unavailable");
+    const unavailable = vi.fn().mockRejectedValue(providerError);
+
+    await expect(
+      interpretTurnDecision(
+        {
+          message: "Change my goal to fat loss",
+          hasActivePlan: true,
+          hasDraft: false,
+          onboardingRequired: false,
+          onboardingTurn: null,
+          recentConversation: [],
+          pendingInteraction: null,
+        },
+        unavailable,
+      ),
+    ).rejects.toBe(providerError);
+    expect(unavailable).toHaveBeenCalledTimes(1);
   });
 });

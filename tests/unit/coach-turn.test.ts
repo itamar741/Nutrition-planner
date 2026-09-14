@@ -33,6 +33,7 @@ const agent = vi.hoisted(() => ({
   requiredFirstTools: [] as Array<string | null>,
   responseText: "Completed safely.",
   toolResults: [] as Array<Record<string, unknown>>,
+  beforeReturn: null as null | (() => Promise<void>),
 }));
 
 const foodSearch = vi.hoisted(() => ({
@@ -78,6 +79,11 @@ vi.mock("@/ai/turn-decision", () => ({
       const base = {
         foodNames: namedFood ? [namedFood] : ([] as string[]),
         candidateOrdinal: null as number | null,
+        referenceScope: "explicit_current" as
+          | "explicit_current"
+          | "persisted_interaction"
+          | "conversation_only"
+          | "none",
         planChangeStrategy: null as
           null | "preserve_structure" | "different_approved_mix",
         evidence: input.message,
@@ -95,6 +101,7 @@ vi.mock("@/ai/turn-decision", () => ({
           ...base,
           intent: "adjustment_retry",
           speechAct: "answer",
+          referenceScope: "persisted_interaction",
           planChangeStrategy: /different mix|fresh mix/.test(text)
             ? "different_approved_mix"
             : "preserve_structure",
@@ -105,6 +112,7 @@ vi.mock("@/ai/turn-decision", () => ({
           ...base,
           intent: "draft_retry",
           speechAct: "answer",
+          referenceScope: "persisted_interaction",
           planChangeStrategy: "different_approved_mix",
         };
       }
@@ -116,6 +124,7 @@ vi.mock("@/ai/turn-decision", () => ({
           ...base,
           intent: "draft_retry",
           speechAct: "answer",
+          referenceScope: "persisted_interaction",
           planChangeStrategy: "preserve_structure",
         };
       }
@@ -127,6 +136,7 @@ vi.mock("@/ai/turn-decision", () => ({
           ...base,
           intent: "food_alternative_selection",
           speechAct: "answer",
+          referenceScope: "persisted_interaction",
           foodNames: [selected],
         };
       }
@@ -137,6 +147,9 @@ vi.mock("@/ai/turn-decision", () => ({
           speechAct: "question",
           foodNames: text.includes("rice") ? ["rice"] : [],
         };
+      }
+      if (/goal/.test(text) && /change|choose|switch/.test(text)) {
+        return { ...base, intent: "goal_change", speechAct: "request" };
       }
       if (/what would|what if|if i/.test(text) && /plan|draft/.test(text)) {
         return {
@@ -179,13 +192,23 @@ vi.mock("@/ai/turn-decision", () => ({
         .join(" ")
         .toLocaleLowerCase("en-US");
       if (/edit it/.test(text) && /today|todays/.test(recentText)) {
-        return { ...base, intent: "weight_record", speechAct: "answer" };
+        return {
+          ...base,
+          intent: "weight_record",
+          speechAct: "answer",
+          referenceScope: "persisted_interaction",
+        };
       }
       if (
         /add it/.test(text) &&
         /yesterday|\d{4}-\d{2}-\d{2}/.test(recentText)
       ) {
-        return { ...base, intent: "weight_edit", speechAct: "answer" };
+        return {
+          ...base,
+          intent: "weight_edit",
+          speechAct: "answer",
+          referenceScope: "persisted_interaction",
+        };
       }
       if (
         input.pendingInteraction?.type === "food_candidates" &&
@@ -195,6 +218,7 @@ vi.mock("@/ai/turn-decision", () => ({
           ...base,
           intent: "food_candidate_selection",
           speechAct: "answer",
+          referenceScope: "persisted_interaction",
           candidateOrdinal: /\b(?:fifth|5)\b/.test(text)
             ? 5
             : /\b(?:fourth|4)\b/.test(text)
@@ -218,6 +242,10 @@ vi.mock("@/ai/turn-decision", () => ({
             input.pendingInteraction?.type === "clarification"
               ? "answer"
               : "request",
+          referenceScope:
+            input.pendingInteraction?.type === "clarification"
+              ? "persisted_interaction"
+              : "explicit_current",
         };
       }
       if (
@@ -312,6 +340,7 @@ vi.mock("@/ai/coach-agent", () => ({
         );
       }
       agent.allowedAfterCalls.push([...input.getAllowedTools()]);
+      await agent.beforeReturn?.();
       input.onText(agent.responseText);
       return {
         text: agent.responseText,
@@ -376,6 +405,7 @@ describe("unified coach orchestration", () => {
     agent.requiredFirstTools = [];
     agent.responseText = "Completed safely.";
     agent.toolResults = [];
+    agent.beforeReturn = null;
     foodSearch.searchSummaries.mockReset();
     foodSearch.ranking = {
       outcome: "clarification",
@@ -527,6 +557,31 @@ describe("unified coach orchestration", () => {
           )?.weightKg
         : null,
     ).toBe(81.09);
+  });
+
+  it("does not emit success text when the authoritative profile write loses a race", async () => {
+    const initial = await getProfile("existing");
+    const request = turnInput(
+      "existing",
+      initial.version,
+      "agent-weight-stale-write",
+      "Record 76.2 kg today",
+    );
+    agent.tool = { name: "record_weight", arguments: { weightKg: 76.2 } };
+    agent.responseText = "Recorded 76.2 kg for today.";
+    agent.beforeReturn = async () => {
+      await mutateProfile({
+        profileId: "existing",
+        expectedVersion: initial.version,
+        commandId: "concurrent-profile-write",
+        mutation: (state) => state,
+      });
+    };
+
+    await expect(executeCoachTurn(request)).rejects.toThrow(
+      "The demo changed in another browser.",
+    );
+    expect(request.onText).not.toHaveBeenCalled();
   });
 
   it("gives Fresh Arnold the complete weight history and today's measurement", async () => {
@@ -1854,6 +1909,32 @@ describe("unified coach orchestration", () => {
       workflow: "draft",
       quickReplies: expect.arrayContaining(["Potato"]),
     });
+  });
+
+  it("explains goal reset without creating a meal-plan Draft", async () => {
+    const initial = await getProfile("existing");
+    if (!("measurements" in initial.state))
+      throw new Error("Expected Existing state.");
+    const activeBefore = structuredClone(initial.state.activePlan);
+    agent.responseText =
+      "To choose a different nutrition goal, reset and complete onboarding again.";
+
+    const result = await executeCoachTurn(
+      turnInput(
+        "existing",
+        initial.version,
+        "change-nutrition-goal",
+        "Change my goal to fat loss",
+      ),
+    );
+
+    expect(agent.requiredFirstTools).toEqual([]);
+    expect(agent.allowedAfterCalls).toEqual([]);
+    expect(result.assistantText).toContain("use Reset");
+    expect(result.assistantText).toContain("were not changed");
+    expect(result.profile.state.activePlan).toEqual(activeBefore);
+    expect(result.profile.state.draft).toBeNull();
+    expect(result.profile.state.agentSession.planChange).toBeNull();
   });
 
   it("does not invent or persist a replacement workflow when no approved alternative exists", async () => {

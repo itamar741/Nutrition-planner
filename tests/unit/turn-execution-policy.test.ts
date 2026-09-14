@@ -28,6 +28,7 @@ function decision(
     speechAct: "request",
     foodNames: [],
     candidateOrdinal: null,
+    referenceScope: "explicit_current",
     planChangeStrategy: null,
     evidence: "supporting text",
     ...input,
@@ -62,10 +63,17 @@ describe("turn execution policy", () => {
     ).toEqual([]);
   });
 
+  it("keeps goal changes separate from meal-plan Draft mutations", () => {
+    const goalChange = decision({ intent: "goal_change" });
+    expect(decisionAuthorizesIntent(goalChange, "goal_change")).toBe(true);
+    expect(allowedToolsForDecision(allTools, goalChange)).toEqual([]);
+  });
+
   it("authorizes bounded onboarding extraction only for an onboarding answer", () => {
     const answer = decision({
       intent: "onboarding_answer",
       speechAct: "answer",
+      referenceScope: "explicit_current",
     });
     expect(decisionAuthorizesOnboardingExtraction(answer, true)).toBe(true);
     expect(decisionAuthorizesOnboardingExtraction(answer, false)).toBe(false);
@@ -87,6 +95,7 @@ describe("turn execution policy", () => {
     const answer = decision({
       intent: "food_search",
       speechAct: "answer",
+      referenceScope: "persisted_interaction",
     });
     const foodClarification: AgentInteraction = {
       id: "food-clarification",
@@ -106,6 +115,7 @@ describe("turn execution policy", () => {
     const draftRetry = decision({
       intent: "draft_retry",
       speechAct: "answer",
+      referenceScope: "persisted_interaction",
     });
     const foodClarification: AgentInteraction = {
       id: "food-clarification",
@@ -124,6 +134,7 @@ describe("turn execution policy", () => {
     const retry = decision({
       intent: "adjustment_retry",
       speechAct: "answer",
+      referenceScope: "persisted_interaction",
     });
     const adjustmentReview: AgentInteraction = {
       id: "adjustment-failures",

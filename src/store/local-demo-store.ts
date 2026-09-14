@@ -5,22 +5,17 @@ import {
 } from "@/domain/profile/schemas";
 import { activePlanSchema, draftProposalSchema } from "@/domain/plan/schemas";
 import { z } from "zod";
-import { agentSessionSchema } from "@/domain/agent/types";
+import {
+  agentSessionSchema,
+  projectedConversationMessageSchema,
+} from "@/domain/agent/types";
 
 export const persistedStateSchema = z
   .object({
     schemaVersion: z.literal(2),
     profileId: z.literal("new"),
     profile: structuredProfileSchema,
-    messages: z.array(
-      z
-        .object({
-          id: z.string(),
-          role: z.enum(["assistant", "user"]),
-          text: z.string(),
-        })
-        .strict(),
-    ),
+    messages: z.array(projectedConversationMessageSchema),
     activeTurn: assistantTurnSchema,
     targets: nutritionTargetsSchema.nullable(),
     draft: draftProposalSchema.nullable(),
