@@ -19,8 +19,6 @@ services:
         fromDatabase:
           name: nutrition-coach-db
           property: connectionString
-      - key: DATABASE_SSL
-        value: require
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_MODEL
