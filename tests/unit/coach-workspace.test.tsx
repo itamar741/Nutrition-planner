@@ -7,6 +7,11 @@ import {
 } from "@/components/coach-workspace/CoachWorkspace";
 import { createNewDemoState, emptyProfile } from "@/data/demo-fixtures";
 import { foodCatalog } from "@/data/food-catalog";
+import {
+  AGENT_RATE_LIMIT_MESSAGE,
+  isAgentRateLimitMessage,
+  LEGACY_AGENT_RATE_LIMIT_MESSAGE,
+} from "@/domain/agent/rate-limit";
 import { demoReducer, type DemoState } from "@/store/demo-reducer";
 
 vi.mock("next/link", () => ({
@@ -127,6 +132,12 @@ describe("CoachWorkspace", () => {
     expect(formatRateLimitCountdown(60)).toBe("01:00");
     expect(formatRateLimitCountdown(31)).toBe("00:31");
     expect(formatRateLimitCountdown(0)).toBe("00:00");
+  });
+
+  it("recognizes current and persisted legacy rate-limit messages", () => {
+    expect(isAgentRateLimitMessage(AGENT_RATE_LIMIT_MESSAGE)).toBe(true);
+    expect(isAgentRateLimitMessage(LEGACY_AGENT_RATE_LIMIT_MESSAGE)).toBe(true);
+    expect(isAgentRateLimitMessage("A normal coach response.")).toBe(false);
   });
 
   it("UI-01 starts with text enabled and no quick replies", () => {
