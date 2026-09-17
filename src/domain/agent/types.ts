@@ -124,6 +124,8 @@ export type AgentInteraction =
   | {
       id: string;
       type: "draft_failure_review";
+      proposalKind?: "draft" | "adjustment";
+      basePlanVersion?: number;
       attempts: DraftAttemptReview[];
       prompt: string;
     };
@@ -168,21 +170,33 @@ export const conversationActivitySchema = z
 
 export type ConversationActivity = z.infer<typeof conversationActivitySchema>;
 
-export const draftIntentSchema = z
+export const planChangeWorkflowSchema = z
   .object({
+    mode: z.enum(["create_initial", "replace_active", "revise_pending"]),
     basePlanVersion: z.number().int().positive().nullable(),
-    requiredCatalogFoodId: z.string().min(1).max(100).nullable(),
+    baseDraftId: z.string().min(1).max(200).nullable(),
+    requiredCatalogFoodIds: z.array(z.string().min(1).max(100)).max(8),
+    excludedCatalogFoodIds: z.array(z.string().min(1).max(100)).max(8),
+    mustDiffer: z.boolean(),
+    scope: z.enum(["whole_plan", "food_replacement", "unspecified"]),
+    portionRecalculation: z.literal("whole_draft").default("whole_draft"),
+    strategy: z
+      .enum(["preserve_structure", "different_approved_mix"])
+      .nullable(),
+    offeredAlternativeFoodIds: z.array(z.string().min(1).max(100)).max(12),
+    selectedAlternativeFoodId: z.string().min(1).max(100).nullable(),
+    attemptBatch: z.number().int().positive(),
   })
   .strict();
 
-export type DraftIntent = z.infer<typeof draftIntentSchema>;
+export type PlanChangeWorkflow = z.infer<typeof planChangeWorkflowSchema>;
 
 export interface AgentSessionState {
   summary: string | null;
   preferences: ConversationPreference[];
   pendingInteraction: AgentInteraction | null;
   pausedInteraction: AgentInteraction | null;
-  draftIntent: DraftIntent | null;
+  planChange: PlanChangeWorkflow | null;
 }
 
 export const emptyAgentSession = (): AgentSessionState => ({
@@ -190,7 +204,7 @@ export const emptyAgentSession = (): AgentSessionState => ({
   preferences: [],
   pendingInteraction: null,
   pausedInteraction: null,
-  draftIntent: null,
+  planChange: null,
 });
 
 const foodApprovalCandidateSchema = z
@@ -290,6 +304,8 @@ export const agentInteractionSchema = z.discriminatedUnion("type", [
     .object({
       id: z.string().min(1).max(100),
       type: z.literal("draft_failure_review"),
+      proposalKind: z.enum(["draft", "adjustment"]).default("draft"),
+      basePlanVersion: z.number().int().positive().optional(),
       attempts: z.array(draftAttemptReviewSchema).min(1).max(3),
       prompt: z.string().min(1).max(500),
     })
@@ -302,9 +318,26 @@ export const agentSessionSchema = z
     preferences: z.array(conversationPreferenceSchema).max(100).default([]),
     pendingInteraction: agentInteractionSchema.nullable(),
     pausedInteraction: agentInteractionSchema.nullable(),
-    draftIntent: draftIntentSchema.nullable().default(null),
+    planChange: planChangeWorkflowSchema.nullable().default(null),
   })
   .strict();
+
+export const projectedConversationMessageSchema = z.discriminatedUnion("role", [
+  z
+    .object({
+      id: z.string(),
+      role: z.literal("user"),
+      text: z.string().min(1).max(1_000),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string(),
+      role: z.literal("assistant"),
+      text: z.string().min(1).max(4_000),
+    })
+    .strict(),
+]);
 
 export const coachMessageRequestSchema = z
   .object({

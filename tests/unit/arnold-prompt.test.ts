@@ -20,9 +20,10 @@ describe("Arnold system prompt", () => {
     expect(prompt).toContain("NUTRITION PLANNING RULES");
     expect(prompt).toContain("Return the authoritative expectedMealIds");
     expect(prompt).toContain("cannot change a goal after onboarding");
+    expect(prompt).toContain("zero slope and zero weekly values are sentinels");
     expect(prompt).toContain("deterministic upsert");
-    expect(prompt).toContain("okay edit it for me");
-    expect(prompt).toContain("'so add it'");
+    expect(prompt).toContain("recent prose alone never authorizes a mutation");
+    expect(prompt).toContain("compatible pending weight interaction");
     expect(prompt).toContain("creates a missing historical measurement");
     expect(prompt).toContain("Always call delete_weight");
     expect(prompt).toContain("contextual 'delete it'");

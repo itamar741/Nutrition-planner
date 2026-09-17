@@ -1,6 +1,9 @@
 import OpenAI from "openai";
 import { ZodError } from "zod";
-import { getMissingFactKeys } from "@/domain/profile/onboarding";
+import {
+  getMissingFactKeys,
+  getOnboardingFactKeys,
+} from "@/domain/profile/onboarding";
 import type {
   ProfileFactKey,
   ProfileFactPatch,
@@ -35,8 +38,9 @@ function toPatch(
 function instructionsFor(allowedKeys: ProfileFactKey[], repairIssue?: string) {
   return [
     "You extract facts for a narrow nutrition-demo onboarding flow.",
-    `Extract only these currently missing fields: ${allowedKeys.join(", ")}.`,
+    `Extract only these server-authorized fields: ${allowedKeys.join(", ")}.`,
     "Use null for anything not explicitly supported by the user's message.",
+    "A repeated or corrected value may be extracted only when the user states it explicitly. Questions, hypotheticals, and negated values must remain null.",
     "Do not infer medical facts, browse, recommend food, or add fields.",
     "For equationSex, map only an explicit male/man or female/woman statement.",
     "For exercise, use none, resistance, cardio, or mixed and moderate or vigorous. For none, set exerciseType to none, exerciseFrequencyPerWeek and exerciseSessionMinutes to 0, and exerciseIntensity to moderate as an ignored placeholder.",
@@ -102,10 +106,13 @@ export async function extractOnboardingFacts(
     commandId: string;
     message: string;
     profile: StructuredProfile;
+    allowCorrections?: boolean;
   },
   createResponse: ResponseCreator = defaultResponseCreator,
 ): Promise<{ patch: ProfileFactPatch; acknowledgement: string }> {
-  const allowedKeys = getMissingFactKeys(request.profile);
+  const allowedKeys = request.allowCorrections
+    ? getOnboardingFactKeys()
+    : getMissingFactKeys(request.profile);
   const exerciseKeys: ProfileFactKey[] = [
     "exerciseType",
     "exerciseFrequencyPerWeek",

@@ -7,14 +7,24 @@ import {
   type ProposalArguments,
 } from "@/ai/coach-agent";
 import { extractOnboardingFacts } from "@/ai/onboarding";
+import { interpretTurnDecision } from "@/ai/turn-decision";
 import { existingReadyProfile } from "@/data/demo-fixtures";
 import type {
   AgentInteraction,
   CoachMessageRequest,
   DraftAttemptReview,
 } from "@/domain/agent/types";
+import {
+  requestsFoodAlternativeOffer,
+  type TurnDecision,
+} from "@/domain/agent/turn-decision";
 import { createCatalogSnapshot } from "@/domain/catalog/snapshot";
 import type { CatalogFood } from "@/domain/catalog/types";
+import {
+  catalogFoodMatchesQuery,
+  normalizeCatalogText,
+  textValuesOverlap,
+} from "@/domain/catalog/identity";
 import { calculateTargets } from "@/domain/nutrition/calculations";
 import {
   buildPlanValidationExplanation,
@@ -25,7 +35,7 @@ import {
 } from "@/domain/plan/validation";
 import type { DraftCandidate, DraftProposal } from "@/domain/plan/types";
 import {
-  applyFactPatch,
+  applyOnboardingFactPatch,
   getNextTurn,
   isProfileReady,
 } from "@/domain/profile/onboarding";
@@ -36,6 +46,7 @@ import {
   currentPlanWeightFromMeasurements,
   formatWeightKg,
   maintenanceReferenceWeightFromInitialMeasurements,
+  maintenanceReferenceWeightFromRecentMeasurements,
   normalizeWeightKg,
 } from "@/domain/weight/trend";
 import {
@@ -52,6 +63,7 @@ import {
   mutateProfile,
   recordAgentSkillCall,
   recordAndCheckRateLimit,
+  renewAgentTurnLease,
   replaceCandidate,
   saveCandidates,
   saveConversationSummary,
@@ -67,6 +79,25 @@ import {
 } from "@/sources/usda";
 import { rankUsdaCandidates } from "@/ai/food-catalog";
 import { prepareAiEstimate, prepareFoodCandidate } from "./food-candidates";
+import {
+  finishNonInteractiveWorkflow,
+  interactionWorkflow,
+  reconcileAgentWorkflowState,
+  setInteraction,
+} from "./interaction-state";
+import {
+  applyPlanChangeDecision,
+  offeredFoodNames,
+  planChangeCandidateIssues,
+  startPlanChange,
+} from "./plan-change-workflow";
+import {
+  allowedToolsForDecision,
+  coachInputRequiresModel,
+  decisionAuthorizesOnboardingExtraction,
+  decisionAuthorizesIntent,
+  deterministicInteractionText,
+} from "./turn-execution-policy";
 
 type RateIdentity = { sessionHash: string; ipHash: string };
 type Status =
@@ -147,6 +178,8 @@ function contextFor(
   allowed: CoachToolName[],
   conversationDigest: Record<string, unknown> | null,
   requiredCatalogFoodId: string | null,
+  turnDecision: TurnDecision | null,
+  currentAlternativeOfferIds: string[] | null,
 ) {
   const state = profile.state;
   const currentDate = new Date().toISOString().slice(0, 10);
@@ -166,17 +199,42 @@ function contextFor(
             interactionId: currentInput.interactionId,
           }
         : null,
-    foodAlternativeRequest: requestsFoodAlternatives(currentInput)
-      ? {
-          responseMode: "offer_approved_options_only",
-          rules: [
-            "Offer concise relevant choices from approvedFoods only.",
-            "Exclude the food the user dislikes from the offered choices.",
-            "Ask which option the user prefers.",
-            "Do not persist a preference, remove a food, create a Draft, or change the Active Plan in this turn.",
-          ],
-        }
-      : null,
+    turnDecision,
+    onboarding:
+      "profile" in state && !isProfileReady(state.profile)
+        ? {
+            required: true,
+            currentTurn: state.activeTurn,
+            responseRule:
+              "Do not claim a profile update unless the onboarding extractor already persisted one. If no facts were accepted, answer an in-scope question or redirect an unsupported request without changing state; when useful, remind the user of currentTurn.prompt.",
+          }
+        : { required: false },
+    foodAlternativeRequest:
+      turnDecision && requestsFoodAlternativeOffer(turnDecision)
+        ? {
+            responseMode:
+              currentAlternativeOfferIds?.length === 0
+                ? "no_approved_options"
+                : "offer_approved_options_only",
+            offeredFoodIds:
+              currentAlternativeOfferIds ??
+              state.agentSession.planChange?.offeredAlternativeFoodIds ??
+              [],
+            rules:
+              currentAlternativeOfferIds?.length === 0
+                ? [
+                    "Say that there are no eligible approved alternatives for this request.",
+                    "Suggest adding an approved food before trying the replacement again.",
+                    "Do not invent an option, persist a preference, remove a food, create a Draft, or change the Active Plan.",
+                  ]
+                : [
+                    "Offer concise relevant choices matching offeredFoodIds only.",
+                    "Exclude the food the user dislikes from the offered choices.",
+                    "Ask which option the user prefers.",
+                    "Do not persist a preference, remove a food, create a Draft, or change the Active Plan in this turn.",
+                  ],
+          }
+        : null,
     currentDate,
     weightHistory: {
       todayMeasurement:
@@ -244,7 +302,7 @@ function contextFor(
     },
     pendingInteraction: state.agentSession.pendingInteraction,
     pausedInteraction: state.agentSession.pausedInteraction,
-    pendingDraftIntent: state.agentSession.draftIntent,
+    pendingPlanChange: state.agentSession.planChange,
     currentDraft: state.draft,
     activePlan: state.activePlan,
     requiredFoodIntegration:
@@ -254,7 +312,7 @@ function contextFor(
             objective:
               "Create a complete replacement Draft that includes this food while preserving the current Active Plan targets.",
             planningRule:
-              "Do not append the food to an otherwise unchanged Active Plan. Rebalance other approved portions or foods as needed, prefer the smallest practical set of changes, and explain those changes in the Draft summary.",
+              "Do not perform a one-for-one portion swap or append the food to an otherwise unchanged Active Plan. Recalculate portions across every meal in the complete Draft as needed to satisfy all targets, and explain the material changes in the Draft summary.",
           }
         : null,
     ordinaryDraftTargetSource:
@@ -358,76 +416,6 @@ function requestsDraftIntegration(input: CoachMessageRequest["input"]) {
   );
 }
 
-function requestsDraftProposal(input: CoachMessageRequest["input"]) {
-  if (input.type !== "text") return false;
-  const text = input.text.trim();
-  if (
-    /\b(?:don't|do not|never)\b[\s\S]{0,40}\b(?:generate|create|make|build|prepare|propose|change|modify|replace|update)\b[\s\S]{0,80}\b(?:draft|meal\s+plan|menu)\b/iu.test(
-      text,
-    ) ||
-    /\b(?:don't|do not)\s+want\b[\s\S]{0,60}\b(?:draft|meal\s+plan|menu)\b/iu.test(
-      text,
-    )
-  ) {
-    return false;
-  }
-  return (
-    /\b(?:generate|create|make|build|prepare|propose)\b[\s\S]{0,100}\b(?:draft|meal\s+plan|menu)\b/iu.test(
-      text,
-    ) ||
-    /(?:צור|תכין|הכן|תייצר|בנה)[\s\S]{0,100}(?:טיוטה|תפריט|תוכנית\s+ארוחות)/u.test(
-      text,
-    )
-  );
-}
-
-function requestsFoodAlternatives(input: CoachMessageRequest["input"]) {
-  if (input.type !== "text") return false;
-  const text = input.text.trim();
-  const asksForAlternatives =
-    /\b(?:options?|oprions?|alternatives?|replacements?|substitutes?|instead)\b/iu.test(
-      text,
-    );
-  const hasFoodPreferenceContext =
-    /\b(?:don['’]?t\s+like|do\s+not\s+like|dislike|hate|avoid|rather\s+not\s+eat)\b/iu.test(
-      text,
-    );
-  const refersToPlan = /\b(?:meal\s+plan|menu)\b/iu.test(text);
-  return asksForAlternatives && (hasFoodPreferenceContext || refersToPlan);
-}
-
-function contextualAlternativeSelection(
-  input: CoachMessageRequest["input"],
-  conversation: Array<{ role: "assistant" | "user"; content: string }>,
-  state: PersistedDemoState,
-  catalog: CatalogFood[],
-) {
-  if (input.type !== "text" || input.text.length > 120) return null;
-  const previousUserMessage = conversation
-    .slice(0, -1)
-    .reverse()
-    .find((message) => message.role === "user");
-  if (
-    !previousUserMessage ||
-    !requestsFoodAlternatives({
-      type: "text",
-      text: previousUserMessage.content,
-    })
-  ) {
-    return null;
-  }
-  const normalizedSelection = input.text.toLocaleLowerCase("en-US");
-  return (
-    approvedCatalog(catalog, approvedIdsOf(state))
-      .sort((left, right) => right.displayName.length - left.displayName.length)
-      .find((food) =>
-        normalizedSelection.includes(
-          food.displayName.toLocaleLowerCase("en-US"),
-        ),
-      ) ?? null
-  );
-}
-
 function requestsTodayWeightUpsert(input: CoachMessageRequest["input"]) {
   if (input.type !== "text") return false;
   const text = input.text.trim();
@@ -474,7 +462,16 @@ function historicalDateFromText(text: string, currentDate: string) {
   if (/\btoday\b/iu.test(text)) return currentDate;
   if (/\byesterday\b/iu.test(text)) return dateBefore(currentDate, 1);
   const iso = text.match(/\b(\d{4}-\d{2}-\d{2})\b/u)?.[1];
-  if (iso && !Number.isNaN(Date.parse(`${iso}T12:00:00Z`))) return iso;
+  if (iso) {
+    const parsed = new Date(`${iso}T12:00:00Z`);
+    if (
+      !Number.isNaN(parsed.getTime()) &&
+      parsed.toISOString().slice(0, 10) === iso &&
+      iso <= currentDate
+    ) {
+      return iso;
+    }
+  }
   const short = text.match(/(?:^|\s|-)(\d{1,2})[./](\d{1,2})(?=\s|$)/u);
   if (!short) return null;
   const day = Number(short[1]);
@@ -488,7 +485,8 @@ function historicalDateFromText(text: string, currentDate: string) {
   ) {
     return null;
   }
-  return candidate.toISOString().slice(0, 10);
+  const normalized = candidate.toISOString().slice(0, 10);
+  return normalized <= currentDate ? normalized : null;
 }
 
 function resolveWeightDelete(
@@ -525,6 +523,61 @@ function weightFromText(text: string) {
     if (value > 0 && value <= 500) return value;
   }
   return null;
+}
+
+function standaloneWeightFromText(text: string) {
+  const match = text.trim().match(/^(\d{1,3}(?:[.,]\d{1,2})?)\s*(?:kg)?$/iu);
+  if (!match) return null;
+  const value = Number(match[1].replace(",", "."));
+  return value > 0 && value <= 500 ? value : null;
+}
+
+function approvedFoodSelectedByDecision(input: {
+  decision: TurnDecision | null;
+  approvedFoodIds: string[];
+  catalog: CatalogFood[];
+}) {
+  const names = input.decision?.foodNames ?? [];
+  const approved = new Set(input.approvedFoodIds);
+  const matches = input.catalog.filter(
+    (food) =>
+      approved.has(food.id) &&
+      names.some((name) => catalogFoodMatchesQuery(food, name)),
+  );
+  const exact = matches.filter((food) =>
+    names.some(
+      (name) =>
+        normalizeCatalogText(name) === normalizeCatalogText(food.displayName),
+    ),
+  );
+  const unambiguous = exact.length === 1 ? exact : matches;
+  return unambiguous.length === 1 ? (unambiguous[0] ?? null) : null;
+}
+
+function searchQueryMatchesDecision(
+  query: string,
+  decision: TurnDecision | null,
+) {
+  return Boolean(
+    decision?.foodNames.some((name) => textValuesOverlap(query, name)),
+  );
+}
+
+function decisionSelectsFoodCandidate(
+  decision: TurnDecision | null,
+  candidates: Array<{ id: string; title: string }>,
+  candidateId: string,
+) {
+  if (!decision || decision.intent !== "food_candidate_selection") {
+    return false;
+  }
+  if (decision.candidateOrdinal !== null) {
+    return candidates[decision.candidateOrdinal - 1]?.id === candidateId;
+  }
+  const matches = candidates.filter((candidate) =>
+    decision.foodNames.some((name) => textValuesOverlap(candidate.title, name)),
+  );
+  return matches.length === 1 && matches[0]?.id === candidateId;
 }
 
 function resolveHistoricalWeightUpsert(
@@ -564,43 +617,9 @@ function requiresImmediateDraftProposal(
     return true;
   }
   return Boolean(
-    state.agentSession.draftIntent?.requiredCatalogFoodId &&
+    state.agentSession.planChange?.requiredCatalogFoodIds.length &&
     requestsDraftIntegration(input),
   );
-}
-
-function gramsByFood(plan: {
-  meals: Array<{ items: Array<{ catalogFoodId: string; grams: number }> }>;
-}) {
-  const grams = new Map<string, number>();
-  for (const meal of plan.meals) {
-    for (const item of meal.items) {
-      grams.set(
-        item.catalogFoodId,
-        (grams.get(item.catalogFoodId) ?? 0) + item.grams,
-      );
-    }
-  }
-  return grams;
-}
-
-function hasUncompensatedRequiredFoodAddition(
-  state: PersistedDemoState,
-  candidate: DraftCandidate,
-  requiredCatalogFoodId: string | null,
-) {
-  if (!requiredCatalogFoodId || !state.activePlan) return false;
-  const before = gramsByFood(state.activePlan.plan);
-  const after = gramsByFood(candidate);
-  const requiredIncrease =
-    (after.get(requiredCatalogFoodId) ?? 0) -
-    (before.get(requiredCatalogFoodId) ?? 0);
-  if (requiredIncrease <= 0) return false;
-  return [...before.entries()]
-    .filter(([foodId]) => foodId !== requiredCatalogFoodId)
-    .every(
-      ([foodId, previousGrams]) => (after.get(foodId) ?? 0) >= previousGrams,
-    );
 }
 
 async function conversationForModel(input: {
@@ -608,6 +627,11 @@ async function conversationForModel(input: {
   state: PersistedDemoState;
   contextWithoutDigest: Record<string, unknown>;
   currentInput: CoachMessageRequest["input"];
+  agentTurnLease?: {
+    profileId: "new" | "existing";
+    commandId: string;
+    leaseToken: string;
+  };
 }) {
   const stored = await listConversationMessages(input.profileId);
   const complete = stored
@@ -670,6 +694,7 @@ async function conversationForModel(input: {
       profileId: input.profileId,
       throughMessageId: through.id,
       digest,
+      lease: input.agentTurnLease,
     });
   }
   return {
@@ -834,8 +859,9 @@ function allowedTools(
   state: PersistedDemoState,
   input: CoachMessageRequest["input"],
   proposalAttempts: number,
+  allowOrdinaryDraftProposal: boolean,
 ): CoachToolName[] {
-  if (requestsFoodAlternatives(input)) return [];
+  if ("profile" in state && !isProfileReady(state.profile)) return [];
   const common: CoachToolName[] = [
     "remember_preference",
     "remove_approved_food",
@@ -846,7 +872,11 @@ function allowedTools(
   if ("profile" in state) {
     if (state.activePlan)
       common.push("record_weight", "edit_weight", "delete_weight");
-    if (isProfileReady(state.profile) && !state.draft && proposalAttempts < 3) {
+    if (
+      isProfileReady(state.profile) &&
+      allowOrdinaryDraftProposal &&
+      proposalAttempts < 3
+    ) {
       common.push("submit_draft_proposal");
     }
   } else {
@@ -855,7 +885,10 @@ function allowedTools(
     const adjustmentRequested =
       input.type === "interaction" && input.action === "generate_adjustment";
     const adjustmentFeedback =
-      pending?.type === "clarification" && pending.workflow === "adjustment";
+      (pending?.type === "clarification" &&
+        pending.workflow === "adjustment") ||
+      (pending?.type === "draft_failure_review" &&
+        pending.proposalKind === "adjustment");
     const adjustmentPending =
       pending?.type === "adjustment_offer" ||
       pending?.type === "adjustment_approval" ||
@@ -866,7 +899,11 @@ function allowedTools(
       proposalAttempts < 3
     ) {
       common.push("submit_adjustment_proposal");
-    } else if (!adjustmentPending && !state.draft && proposalAttempts < 3) {
+    } else if (
+      !adjustmentPending &&
+      allowOrdinaryDraftProposal &&
+      proposalAttempts < 3
+    ) {
       common.push("submit_draft_proposal");
     }
   }
@@ -880,77 +917,6 @@ function interaction(
   return { id, ...value } as AgentInteraction;
 }
 
-type Workflow = Extract<
-  AgentInteraction,
-  { type: "clarification" }
->["workflow"];
-
-function interactionWorkflow(value: AgentInteraction): Workflow {
-  if (value.type === "clarification") return value.workflow;
-  if (value.type === "draft_failure_review" || value.type === "draft_approval")
-    return "draft";
-  if (
-    value.type === "food_candidates" ||
-    value.type === "food_approval" ||
-    value.type === "existing_food" ||
-    value.type === "confirm_draft_food" ||
-    value.type === "source_unavailable"
-  )
-    return "food";
-  return "adjustment";
-}
-
-function setInteraction(
-  state: PersistedDemoState,
-  next: AgentInteraction | null,
-) {
-  const current = state.agentSession.pendingInteraction;
-  const foodFlow = new Set([
-    "food_candidates",
-    "food_approval",
-    "existing_food",
-    "confirm_draft_food",
-    "source_unavailable",
-  ]);
-  const sameWorkflow = Boolean(
-    current &&
-    next &&
-    ((foodFlow.has(current.type) && foodFlow.has(next.type)) ||
-      interactionWorkflow(current) === interactionWorkflow(next) ||
-      current.id === next.id),
-  );
-  return {
-    ...state,
-    agentSession: {
-      ...state.agentSession,
-      pendingInteraction: next,
-      pausedInteraction:
-        current && next && !sameWorkflow
-          ? current
-          : state.agentSession.pausedInteraction,
-    },
-  };
-}
-
-function finishNonInteractiveWorkflow(
-  state: PersistedDemoState,
-  workflow: Workflow,
-) {
-  const current = state.agentSession.pendingInteraction;
-  if (!current) return state;
-  const continuingCurrent = interactionWorkflow(current) === workflow;
-  return {
-    ...state,
-    agentSession: {
-      ...state.agentSession,
-      pendingInteraction: null,
-      pausedInteraction: continuingCurrent
-        ? state.agentSession.pausedInteraction
-        : current,
-    },
-  };
-}
-
 async function searchFoods(input: {
   profileId: "new" | "existing";
   query: string;
@@ -958,20 +924,31 @@ async function searchFoods(input: {
   preparation: "cooked" | "raw" | "packaged" | null;
   rateIdentity: RateIdentity;
   turnId: string;
+  agentTurnLease?: {
+    profileId: "new" | "existing";
+    commandId: string;
+    leaseToken: string;
+  };
   onStatus: (value: Status) => void;
 }) {
   const existing = await findCatalogFood(input.query);
   if (existing) return { outcome: "existing" as const, food: existing };
+  if (input.agentTurnLease) {
+    await renewAgentTurnLease(input.agentTurnLease);
+  }
   if (!(await recordAndCheckRateLimit(input.rateIdentity))) {
     throw new Error("The food-search limit has been reached. Try again later.");
   }
-  const lookup = await createLookup({
-    profileId: input.profileId,
-    query: input.query,
-    context: { turnId: input.turnId, preparation: input.preparation },
-    status: "searching",
-    failureCode: null,
-  });
+  const lookup = await createLookup(
+    {
+      profileId: input.profileId,
+      query: input.query,
+      context: { turnId: input.turnId, preparation: input.preparation },
+      status: "searching",
+      failureCode: null,
+    },
+    input.agentTurnLease,
+  );
   input.onStatus("searching");
   try {
     const arguments_ = {
@@ -993,10 +970,14 @@ async function searchFoods(input: {
       candidates: summaries,
     });
     if (ranking.outcome === "clarification") {
-      await updateLookup(lookup.id, {
-        status: "failed",
-        failureCode: "needs_clarification",
-      });
+      await updateLookup(
+        lookup.id,
+        {
+          status: "failed",
+          failureCode: "needs_clarification",
+        },
+        input.agentTurnLease,
+      );
       return {
         outcome: "needs_clarification" as const,
         prompt: ranking.message,
@@ -1032,13 +1013,22 @@ async function searchFoods(input: {
         status: "summary" as const,
         data: { ...candidate, toolArguments: arguments_ },
       })),
+      input.agentTurnLease,
     );
-    await updateLookup(lookup.id, { status: "ready", failureCode: null });
+    await updateLookup(
+      lookup.id,
+      { status: "ready", failureCode: null },
+      input.agentTurnLease,
+    );
     return { outcome: "candidates" as const, lookupId: lookup.id, candidates };
   } catch (error) {
     const failureCode =
       error instanceof UsdaUnavailableError ? error.code : "source_unavailable";
-    await updateLookup(lookup.id, { status: "failed", failureCode });
+    await updateLookup(
+      lookup.id,
+      { status: "failed", failureCode },
+      input.agentTurnLease,
+    );
     console.error("agent_food_lookup_failed", {
       turnId: input.turnId,
       lookupId: lookup.id,
@@ -1059,39 +1049,43 @@ export async function executeCoachTurn(input: {
   request: CoachMessageRequest;
   rateIdentity: RateIdentity;
   turnId: string;
+  leaseToken: string | null;
   onStatus: (value: Status) => void;
   onText: (delta: string) => void;
 }): Promise<CoachTurnResult> {
+  const turnLease = input.leaseToken
+    ? {
+        profileId: input.request.profileId,
+        commandId: input.request.commandId,
+        leaseToken: input.leaseToken,
+      }
+    : undefined;
   let profile = await getProfile(input.request.profileId);
-  let state = structuredClone(profile.state);
+  let state = reconcileAgentWorkflowState(structuredClone(profile.state));
   let catalog = await listCatalogFoods();
   let approvedCatalogFood: CatalogFood | undefined;
   let actionSummary: Record<string, unknown> | null = null;
   let requiredCatalogFoodId =
-    state.agentSession.draftIntent?.requiredCatalogFoodId ?? null;
+    state.agentSession.planChange?.requiredCatalogFoodIds[0] ?? null;
   let selectedAlternativeFood: CatalogFood | null = null;
+  let currentAlternativeOfferIds: string[] | null = null;
+  let turnDecision: TurnDecision | null = null;
+  let planMutationAuthorized = false;
   let proposalAttempts = 0;
   const turnCurrentDate = new Date().toISOString().slice(0, 10);
   let resolvedHistoricalWeightUpsert: ResolvedHistoricalWeightUpsert | null =
     null;
+  let resolvedTodayWeightUpsert: number | null = null;
   let resolvedWeightDelete: string | null = null;
+  let authorizedRemovalFoodId: string | null = null;
   let weightConfirmation: string | null = null;
   const rejectedDraftAttempts: DraftAttemptReview[] = [];
   const foodNameMissing = requestsFoodWithoutName(input.request.input);
 
   const activePlanVersion = state.activePlan?.version ?? null;
-  if (
-    state.agentSession.draftIntent &&
-    state.agentSession.draftIntent.basePlanVersion !== activePlanVersion
-  ) {
-    state = {
-      ...state,
-      agentSession: { ...state.agentSession, draftIntent: null },
-    };
-    requiredCatalogFoodId = null;
-  }
 
-  const currentInteraction = state.agentSession.pendingInteraction;
+  let currentInteraction = state.agentSession.pendingInteraction;
+  const interactionAtTurnStart = currentInteraction;
   console.info("coach_turn_received", {
     turnId: input.turnId,
     commandId: input.request.commandId,
@@ -1107,11 +1101,80 @@ export async function executeCoachTurn(input: {
     activePlanVersion,
     hasDraft: Boolean(state.draft),
   });
+  if (input.request.input.type === "text") {
+    const currentText = input.request.input.text;
+    const onboardingRequired =
+      "profile" in state && !isProfileReady(state.profile);
+    const recentConversation = (
+      await listConversationMessages(input.request.profileId)
+    )
+      .filter(
+        (message) =>
+          message.content.length > 0 &&
+          (message.role === "user" || message.status !== "pending"),
+      )
+      .slice(-6)
+      .map(({ role, content }) => ({ role, content }));
+    turnDecision = await atTurnStage("turn_decision", () =>
+      interpretTurnDecision({
+        message: currentText,
+        hasActivePlan: Boolean(state.activePlan),
+        hasDraft: Boolean(state.draft),
+        onboardingRequired,
+        onboardingTurn:
+          onboardingRequired && "profile" in state
+            ? {
+                id: state.activeTurn.id,
+                type: state.activeTurn.type,
+                field:
+                  "field" in state.activeTurn ? state.activeTurn.field : null,
+                prompt: state.activeTurn.prompt,
+                optionLabels:
+                  state.activeTurn.type === "closed_question"
+                    ? state.activeTurn.options.map((option) => option.label)
+                    : [],
+              }
+            : null,
+        recentConversation,
+        pendingInteraction: currentInteraction
+          ? {
+              type: currentInteraction.type,
+              workflow: interactionWorkflow(currentInteraction),
+              offeredFoodNames: offeredFoodNames(state, catalog),
+            }
+          : null,
+      }),
+    );
+    if (!onboardingRequired) {
+      const planChangeResult = applyPlanChangeDecision({
+        state,
+        catalog,
+        decision: turnDecision,
+        currentInteraction,
+      });
+      state = planChangeResult.state;
+      currentInteraction = planChangeResult.currentInteraction;
+      selectedAlternativeFood = planChangeResult.selectedAlternativeFood;
+      requiredCatalogFoodId =
+        planChangeResult.requiredCatalogFoodId ?? requiredCatalogFoodId;
+      planMutationAuthorized = planChangeResult.planMutationAuthorized;
+      currentAlternativeOfferIds = planChangeResult.currentAlternativeOfferIds;
+      authorizedRemovalFoodId =
+        turnDecision.intent === "food_remove"
+          ? (approvedFoodSelectedByDecision({
+              decision: turnDecision,
+              approvedFoodIds: approvedIdsOf(state),
+              catalog,
+            })?.id ?? null)
+          : null;
+    }
+  }
   if (
     "profile" in state &&
     !isProfileReady(state.profile) &&
     !state.agentSession.pendingInteraction &&
-    input.request.input.type === "text"
+    input.request.input.type === "text" &&
+    decisionAuthorizesOnboardingExtraction(turnDecision, true)
   ) {
     const onboardingState = state;
     const onboardingInput = input.request.input;
@@ -1121,26 +1184,52 @@ export async function executeCoachTurn(input: {
         commandId: input.request.commandId,
         message: onboardingInput.text,
         profile: onboardingState.profile,
+        allowCorrections: true,
       }),
     );
     if (Object.keys(extraction.patch).length > 0) {
-      const nextProfile = applyFactPatch(
+      const nextProfile = applyOnboardingFactPatch(
         onboardingState.profile,
         extraction.patch,
       );
       const activeTurn = getNextTurn(nextProfile);
-      const measurements =
-        onboardingState.weightMeasurements.length > 0 ||
-        nextProfile.currentWeightKg === null
-          ? onboardingState.weightMeasurements
+      const currentWeightWasExplicit =
+        extraction.patch.currentWeightKg !== undefined;
+      const currentWeightKg = nextProfile.currentWeightKg;
+      let measurements = onboardingState.weightMeasurements;
+      if (currentWeightKg !== null && currentWeightWasExplicit) {
+        const existingTodayWeight = measurements.find(
+          (measurement) => measurement.date === turnCurrentDate,
+        );
+        measurements = existingTodayWeight
+          ? measurements.map((measurement) =>
+              measurement.id === existingTodayWeight.id
+                ? {
+                    ...measurement,
+                    weightKg: currentWeightKg,
+                    commandId: input.request.commandId,
+                  }
+                : measurement,
+            )
           : [
+              ...measurements,
               {
                 id: `weight-onboarding-${input.request.commandId}`,
                 date: turnCurrentDate,
-                weightKg: nextProfile.currentWeightKg,
+                weightKg: currentWeightKg,
                 commandId: input.request.commandId,
               },
             ];
+      } else if (currentWeightKg !== null && measurements.length === 0) {
+        measurements = [
+          {
+            id: `weight-onboarding-${input.request.commandId}`,
+            date: turnCurrentDate,
+            weightKg: currentWeightKg,
+            commandId: input.request.commandId,
+          },
+        ];
+      }
       state = {
         ...onboardingState,
         profile: nextProfile,
@@ -1159,17 +1248,36 @@ export async function executeCoachTurn(input: {
       };
       const assistantText =
         `${extraction.acknowledgement} ${activeTurn.prompt}`.trim();
-      input.onText(assistantText);
       profile = await atTurnStage("profile_persist", () =>
         mutateProfile({
           profileId: input.request.profileId,
           expectedVersion: profile.version,
           commandId: input.request.commandId,
+          agentTurnLease: turnLease,
           mutation: () => state,
         }),
       );
+      input.onText(assistantText);
       return { profile, assistantText };
     }
+  }
+  if (
+    input.request.input.type === "text" &&
+    decisionAuthorizesIntent(turnDecision, "goal_change")
+  ) {
+    const assistantText =
+      "To choose a different nutrition goal, use Reset and complete onboarding again. Your current goal and Active Plan were not changed.";
+    profile = await atTurnStage("profile_persist", () =>
+      mutateProfile({
+        profileId: input.request.profileId,
+        expectedVersion: profile.version,
+        commandId: input.request.commandId,
+        agentTurnLease: turnLease,
+        mutation: () => state,
+      }),
+    );
+    input.onText(assistantText);
+    return { profile, assistantText };
   }
   if (input.request.input.type === "interaction") {
     input.onStatus("validating");
@@ -1217,17 +1325,15 @@ export async function executeCoachTurn(input: {
           {
             ...state,
             draft: null,
-            agentSession: { ...state.agentSession, draftIntent: null },
+            agentSession: { ...state.agentSession, planChange: null },
             activePlan: {
               schemaVersion: 1,
               version: nextVersion,
               activatedAt: new Date().toISOString(),
               maintenanceReferenceWeightKg:
-                state.activePlan?.maintenanceReferenceWeightKg ??
-                maintenanceReferenceWeightFromInitialMeasurements(
+                maintenanceReferenceWeightFromRecentMeasurements(
                   measurementsOf(state),
-                ) ??
-                structuredProfileOf(state).currentWeightKg,
+                ) ?? structuredProfileOf(state).currentWeightKg,
               plan,
             },
           },
@@ -1242,7 +1348,10 @@ export async function executeCoachTurn(input: {
           {
             ...state,
             draft: null,
-            agentSession: { ...state.agentSession, draftIntent: null },
+            agentSession: {
+              ...state.agentSession,
+              planChange: startPlanChange({ ...state, draft: null }),
+            },
           },
           interaction(randomUUID(), {
             type: "clarification",
@@ -1318,6 +1427,7 @@ export async function executeCoachTurn(input: {
       const selected = await prepareFoodCandidate({
         profileId: input.request.profileId,
         candidateId: input.request.input.candidateId,
+        agentTurnLease: turnLease,
       });
       state = setInteraction(
         state,
@@ -1351,11 +1461,16 @@ export async function executeCoachTurn(input: {
         profileId: input.request.profileId,
         expectedVersion: profile.version,
         commandId: `${input.request.commandId}:food`,
+        agentTurnLease: turnLease,
       });
-      await updateLookup(stored.lookupId, {
-        status: "approved",
-        failureCode: null,
-      });
+      await updateLookup(
+        stored.lookupId,
+        {
+          status: "approved",
+          failureCode: null,
+        },
+        turnLease,
+      );
       profile = result.profile;
       state = setInteraction(
         profile.state,
@@ -1378,8 +1493,12 @@ export async function executeCoachTurn(input: {
         throw new Error("There is no food awaiting review.");
       const stored = await getCandidate(pending.candidate.id);
       const lookup = await getLookup(stored.lookupId);
-      await replaceCandidate({ ...stored, status: "rejected" });
-      await updateLookup(lookup.id, { status: "rejected", failureCode: null });
+      await replaceCandidate({ ...stored, status: "rejected" }, turnLease);
+      await updateLookup(
+        lookup.id,
+        { status: "rejected", failureCode: null },
+        turnLease,
+      );
       state = setInteraction(
         state,
         interaction(randomUUID(), {
@@ -1399,6 +1518,7 @@ export async function executeCoachTurn(input: {
         profileId: input.request.profileId,
         expectedVersion: profile.version,
         commandId: `${input.request.commandId}:existing-food`,
+        agentTurnLease: turnLease,
       });
       profile = result.profile;
       state = setInteraction(
@@ -1447,7 +1567,9 @@ export async function executeCoachTurn(input: {
             version: validatedPlan.version,
             activatedAt: new Date().toISOString(),
             maintenanceReferenceWeightKg:
-              state.activePlan.maintenanceReferenceWeightKg,
+              maintenanceReferenceWeightFromRecentMeasurements(
+                state.measurements,
+              ) ?? state.activePlan.maintenanceReferenceWeightKg,
             plan: validatedPlan,
           },
         },
@@ -1485,10 +1607,12 @@ export async function executeCoachTurn(input: {
           ...state,
           agentSession: {
             ...state.agentSession,
-            draftIntent: {
-              basePlanVersion: state.activePlan?.version ?? null,
-              requiredCatalogFoodId: pending.foodId,
-            },
+            planChange: startPlanChange(state, {
+              requiredCatalogFoodIds: [pending.foodId],
+              mustDiffer: true,
+              scope: "food_replacement",
+              selectedAlternativeFoodId: pending.foodId,
+            }),
           },
         },
         null,
@@ -1507,7 +1631,7 @@ export async function executeCoachTurn(input: {
       state = setInteraction(
         {
           ...state,
-          agentSession: { ...state.agentSession, draftIntent: null },
+          agentSession: { ...state.agentSession, planChange: null },
         },
         null,
       );
@@ -1521,6 +1645,7 @@ export async function executeCoachTurn(input: {
       const candidate = await prepareAiEstimate({
         profileId: input.request.profileId,
         lookupId: pending.lookupId,
+        agentTurnLease: turnLease,
       });
       state = setInteraction(
         state,
@@ -1546,6 +1671,32 @@ export async function executeCoachTurn(input: {
       );
       actionSummary = { event: "search_refinement_requested" };
     }
+  }
+
+  if (
+    input.request.input.type === "interaction" &&
+    !coachInputRequiresModel(input.request.input)
+  ) {
+    const assistantText = deterministicInteractionText(
+      input.request.input,
+      actionSummary,
+    );
+    if (!assistantText) {
+      throw new Error(
+        "The interaction did not produce a deterministic result.",
+      );
+    }
+    profile = await atTurnStage("profile_persist", () =>
+      mutateProfile({
+        profileId: input.request.profileId,
+        expectedVersion: profile.version,
+        commandId: input.request.commandId,
+        agentTurnLease: turnLease,
+        mutation: () => state,
+      }),
+    );
+    input.onText(assistantText);
+    return { profile, catalogFood: approvedCatalogFood, assistantText };
   }
 
   if (
@@ -1579,10 +1730,16 @@ export async function executeCoachTurn(input: {
     const args = call.arguments as Record<string, unknown>;
     if (call.name === "remember_preference") {
       const supportingMessageId = String(args.supportingMessageId);
-      const message = (
+      const recentUserMessages = (
         await listConversationMessages(input.request.profileId)
-      ).find((item) => item.id === supportingMessageId && item.role === "user");
-      if (!message) {
+      )
+        .filter((item) => item.role === "user")
+        .slice(-6);
+      const message = recentUserMessages.find(
+        (item) => item.id === supportingMessageId,
+      );
+      const subject = String(args.subject);
+      if (!message || !textValuesOverlap(message.content, subject)) {
         throw new Error(
           "That preference is not supported by a stored user message.",
         );
@@ -1591,7 +1748,7 @@ export async function executeCoachTurn(input: {
         id: `preference-${randomUUID()}`,
         type: args.type as
           "food" | "meal_distribution" | "meal_timing" | "preparation",
-        subject: String(args.subject),
+        subject,
         value: String(args.value),
         supportingMessageId,
         createdAt: new Date().toISOString(),
@@ -1616,6 +1773,7 @@ export async function executeCoachTurn(input: {
         turnId: input.turnId,
         kind: "remembering_preference",
         label: `Remembering your preference: ${preference.subject} — ${preference.value}`,
+        lease: turnLease,
       });
       return {
         saved: true,
@@ -1627,7 +1785,12 @@ export async function executeCoachTurn(input: {
       };
     }
     if (call.name === "remove_approved_food") {
-      const foodId = String(args.catalogFoodId);
+      if (!authorizedRemovalFoodId) {
+        throw new Error(
+          "Name the exact approved food you want removed in this message.",
+        );
+      }
+      const foodId = authorizedRemovalFoodId;
       const food = catalog.find((item) => item.id === foodId);
       if (!food || !approvedIdsOf(state).includes(foodId)) {
         throw new Error("That food is not approved for this profile.");
@@ -1659,8 +1822,12 @@ export async function executeCoachTurn(input: {
       };
     }
     if (call.name === "inspect_food_availability") {
+      const requestedQuery = String(args.query);
+      if (!searchQueryMatchesDecision(requestedQuery, turnDecision)) {
+        throw new Error("Restate the food name you want to find.");
+      }
       input.onStatus("checking_foods");
-      const query = String(args.query).toLocaleLowerCase("en-US");
+      const query = requestedQuery.toLocaleLowerCase("en-US");
       const matches = catalog
         .filter((food) =>
           `${food.displayName} ${food.preparation}`
@@ -1682,6 +1849,7 @@ export async function executeCoachTurn(input: {
         turnId: input.turnId,
         kind: "checking_foods",
         label: "Checking your foods and plans",
+        lease: turnLease,
       });
       return { query: String(args.query), matches };
     }
@@ -1690,7 +1858,10 @@ export async function executeCoachTurn(input: {
         throw new Error("Activate your first plan before recording weight.");
       const date = turnCurrentDate;
       const existingMeasurements = measurementsOf(state);
-      const weightKg = normalizeWeightKg(Number(args.weightKg));
+      if (resolvedTodayWeightUpsert === null) {
+        throw new Error("Restate today's weight in this message.");
+      }
+      const weightKg = normalizeWeightKg(resolvedTodayWeightUpsert);
       const existingForDate = existingMeasurements.filter(
         (item) => item.date === date,
       );
@@ -1727,10 +1898,13 @@ export async function executeCoachTurn(input: {
     if (call.name === "edit_weight") {
       if ("profile" in state && !state.activePlan)
         throw new Error("Activate your first plan before editing weight.");
-      const date = resolvedHistoricalWeightUpsert?.date ?? String(args.date);
+      if (!resolvedHistoricalWeightUpsert) {
+        throw new Error("Restate the date and weight in this message.");
+      }
+      const date = resolvedHistoricalWeightUpsert.date;
       const existingMeasurements = measurementsOf(state);
       const weightKg = normalizeWeightKg(
-        resolvedHistoricalWeightUpsert?.weightKg ?? Number(args.weightKg),
+        resolvedHistoricalWeightUpsert.weightKg,
       );
       const existingForDate = existingMeasurements.filter(
         (item) => item.date === date,
@@ -1768,7 +1942,10 @@ export async function executeCoachTurn(input: {
     if (call.name === "delete_weight") {
       if ("profile" in state && !state.activePlan)
         throw new Error("Activate your first plan before deleting weight.");
-      const date = resolvedWeightDelete ?? String(args.date);
+      if (!resolvedWeightDelete) {
+        throw new Error("Restate the measurement date in this message.");
+      }
+      const date = resolvedWeightDelete;
       const existingMeasurements = measurementsOf(state);
       const deleted = existingMeasurements.filter((item) => item.date === date);
       if (deleted.length === 0)
@@ -1793,9 +1970,13 @@ export async function executeCoachTurn(input: {
       };
     }
     if (call.name === "search_foods") {
+      const normalizedEnglishQuery = String(args.normalizedEnglishQuery);
+      if (!searchQueryMatchesDecision(normalizedEnglishQuery, turnDecision)) {
+        throw new Error("Restate the food name you want to find.");
+      }
       const result = await searchFoods({
         profileId: input.request.profileId,
-        query: String(args.normalizedEnglishQuery),
+        query: normalizedEnglishQuery,
         replyLanguage:
           input.request.input.type === "text" &&
           /[\u0590-\u05ff]/.test(input.request.input.text)
@@ -1804,6 +1985,7 @@ export async function executeCoachTurn(input: {
         preparation: null,
         rateIdentity: input.rateIdentity,
         turnId: input.turnId,
+        agentTurnLease: turnLease,
         onStatus: input.onStatus,
       });
       input.onStatus("validating");
@@ -1869,9 +2051,19 @@ export async function executeCoachTurn(input: {
         )
       )
         throw new Error("Select one of the currently displayed candidates.");
+      if (
+        !decisionSelectsFoodCandidate(
+          turnDecision,
+          pending.candidates,
+          String(args.candidateId),
+        )
+      ) {
+        throw new Error("Select one candidate from the current list.");
+      }
       const selected = await prepareFoodCandidate({
         profileId: input.request.profileId,
         candidateId: String(args.candidateId),
+        agentTurnLease: turnLease,
       });
       const next = interaction(randomUUID(), {
         type: "food_approval",
@@ -1896,13 +2088,8 @@ export async function executeCoachTurn(input: {
       const candidate = draftCandidateFromArguments(
         call.arguments as ProposalArguments,
       );
-      const includesRequiredFood =
-        !requiredCatalogFoodId ||
-        candidate.meals.some((meal) =>
-          meal.items.some(
-            (item) => item.catalogFoodId === requiredCatalogFoodId,
-          ),
-        );
+      const planChangeEvaluation = planChangeCandidateIssues(state, candidate);
+      const { includesRequiredFood } = planChangeEvaluation;
       const plan = validateAndBuildPlan({
         candidate,
         profile: draftProfile,
@@ -1911,21 +2098,7 @@ export async function executeCoachTurn(input: {
         version: (state.activePlan?.version ?? 0) + 1,
         catalog: createCatalogSnapshot(catalog),
       });
-      const issues = [
-        ...(includesRequiredFood
-          ? []
-          : [`The Draft must include approved food ${requiredCatalogFoodId}.`]),
-        ...(hasUncompensatedRequiredFoodAddition(
-          state,
-          candidate,
-          requiredCatalogFoodId,
-        )
-          ? [
-              "This adds the required food without reducing or replacing another Active Plan portion. Rebalance the complete Draft before resubmitting.",
-            ]
-          : []),
-        ...plan.validation.issues,
-      ]
+      const issues = [...planChangeEvaluation.issues, ...plan.validation.issues]
         .map((issue) => issue.trim())
         .filter(Boolean)
         .slice(0, 20);
@@ -1988,7 +2161,7 @@ export async function executeCoachTurn(input: {
         {
           ...state,
           draft,
-          agentSession: { ...state.agentSession, draftIntent: null },
+          agentSession: { ...state.agentSession, planChange: null },
         },
         interaction(draft.id, {
           type: "draft_approval",
@@ -2002,6 +2175,7 @@ export async function executeCoachTurn(input: {
         turnId: input.turnId,
         kind: "checking_plan",
         label: "Checking plan safety",
+        lease: turnLease,
       });
       return {
         accepted: true,
@@ -2030,9 +2204,10 @@ export async function executeCoachTurn(input: {
       const candidate = draftCandidateFromArguments(
         call.arguments as ProposalArguments,
       );
+      const adjustmentProfile = structuredProfileOf(state);
       const plan = validateAndBuildPlan({
         candidate,
-        profile: structuredProfileOf(state),
+        profile: adjustmentProfile,
         targets: adjustment.targets,
         planId: `plan-${input.request.commandId}`,
         version: state.activePlan.version + 1,
@@ -2048,6 +2223,28 @@ export async function executeCoachTurn(input: {
         issueCount: plan.validation.issues.length,
       });
       if (!plan.validation.valid) {
+        const reviewedAttempt = reviewDraftAttempt({
+          attempt: proposalAttempts,
+          candidate,
+          plan,
+          profile: adjustmentProfile,
+          catalog,
+          issues: plan.validation.issues.slice(0, 20),
+        });
+        rejectedDraftAttempts.push(reviewedAttempt);
+        if (proposalAttempts >= 3) {
+          state = setInteraction(
+            state,
+            interaction(randomUUID(), {
+              type: "draft_failure_review",
+              proposalKind: "adjustment",
+              basePlanVersion: state.activePlan.version,
+              attempts: structuredClone(rejectedDraftAttempts),
+              prompt:
+                "For the next adjustment Draft, should I keep the same foods and recalculate portions, or use a different mix of your approved foods?",
+            }),
+          );
+        }
         return {
           accepted: false,
           attempt: proposalAttempts,
@@ -2057,9 +2254,11 @@ export async function executeCoachTurn(input: {
           requiredTargets: adjustment.targets,
           requiredDirection: adjustment.direction,
           requiredAdjustmentKcal: adjustment.adjustmentKcal,
+          attemptedDraft: reviewedAttempt,
+          failedAttempts: structuredClone(rejectedDraftAttempts),
           afterThirdFailure:
             proposalAttempts >= 3
-              ? "Ask one focused user question. Do not submit another proposal in this turn."
+              ? "The visible adjustment failure review contains the complete observable attempt history. Direct the user to it and ask its focused question. Do not submit another proposal in this turn."
               : null,
         };
       }
@@ -2086,6 +2285,7 @@ export async function executeCoachTurn(input: {
     throw new Error("Unsupported coach tool.");
   };
 
+  let reachedUserDecision = false;
   const executeTool = async (call: CoachToolCall, sequence: number) => {
     console.info("coach_skill_started", {
       turnId: input.turnId,
@@ -2107,9 +2307,15 @@ export async function executeCoachTurn(input: {
       arguments: call.arguments as Record<string, unknown>,
       result: null,
       status: "pending",
+      lease: turnLease,
     });
     try {
+      const interactionBeforeTool = state.agentSession.pendingInteraction?.id;
       const result = await executeToolCore(call);
+      const interactionAfterTool = state.agentSession.pendingInteraction?.id;
+      reachedUserDecision = Boolean(
+        interactionAfterTool && interactionAfterTool !== interactionBeforeTool,
+      );
       const rejected =
         (call.name === "submit_draft_proposal" ||
           call.name === "submit_adjustment_proposal") &&
@@ -2122,6 +2328,7 @@ export async function executeCoachTurn(input: {
         arguments: call.arguments as Record<string, unknown>,
         result,
         status: rejected ? "rejected" : "completed",
+        lease: turnLease,
       });
       console.info("coach_skill_finished", {
         turnId: input.turnId,
@@ -2146,6 +2353,7 @@ export async function executeCoachTurn(input: {
         arguments: call.arguments as Record<string, unknown>,
         result: { safeFailure: "Skill execution failed safely." },
         status: "failed",
+        lease: turnLease,
       });
       console.error("coach_skill_failed", {
         turnId: input.turnId,
@@ -2168,12 +2376,41 @@ export async function executeCoachTurn(input: {
     );
   let loggedAllowedSkills = "";
   const getAllowed = () => {
+    if (reachedUserDecision) return [];
+    const allowOrdinaryDraftProposal =
+      planMutationAuthorized ||
+      requiresImmediateDraftProposal(input.request.input, state);
     const allowed = protectedButtonOnly
       ? []
-      : allowedTools(state, input.request.input, proposalAttempts);
-    const policyAllowed = foodNameMissing
-      ? allowed.filter((name) => name !== "search_foods")
-      : allowed;
+      : allowedTools(
+          state,
+          input.request.input,
+          proposalAttempts,
+          allowOrdinaryDraftProposal,
+        );
+    let policyAllowed = allowedToolsForDecision(
+      allowed,
+      turnDecision,
+      interactionAtTurnStart,
+    );
+    if (foodNameMissing) {
+      policyAllowed = policyAllowed.filter((name) => name !== "search_foods");
+    }
+    if (
+      planMutationAuthorized ||
+      requiresImmediateDraftProposal(input.request.input, state)
+    ) {
+      policyAllowed = policyAllowed.filter(
+        (name) => name === "submit_draft_proposal",
+      );
+    } else if (
+      input.request.input.type === "interaction" &&
+      input.request.input.action === "generate_adjustment"
+    ) {
+      policyAllowed = policyAllowed.filter(
+        (name) => name === "submit_adjustment_proposal",
+      );
+    }
     const signature = policyAllowed.join(",");
     if (signature !== loggedAllowedSkills) {
       loggedAllowedSkills = signature;
@@ -2188,19 +2425,28 @@ export async function executeCoachTurn(input: {
     return policyAllowed;
   };
   const shouldForceDraftProposal = () => {
-    if (state.draft || proposalAttempts >= 3) return false;
-    const pendingDraftFeedback =
-      currentInteraction?.type === "clarification" &&
-      currentInteraction.workflow === "draft" &&
-      input.request.input.type === "text" &&
-      input.request.input.text.trim().length > 0;
+    if (proposalAttempts >= 3) return false;
+    const revisingCurrentDraft = Boolean(
+      state.draft &&
+      state.agentSession.planChange?.mode === "revise_pending" &&
+      state.agentSession.planChange.baseDraftId === state.draft.id,
+    );
+    if (state.draft && !revisingCurrentDraft) return false;
     return (
-      requestsDraftProposal(input.request.input) ||
+      planMutationAuthorized ||
       requiresImmediateDraftProposal(input.request.input, state) ||
-      selectedAlternativeFood !== null ||
-      pendingDraftFeedback
+      selectedAlternativeFood !== null
     );
   };
+  const shouldForceAdjustmentProposal = () =>
+    proposalAttempts < 3 &&
+    ((input.request.input.type === "interaction" &&
+      input.request.input.action === "generate_adjustment") ||
+      decisionAuthorizesIntent(
+        turnDecision,
+        "adjustment_retry",
+        interactionAtTurnStart,
+      ));
   const contextWithoutDigest = {
     ...contextFor(
       currentProfile,
@@ -2209,6 +2455,8 @@ export async function executeCoachTurn(input: {
       getAllowed(),
       null,
       requiredCatalogFoodId,
+      turnDecision,
+      currentAlternativeOfferIds,
     ),
     latestUserMessageId:
       input.request.input.type === "text"
@@ -2222,27 +2470,9 @@ export async function executeCoachTurn(input: {
       state,
       contextWithoutDigest,
       currentInput: input.request.input,
+      agentTurnLease: turnLease,
     }),
   );
-  selectedAlternativeFood = contextualAlternativeSelection(
-    input.request.input,
-    conversation.messages,
-    state,
-    catalog,
-  );
-  if (selectedAlternativeFood && state.activePlan) {
-    requiredCatalogFoodId = selectedAlternativeFood.id;
-    state = {
-      ...state,
-      agentSession: {
-        ...state.agentSession,
-        draftIntent: {
-          basePlanVersion: state.activePlan.version,
-          requiredCatalogFoodId: selectedAlternativeFood.id,
-        },
-      },
-    };
-  }
   resolvedHistoricalWeightUpsert = resolveHistoricalWeightUpsert(
     input.request.input,
     conversation.messages,
@@ -2253,6 +2483,18 @@ export async function executeCoachTurn(input: {
     conversation.messages,
     turnCurrentDate,
   );
+  if (input.request.input.type === "text") {
+    resolvedTodayWeightUpsert = weightFromText(input.request.input.text);
+    if (
+      resolvedTodayWeightUpsert === null &&
+      interactionAtTurnStart?.type === "clarification" &&
+      interactionAtTurnStart.workflow === "weight"
+    ) {
+      resolvedTodayWeightUpsert = standaloneWeightFromText(
+        input.request.input.text,
+      );
+    }
+  }
   let finalAgentText = "";
   const result = await runCoachAgent({
     getSystemPrompt: () =>
@@ -2264,6 +2506,8 @@ export async function executeCoachTurn(input: {
           getAllowed(),
           conversation.digest,
           requiredCatalogFoodId,
+          turnDecision,
+          currentAlternativeOfferIds,
         ),
         latestUserMessageId:
           input.request.input.type === "text"
@@ -2276,33 +2520,81 @@ export async function executeCoachTurn(input: {
     conversation: conversation.messages,
     getAllowedTools: getAllowed,
     getRequiredFirstTool: () =>
-      input.request.input.type === "interaction" &&
-      input.request.input.action === "generate_adjustment"
+      shouldForceAdjustmentProposal()
         ? "submit_adjustment_proposal"
-        : !("profile" in state && !state.activePlan) &&
-            (requestsTodayWeightUpsert(input.request.input) ||
-              requestsContextualTodayWeightUpsert(
-                input.request.input,
-                conversation.messages,
-              ))
-          ? "record_weight"
-          : !("profile" in state && !state.activePlan) && resolvedWeightDelete
-            ? "delete_weight"
-            : !("profile" in state && !state.activePlan) &&
-                resolvedHistoricalWeightUpsert
-              ? "edit_weight"
-              : shouldForceDraftProposal()
-                ? "submit_draft_proposal"
-                : requiresImmediateFoodSearch(
-                      input.request.input,
-                      currentInteraction,
-                    )
-                  ? "search_foods"
-                  : null,
-    getRequiredTool: (sequence) =>
-      sequence > 1 && shouldForceDraftProposal()
-        ? "submit_draft_proposal"
-        : null,
+        : decisionAuthorizesIntent(
+              turnDecision,
+              "preference_save",
+              interactionAtTurnStart,
+            )
+          ? "remember_preference"
+          : decisionAuthorizesIntent(
+                turnDecision,
+                "food_candidate_selection",
+                interactionAtTurnStart,
+              )
+            ? "select_food_candidate"
+            : decisionAuthorizesIntent(
+                  turnDecision,
+                  "food_remove",
+                  interactionAtTurnStart,
+                ) && authorizedRemovalFoodId
+              ? "remove_approved_food"
+              : decisionAuthorizesIntent(
+                    turnDecision,
+                    "food_inspect",
+                    interactionAtTurnStart,
+                  )
+                ? "inspect_food_availability"
+                : !("profile" in state && !state.activePlan) &&
+                    decisionAuthorizesIntent(
+                      turnDecision,
+                      "weight_record",
+                      interactionAtTurnStart,
+                    ) &&
+                    resolvedTodayWeightUpsert !== null &&
+                    (requestsTodayWeightUpsert(input.request.input) ||
+                      requestsContextualTodayWeightUpsert(
+                        input.request.input,
+                        conversation.messages,
+                      ))
+                  ? "record_weight"
+                  : !("profile" in state && !state.activePlan) &&
+                      decisionAuthorizesIntent(
+                        turnDecision,
+                        "weight_delete",
+                        interactionAtTurnStart,
+                      ) &&
+                      resolvedWeightDelete
+                    ? "delete_weight"
+                    : !("profile" in state && !state.activePlan) &&
+                        decisionAuthorizesIntent(
+                          turnDecision,
+                          "weight_edit",
+                          interactionAtTurnStart,
+                        ) &&
+                        resolvedHistoricalWeightUpsert
+                      ? "edit_weight"
+                      : shouldForceDraftProposal()
+                        ? "submit_draft_proposal"
+                        : requiresImmediateFoodSearch(
+                              input.request.input,
+                              currentInteraction,
+                            ) &&
+                            decisionAuthorizesIntent(
+                              turnDecision,
+                              "food_search",
+                              interactionAtTurnStart,
+                            )
+                          ? "search_foods"
+                          : null,
+    getRequiredTool: (sequence) => {
+      if (sequence <= 1) return null;
+      if (shouldForceAdjustmentProposal()) {
+        return "submit_adjustment_proposal";
+      }
+      return shouldForceDraftProposal() ? "submit_draft_proposal" : null;
+    },
     onText: (value) => {
       finalAgentText += value;
     },
@@ -2312,7 +2604,6 @@ export async function executeCoachTurn(input: {
     (weightConfirmation ?? finalAgentText.trim()) ||
     result.text.trim() ||
     "Done. What would you like to do next?";
-  input.onText(assistantText);
   state = {
     ...state,
     agentSession: {
@@ -2328,9 +2619,11 @@ export async function executeCoachTurn(input: {
       profileId: input.request.profileId,
       expectedVersion: profile.version,
       commandId: input.request.commandId,
+      agentTurnLease: turnLease,
       mutation: () => state,
     }),
   );
+  input.onText(assistantText);
   console.info("coach_turn_persisted", {
     turnId: input.turnId,
     commandId: input.request.commandId,

@@ -4,6 +4,7 @@ import {
   createNewDemoState,
 } from "@/data/demo-fixtures";
 import { getPool, hasPostgresConfiguration } from "./database";
+import { normalizedCatalogIdentity } from "@/domain/catalog/identity";
 
 const migrationSql = `
 CREATE TABLE IF NOT EXISTS schema_migrations (filename text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());
@@ -15,6 +16,9 @@ CREATE TABLE IF NOT EXISTS food_candidates (id uuid PRIMARY KEY, lookup_id uuid 
 CREATE TABLE IF NOT EXISTS rate_limit_events (id bigserial PRIMARY KEY, session_hash text NOT NULL, ip_hash text NOT NULL, action text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS agent_turns (profile_id text NOT NULL REFERENCES demo_profiles(profile_id) ON DELETE CASCADE, command_id text NOT NULL, expected_version integer NOT NULL, request jsonb NOT NULL, status text NOT NULL CHECK (status IN ('pending', 'completed', 'failed')), result jsonb, failure_code text, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (profile_id, command_id));
 ALTER TABLE agent_turns ADD COLUMN IF NOT EXISTS attempt integer NOT NULL DEFAULT 1;
+ALTER TABLE agent_turns ADD COLUMN IF NOT EXISTS lease_token text;
+UPDATE agent_turns SET lease_token = profile_id || ':' || command_id || ':' || attempt::text WHERE lease_token IS NULL;
+ALTER TABLE agent_turns ALTER COLUMN lease_token SET NOT NULL;
 CREATE TABLE IF NOT EXISTS conversation_messages (sequence bigserial PRIMARY KEY, profile_id text NOT NULL REFERENCES demo_profiles(profile_id) ON DELETE CASCADE, id text NOT NULL, turn_id text, role text NOT NULL CHECK (role IN ('user', 'assistant')), content text NOT NULL DEFAULT '', status text NOT NULL CHECK (status IN ('pending', 'partial', 'final', 'failed')), created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(), UNIQUE (profile_id, id));
 CREATE TABLE IF NOT EXISTS conversation_activity_events (sequence bigserial PRIMARY KEY, profile_id text NOT NULL REFERENCES demo_profiles(profile_id) ON DELETE CASCADE, id text NOT NULL, turn_id text, kind text NOT NULL CHECK (kind IN ('thinking', 'checking_foods', 'remembering_preference', 'searching_usda', 'reading_nutrition', 'validating_nutrition', 'creating_draft', 'checking_plan', 'revising_draft', 'user_action', 'failure')), label text NOT NULL, status text NOT NULL CHECK (status IN ('pending', 'completed', 'failed')), created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(), UNIQUE (profile_id, id));
 CREATE TABLE IF NOT EXISTS conversation_summaries (profile_id text PRIMARY KEY REFERENCES demo_profiles(profile_id) ON DELETE CASCADE, through_message_id text NOT NULL, digest jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now());
@@ -27,12 +31,6 @@ CREATE INDEX IF NOT EXISTS conversation_activity_profile_sequence_idx ON convers
 `;
 
 let initialization: Promise<void> | null = null;
-
-function normalizedIdentity(name: string, preparation: string, brand?: string) {
-  return `${name} ${preparation} ${brand ?? ""}`
-    .trim()
-    .toLocaleLowerCase("en-US");
-}
 
 function sourceIdentifier(food: (typeof foodCatalog)[number]) {
   if (food.source.provider === "USDA FoodData Central") {
@@ -71,9 +69,46 @@ async function initializePostgres() {
   );
   await pool.query(
     `UPDATE demo_profiles
-     SET state = jsonb_set(state, '{agentSession,draftIntent}', 'null'::jsonb, true),
+     SET state = jsonb_set(
+           state #- '{agentSession,draftIntent}',
+           '{agentSession,planChange}',
+           CASE
+             WHEN jsonb_typeof(state->'agentSession'->'draftIntent') = 'object'
+             THEN jsonb_build_object(
+               'mode', CASE WHEN jsonb_typeof(state->'draft') = 'object' THEN 'revise_pending' ELSE 'replace_active' END,
+               'basePlanVersion', state->'agentSession'->'draftIntent'->'basePlanVersion',
+               'baseDraftId', CASE WHEN jsonb_typeof(state->'draft') = 'object' THEN COALESCE(state->'draft'->'id', 'null'::jsonb) ELSE 'null'::jsonb END,
+               'requiredCatalogFoodIds', CASE
+                 WHEN jsonb_typeof(state->'agentSession'->'draftIntent'->'requiredCatalogFoodId') <> 'string' THEN '[]'::jsonb
+                 ELSE jsonb_build_array(state->'agentSession'->'draftIntent'->'requiredCatalogFoodId')
+               END,
+               'excludedCatalogFoodIds', '[]'::jsonb,
+               'mustDiffer', true,
+               'scope', 'unspecified',
+               'portionRecalculation', 'whole_draft',
+               'strategy', 'null'::jsonb,
+               'offeredAlternativeFoodIds', '[]'::jsonb,
+               'selectedAlternativeFoodId', 'null'::jsonb,
+               'attemptBatch', 1
+             )
+             ELSE 'null'::jsonb
+           END,
+           true
+         ),
          updated_at = now()
-     WHERE NOT (state->'agentSession' ? 'draftIntent')`,
+     WHERE NOT (state->'agentSession' ? 'planChange')`,
+  );
+  await pool.query(
+    `UPDATE demo_profiles
+     SET state = jsonb_set(
+           state,
+           '{agentSession,planChange,portionRecalculation}',
+           '"whole_draft"'::jsonb,
+           true
+         ),
+         updated_at = now()
+     WHERE jsonb_typeof(state->'agentSession'->'planChange') = 'object'
+       AND NOT (state->'agentSession'->'planChange' ? 'portionRecalculation')`,
   );
   await pool.query(
     `UPDATE demo_profiles
@@ -135,13 +170,7 @@ async function initializePostgres() {
        ON CONFLICT (id) DO NOTHING`,
       [
         food.id,
-        normalizedIdentity(
-          food.displayName,
-          food.preparation,
-          "brand" in food && typeof food.brand === "string"
-            ? food.brand
-            : undefined,
-        ),
+        normalizedCatalogIdentity(food),
         sourceIdentifier(food),
         JSON.stringify({ ...food, kosherReview: "reviewed" }),
       ],

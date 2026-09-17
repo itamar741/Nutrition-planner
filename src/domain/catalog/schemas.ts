@@ -73,11 +73,14 @@ export const catalogFoodSchema = z
       .strict(),
     practicalGrams: z
       .object({
-        min: z.number().positive().max(1_000),
-        max: z.number().positive().max(2_000),
-        step: z.number().positive().max(100),
+        min: z.number().int().positive().max(1_000),
+        max: z.number().int().positive().max(2_000),
+        step: z.number().int().positive().max(100),
       })
-      .strict(),
+      .strict()
+      .refine((value) => value.max >= value.min, {
+        message: "Practical maximum must be at least the minimum.",
+      }),
     runtimeApproval: z
       .object({
         approvedAt: z.string().datetime(),

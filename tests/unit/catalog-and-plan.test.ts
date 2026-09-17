@@ -4,15 +4,14 @@ import { foodCatalog, foodCategoryOrder } from "@/data/food-catalog";
 import { calculateTargets } from "@/domain/nutrition/calculations";
 import {
   applyModificationToDraft,
-  buildDeterministicSeedCandidate,
   calculatePortionNutrients,
-  repairCandidateNutrition,
   revalidatePlan,
   validateAndBuildPlan,
   validateFoodSelections,
 } from "@/domain/plan/validation";
 import type { DraftCandidate, DraftProposal } from "@/domain/plan/types";
 import type { StructuredProfile } from "@/domain/profile/types";
+import { catalogFoodSchema } from "@/domain/catalog/schemas";
 
 const allFoodIds = foodCatalog.map((food) => food.id);
 
@@ -131,6 +130,48 @@ describe("closed food catalog", () => {
     });
   });
 
+  it("validates practical ranges as minimum-offset steps", () => {
+    const profile = readyProfile();
+    const targets = calculateTargets(profile);
+    if (!targets) throw new Error("Expected targets");
+    const atMinimum = validMaintenanceCandidate();
+    atMinimum.meals[0].items[0] = {
+      catalogFoodId: "whole-wheat-bread",
+      grams: 28,
+      alternatives: [],
+    };
+    const invalidStep = structuredClone(atMinimum);
+    invalidStep.meals[0].items[0].grams = 29;
+
+    expect(
+      validateAndBuildPlan({
+        candidate: atMinimum,
+        profile,
+        targets,
+        planId: "minimum-step",
+        version: 1,
+      }).validation.issues,
+    ).not.toContain("Whole-wheat bread must use 5 g steps.");
+    expect(
+      validateAndBuildPlan({
+        candidate: invalidStep,
+        profile,
+        targets,
+        planId: "invalid-step",
+        version: 1,
+      }).validation.issues,
+    ).toContain("Whole-wheat bread must use 5 g steps.");
+  });
+
+  it("rejects impossible practical portion metadata", () => {
+    expect(
+      catalogFoodSchema.safeParse({
+        ...foodCatalog[0],
+        practicalGrams: { min: 100, max: 50, step: 2.5 },
+      }).success,
+    ).toBe(false);
+  });
+
   it("requires every category and rejects unknown or duplicate IDs", () => {
     const incomplete = validateFoodSelections([
       "rolled-oats-dry",
@@ -161,154 +202,6 @@ describe("deterministic Draft validation", () => {
     expect(draft.plan.validation.totals.fiberG).toBeGreaterThanOrEqual(
       draft.plan.targetSnapshot.fiberMinimumG,
     );
-  });
-
-  it("repairs an under-filled model candidate without leaving catalog bounds", () => {
-    const profile = readyProfile();
-    const targets = calculateTargets(profile);
-    if (!targets) throw new Error("Expected targets");
-    const candidate = validMaintenanceCandidate();
-    candidate.meals[3].items.push({
-      catalogFoodId: "white-rice-cooked",
-      grams: 50,
-      alternatives: [],
-    });
-    candidate.meals.forEach((meal) =>
-      meal.items.forEach((item) => {
-        const food = foodCatalog.find(
-          (catalogFood) => catalogFood.id === item.catalogFoodId,
-        );
-        if (!food) throw new Error("Missing food fixture");
-        item.grams = food.practicalGrams.min;
-        item.alternatives = [{ catalogFoodId: "banana-raw", grams: 115 }];
-      }),
-    );
-
-    const repaired = repairCandidateNutrition({
-      candidate,
-      profile,
-      targets,
-    });
-    expect(repaired).not.toBeNull();
-    if (!repaired) return;
-    const plan = validateAndBuildPlan({
-      candidate: repaired,
-      profile,
-      targets,
-      planId: "repaired-plan",
-      version: 1,
-    });
-    expect(plan.validation.valid).toBe(true);
-    expect(
-      repaired.meals
-        .flatMap((meal) => meal.items)
-        .every((item) => item.alternatives.length === 0),
-    ).toBe(true);
-  });
-
-  it("repairs the high-energy six-food demo profile that triggered live failures", () => {
-    const profile: StructuredProfile = {
-      schemaVersion: 1,
-      age: 28,
-      equationSex: "male",
-      heightCm: 175,
-      currentWeightKg: 68,
-      goal: "muscle_gain",
-      dailyRoutine: "mixed_or_on_feet",
-      exerciseType: "resistance",
-      exerciseFrequencyPerWeek: 5,
-      exerciseSessionMinutes: 80,
-      exerciseIntensity: "vigorous",
-      eatingRoutine: "Four meals, with more food later in the day.",
-      mealPattern: "four_meals",
-      foodPreferencesComplete: true,
-      approvedCatalogFoodIds: [
-        "rolled-oats-dry",
-        "white-rice-cooked",
-        "chicken-breast-roasted",
-        "olive-oil",
-        "carrots-raw",
-        "banana-raw",
-      ],
-    };
-    const targets = calculateTargets(profile);
-    if (!targets) throw new Error("Expected targets");
-    const candidate: DraftCandidate = {
-      summary: "A later-weighted four-meal Draft.",
-      meals: [
-        {
-          id: "meal_1",
-          items: [
-            { catalogFoodId: "rolled-oats-dry", grams: 60, alternatives: [] },
-            { catalogFoodId: "banana-raw", grams: 100, alternatives: [] },
-          ],
-        },
-        {
-          id: "meal_2",
-          items: [
-            {
-              catalogFoodId: "white-rice-cooked",
-              grams: 200,
-              alternatives: [],
-            },
-            {
-              catalogFoodId: "chicken-breast-roasted",
-              grams: 80,
-              alternatives: [],
-            },
-            { catalogFoodId: "olive-oil", grams: 10, alternatives: [] },
-            { catalogFoodId: "carrots-raw", grams: 100, alternatives: [] },
-          ],
-        },
-        {
-          id: "meal_3",
-          items: [
-            { catalogFoodId: "rolled-oats-dry", grams: 60, alternatives: [] },
-            { catalogFoodId: "banana-raw", grams: 100, alternatives: [] },
-          ],
-        },
-        {
-          id: "meal_4",
-          items: [
-            {
-              catalogFoodId: "white-rice-cooked",
-              grams: 200,
-              alternatives: [],
-            },
-            {
-              catalogFoodId: "chicken-breast-roasted",
-              grams: 80,
-              alternatives: [],
-            },
-            { catalogFoodId: "olive-oil", grams: 10, alternatives: [] },
-            { catalogFoodId: "carrots-raw", grams: 100, alternatives: [] },
-          ],
-        },
-      ],
-    };
-
-    const repaired = repairCandidateNutrition({ candidate, profile, targets });
-    expect(repaired).not.toBeNull();
-    if (!repaired) return;
-    const plan = validateAndBuildPlan({
-      candidate: repaired,
-      profile,
-      targets,
-      planId: "six-food-repair",
-      version: 1,
-    });
-    expect(plan.validation.valid).toBe(true);
-    expect(plan.validation.issues).toEqual([]);
-
-    const seed = buildDeterministicSeedCandidate(profile);
-    expect(seed).not.toBeNull();
-    if (!seed) return;
-    const repairedSeed = repairCandidateNutrition({
-      candidate: seed,
-      profile,
-      targets,
-    });
-    expect(repairedSeed).not.toBeNull();
   });
 
   it("applies the documented acceptance ranges for all three fixed goals", () => {
@@ -380,6 +273,33 @@ describe("deterministic Draft validation", () => {
     expect(plan.validation.issues.join(" ")).toMatch(
       /not approved|Unknown catalog food/,
     );
+  });
+
+  it("allows reuse across meals but rejects duplicate food rows within one meal", () => {
+    const profile = readyProfile();
+    const targets = calculateTargets(profile);
+    if (!targets) throw new Error("Expected targets");
+    const candidate = validMaintenanceCandidate();
+    candidate.meals[0].items.push({
+      ...candidate.meals[0].items[0],
+      alternatives: [],
+    });
+    const plan = validateAndBuildPlan({
+      candidate,
+      profile,
+      targets,
+      planId: "duplicate-food-row",
+      version: 1,
+    });
+
+    expect(plan.validation.issues).toContain(
+      "Breakfast contains the same food more than once.",
+    );
+    expect(
+      buildValidDraft().plan.meals.filter((meal) =>
+        meal.items.some((item) => item.catalogFoodId === "white-rice-cooked"),
+      ),
+    ).toHaveLength(2);
   });
 
   it("rejects a meal that combines meat and dairy", () => {

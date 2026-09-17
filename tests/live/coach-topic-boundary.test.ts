@@ -62,6 +62,11 @@ liveDescribe("live Arnold topic boundary", () => {
       {
         foodAlternativeRequest: {
           responseMode: "offer_approved_options_only",
+          offeredFoodIds: [
+            "quinoa-cooked",
+            "sweet-potato-baked",
+            "pasta-cooked",
+          ],
         },
         approvedFoods: [
           { id: "white-rice-cooked", name: "White rice" },

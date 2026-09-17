@@ -3,6 +3,7 @@ import type { CatalogFood } from "@/domain/catalog/types";
 import {
   StaleProfileError,
   ActiveAgentTurnError,
+  AgentTurnLeaseLostError,
   assertNoActiveAgentTurn,
   approveCatalogFood,
   getProfile,
@@ -11,11 +12,18 @@ import {
   recordAndCheckDemoAccessRateLimit,
   recordAndCheckRateLimit,
   recordAndCheckAgentRateLimit,
+  recordAgentSkillCall,
+  renewAgentTurnLease,
   reserveAgentTurn,
   finishAgentTurn,
+  findCatalogFood,
+  getAgentRateLimitStatus,
   listConversationMessages,
   listConversationActivities,
   appendConversationActivity,
+  createLookup,
+  saveCandidates,
+  updateLookup,
   updateAssistantMessage,
   resetMemoryPersistenceForTests,
   resetProfile,
@@ -107,6 +115,23 @@ describe("versioned demo persistence", () => {
     );
     expect(upgraded.measurements).toEqual(current.measurements);
     expect(upgraded.messages).toEqual(current.messages);
+  });
+
+  it("accepts projected assistant replies up to the conversation persistence limit", () => {
+    const current = createExistingDemoState(
+      new Date("2026-09-05T00:00:00.000Z"),
+    );
+    const assistantText = "a".repeat(4_000);
+
+    const parsed = parseExistingState({
+      ...current,
+      messages: [
+        ...current.messages,
+        { id: "long-assistant-reply", role: "assistant", text: assistantText },
+      ],
+    });
+
+    expect(parsed.messages.at(-1)?.text).toBe(assistantText);
   });
 
   it("isolates profile changes and rejects stale versions", async () => {
@@ -245,6 +270,35 @@ describe("versioned demo persistence", () => {
       ),
     ).toHaveLength(1);
   });
+
+  it("deduplicates canonical food identity across punctuation and whitespace", async () => {
+    await approveCatalogFood({
+      food: runtimeFood,
+      sourceIdentifier: "fuder:canonical-first",
+      profileId: "new",
+      expectedVersion: 1,
+      commandId: "canonical-first-approval",
+    });
+    const duplicate = await approveCatalogFood({
+      food: {
+        ...runtimeFood,
+        id: "runtime-canonical-duplicate",
+        displayName: "  TEST—RICE ",
+      },
+      sourceIdentifier: "fuder:canonical-second",
+      profileId: "existing",
+      expectedVersion: 1,
+      commandId: "canonical-second-approval",
+    });
+
+    expect(duplicate.food.id).toBe(runtimeFood.id);
+    expect(
+      (await listCatalogFoods()).filter((food) =>
+        [runtimeFood.id, "runtime-canonical-duplicate"].includes(food.id),
+      ),
+    ).toHaveLength(1);
+    expect((await findCatalogFood("test rice"))?.id).toBe(runtimeFood.id);
+  });
 });
 
 describe("persistent lookup limits", () => {
@@ -290,6 +344,206 @@ describe("persistent demo access limits", () => {
 });
 
 describe("persisted agent turns", () => {
+  it("rotates the lease on recovery and fences every late write from the expired worker", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-14T12:00:00.000Z"));
+    const request = { input: { type: "text", text: "Build a Draft" } };
+
+    try {
+      const expired = await reserveAgentTurn({
+        profileId: "new",
+        expectedVersion: 1,
+        commandId: "lease-recovery-command",
+        request,
+        userMessage: {
+          id: "user-lease-recovery-command",
+          content: "Build a Draft",
+        },
+      });
+      const lookup = await createLookup(
+        {
+          profileId: "new",
+          query: "rice",
+          context: {},
+          status: "searching",
+          failureCode: null,
+        },
+        expired.turn,
+      );
+      vi.advanceTimersByTime(90_001);
+      const recovered = await reserveAgentTurn({
+        profileId: "new",
+        expectedVersion: 1,
+        commandId: "lease-recovery-command",
+        request,
+        userMessage: {
+          id: "user-lease-recovery-command",
+          content: "Build a Draft",
+        },
+      });
+
+      expect(recovered.outcome).toBe("resumed");
+      expect(recovered.turn.leaseToken).not.toBe(expired.turn.leaseToken);
+      await expect(
+        updateAssistantMessage({
+          profileId: "new",
+          messageId: expired.assistantMessageId,
+          lease: expired.turn,
+          content: "Late output",
+          status: "final",
+        }),
+      ).rejects.toBeInstanceOf(AgentTurnLeaseLostError);
+      await expect(
+        appendConversationActivity({
+          profileId: "new",
+          id: "late-expired-activity",
+          turnId: "lease-recovery-command",
+          kind: "thinking",
+          label: "Late activity",
+          lease: expired.turn,
+        }),
+      ).rejects.toBeInstanceOf(AgentTurnLeaseLostError);
+      await expect(
+        recordAgentSkillCall({
+          profileId: "new",
+          commandId: "lease-recovery-command",
+          sequence: 1,
+          name: "submit_draft_proposal",
+          arguments: {},
+          result: null,
+          status: "pending",
+          lease: expired.turn,
+        }),
+      ).rejects.toBeInstanceOf(AgentTurnLeaseLostError);
+      await expect(
+        updateLookup(
+          lookup.id,
+          { status: "ready", failureCode: null },
+          expired.turn,
+        ),
+      ).rejects.toBeInstanceOf(AgentTurnLeaseLostError);
+      await expect(
+        saveCandidates(
+          [
+            {
+              id: "late-candidate",
+              lookupId: lookup.id,
+              sourceUrl: null,
+              sourceIdentifier: "late-source",
+              status: "summary",
+              data: {},
+            },
+          ],
+          expired.turn,
+        ),
+      ).rejects.toBeInstanceOf(AgentTurnLeaseLostError);
+      await expect(
+        mutateProfile<DemoState>({
+          profileId: "new",
+          expectedVersion: 1,
+          commandId: "lease-recovery-command",
+          agentTurnLease: expired.turn,
+          mutation: (state) => ({ ...state, error: "late write" }),
+        }),
+      ).rejects.toBeInstanceOf(AgentTurnLeaseLostError);
+      await expect(
+        finishAgentTurn({
+          profileId: "new",
+          commandId: "lease-recovery-command",
+          leaseToken: expired.turn.leaseToken,
+          status: "completed",
+        }),
+      ).rejects.toBeInstanceOf(AgentTurnLeaseLostError);
+      expect((await getProfile<DemoState>("new")).state.error).toBeNull();
+
+      await updateAssistantMessage({
+        profileId: "new",
+        messageId: recovered.assistantMessageId,
+        lease: recovered.turn,
+        content: "Current output",
+        status: "final",
+      });
+      await finishAgentTurn({
+        profileId: "new",
+        commandId: "lease-recovery-command",
+        leaseToken: recovered.turn.leaseToken,
+        status: "completed",
+      });
+      await expect(
+        updateAssistantMessage({
+          profileId: "new",
+          messageId: recovered.assistantMessageId,
+          lease: recovered.turn,
+          content: "Output after completion",
+          status: "final",
+        }),
+      ).rejects.toBeInstanceOf(AgentTurnLeaseLostError);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a slow active turn owned while its lease is renewed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-14T12:00:00.000Z"));
+
+    try {
+      const active = await reserveAgentTurn({
+        profileId: "new",
+        expectedVersion: 1,
+        commandId: "slow-active-command",
+        request: { input: "slow request" },
+      });
+      vi.advanceTimersByTime(80_000);
+      await renewAgentTurnLease(active.turn);
+      vi.advanceTimersByTime(80_000);
+
+      await expect(
+        reserveAgentTurn({
+          profileId: "new",
+          expectedVersion: 1,
+          commandId: "competing-command",
+          request: { input: "competing request" },
+        }),
+      ).rejects.toBeInstanceOf(ActiveAgentTurnError);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("expires a stale agent lease before an ordinary profile mutation", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-14T12:00:00.000Z"));
+
+    try {
+      const expired = await reserveAgentTurn({
+        profileId: "new",
+        expectedVersion: 1,
+        commandId: "expired-before-ordinary-write",
+        request: { input: "slow request" },
+      });
+      vi.advanceTimersByTime(90_001);
+      const changed = await mutateProfile<DemoState>({
+        profileId: "new",
+        expectedVersion: 1,
+        commandId: "ordinary-write-after-expiry",
+        mutation: (state) => ({ ...state, error: "ordinary write" }),
+      });
+
+      expect(changed.state.error).toBe("ordinary write");
+      await expect(
+        finishAgentTurn({
+          profileId: "new",
+          commandId: "expired-before-ordinary-write",
+          leaseToken: expired.turn.leaseToken,
+          status: "completed",
+        }),
+      ).rejects.toBeInstanceOf(AgentTurnLeaseLostError);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("deduplicates completed commands and blocks a concurrent turn", async () => {
     const first = await reserveAgentTurn({
       profileId: "new",
@@ -309,6 +563,7 @@ describe("persisted agent turns", () => {
     await finishAgentTurn({
       profileId: "new",
       commandId: "agent-command-one",
+      leaseToken: first.turn.leaseToken,
       status: "completed",
       result: { answer: "done" },
     });
@@ -324,7 +579,7 @@ describe("persisted agent turns", () => {
 
   it("clears profile-scoped turns on reset while preserving agent rate limits", async () => {
     const identity = { sessionHash: "agent-session", ipHash: "agent-ip" };
-    await reserveAgentTurn({
+    const turn = await reserveAgentTurn({
       profileId: "new",
       expectedVersion: 1,
       commandId: "agent-before-reset",
@@ -333,6 +588,7 @@ describe("persisted agent turns", () => {
     await finishAgentTurn({
       profileId: "new",
       commandId: "agent-before-reset",
+      leaseToken: turn.turn.leaseToken,
       status: "completed",
       result: { answer: "done" },
     });
@@ -374,6 +630,10 @@ describe("persisted agent turns", () => {
         allowed: false,
         retryAfterSeconds: 60,
       });
+      await expect(getAgentRateLimitStatus(identity)).resolves.toEqual({
+        limited: true,
+        retryAfterSeconds: 60,
+      });
 
       vi.advanceTimersByTime(30_000);
       await expect(recordAndCheckAgentRateLimit(identity)).resolves.toEqual({
@@ -382,6 +642,10 @@ describe("persisted agent turns", () => {
       });
 
       vi.advanceTimersByTime(30_001);
+      await expect(getAgentRateLimitStatus(identity)).resolves.toEqual({
+        limited: false,
+        retryAfterSeconds: 0,
+      });
       await expect(recordAndCheckAgentRateLimit(identity)).resolves.toEqual({
         allowed: true,
         retryAfterSeconds: 0,
@@ -406,20 +670,23 @@ describe("persisted agent turns", () => {
     await updateAssistantMessage({
       profileId: "new",
       messageId: first.assistantMessageId,
+      lease: first.turn,
       content: "Partial Arnold output",
       status: "partial",
-    });
-    await finishAgentTurn({
-      profileId: "new",
-      commandId: "durable-stream-command",
-      status: "failed",
-      failureCode: "stream_disconnected",
     });
     await updateAssistantMessage({
       profileId: "new",
       messageId: first.assistantMessageId,
+      lease: first.turn,
       content: "Partial Arnold output",
       status: "failed",
+    });
+    await finishAgentTurn({
+      profileId: "new",
+      commandId: "durable-stream-command",
+      leaseToken: first.turn.leaseToken,
+      status: "failed",
+      failureCode: "stream_disconnected",
     });
 
     const retry = await reserveAgentTurn({
@@ -436,6 +703,7 @@ describe("persisted agent turns", () => {
     await updateAssistantMessage({
       profileId: "new",
       messageId: retry.assistantMessageId,
+      lease: retry.turn,
       content: "Final Arnold output",
       status: "final",
     });
@@ -466,7 +734,7 @@ describe("persisted agent turns", () => {
       commandId: "resume-after-version-command",
       input: { type: "text", text: "Remember dinner" },
     };
-    await reserveAgentTurn({
+    const reserved = await reserveAgentTurn({
       profileId: "new",
       expectedVersion: 1,
       commandId: originalRequest.commandId,
@@ -479,6 +747,7 @@ describe("persisted agent turns", () => {
     await finishAgentTurn({
       profileId: "new",
       commandId: originalRequest.commandId,
+      leaseToken: reserved.turn.leaseToken,
       status: "failed",
       failureCode: "provider_failed",
     });

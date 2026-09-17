@@ -13,6 +13,7 @@ import {
   getLookup,
   replaceCandidate,
   saveCandidates,
+  type AgentTurnLease,
 } from "@/persistence/repository";
 import { dynamicFoodId, validateNutritionPlausibility } from "@/sources/usda";
 
@@ -25,6 +26,7 @@ function energyName(id: 1008 | 2047 | 2048) {
 export async function prepareAiEstimate(input: {
   profileId: DemoProfileId;
   lookupId: string;
+  agentTurnLease?: AgentTurnLease;
 }): Promise<FoodApprovalCandidate> {
   const lookup = await getLookup(input.lookupId);
   if (
@@ -90,22 +92,26 @@ export async function prepareAiEstimate(input: {
     food,
     sourceLabel: "AI estimate · USDA not verified",
   };
-  await saveCandidates([
-    {
-      id: candidateId,
-      lookupId: lookup.id,
-      sourceUrl: null,
-      sourceIdentifier,
-      status: "detailed",
-      data: candidate as unknown as Record<string, unknown>,
-    },
-  ]);
+  await saveCandidates(
+    [
+      {
+        id: candidateId,
+        lookupId: lookup.id,
+        sourceUrl: null,
+        sourceIdentifier,
+        status: "detailed",
+        data: candidate as unknown as Record<string, unknown>,
+      },
+    ],
+    input.agentTurnLease,
+  );
   return candidate;
 }
 
 export async function prepareFoodCandidate(input: {
   profileId: DemoProfileId;
   candidateId: string;
+  agentTurnLease?: AgentTurnLease;
 }): Promise<FoodApprovalCandidate> {
   const stored = await getCandidate(input.candidateId);
   const lookup = await getLookup(stored.lookupId);
@@ -186,10 +192,13 @@ export async function prepareFoodCandidate(input: {
         ? "USDA FoodData Central verified"
         : "USDA FoodData Central search data",
   };
-  await replaceCandidate({
-    ...stored,
-    status: "detailed",
-    data: data as unknown as Record<string, unknown>,
-  });
+  await replaceCandidate(
+    {
+      ...stored,
+      status: "detailed",
+      data: data as unknown as Record<string, unknown>,
+    },
+    input.agentTurnLease,
+  );
   return data;
 }

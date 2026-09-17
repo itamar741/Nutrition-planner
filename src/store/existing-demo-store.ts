@@ -7,6 +7,7 @@ import {
 } from "@/domain/weight/trend";
 import {
   agentSessionSchema,
+  projectedConversationMessageSchema,
   type AgentSessionState,
 } from "@/domain/agent/types";
 
@@ -41,15 +42,7 @@ export const existingStateSchema = z
         })
         .strict(),
     ),
-    messages: z.array(
-      z
-        .object({
-          id: z.string().min(1),
-          role: z.enum(["assistant", "user"]),
-          text: z.string().min(1).max(1_000),
-        })
-        .strict(),
-    ),
+    messages: z.array(projectedConversationMessageSchema),
     approvedCatalogFoodIds: z.array(z.string().min(1).max(100)),
     agentSession: agentSessionSchema,
   })

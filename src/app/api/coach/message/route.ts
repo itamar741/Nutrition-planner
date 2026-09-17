@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { executeCoachTurn } from "@/application/coach-turn";
+import { coachInputRequiresModel } from "@/application/turn-execution-policy";
 import {
   coachMessageRequestSchema,
   type AgentStreamEvent,
@@ -13,6 +14,7 @@ import {
   getProfile,
   listConversationActivities,
   recordAndCheckAgentRateLimit,
+  renewAgentTurnLease,
   reserveAgentTurn,
   StaleProfileError,
   updateAssistantMessage,
@@ -58,8 +60,14 @@ function safeCoachErrorMessage(error: unknown) {
     "There is no food search awaiting refinement.",
     "That preference is not supported by a stored user message.",
     "That food is not approved for this profile.",
+    "Name the exact approved food you want removed in this message.",
+    "Restate today's weight in this message.",
+    "Restate the date and weight in this message.",
+    "Restate the measurement date in this message.",
+    "Restate the food name you want to find.",
     "No weight is recorded for that date.",
     "Select one of the currently displayed candidates.",
+    "Select one candidate from the current list.",
     "The deterministic trend does not support an adjustment.",
     "The catalog food no longer exists.",
     "An AI estimate is available only after a failed source lookup.",
@@ -178,19 +186,26 @@ export async function POST(request: Request) {
     }
     throw error;
   }
-  const rateLimit = await recordAndCheckAgentRateLimit(identity);
-  if (!rateLimit.allowed) {
-    await finishAgentTurn({
-      profileId: input.profileId,
-      commandId: input.commandId,
-      status: "failed",
-      failureCode: "rate_limited",
-    });
+  const lease = {
+    profileId: input.profileId,
+    commandId: input.commandId,
+    leaseToken: reservation.turn.leaseToken,
+  };
+  const rateLimit = coachInputRequiresModel(input.input)
+    ? await recordAndCheckAgentRateLimit(identity)
+    : null;
+  if (rateLimit && !rateLimit.allowed) {
     await updateAssistantMessage({
       profileId: input.profileId,
       messageId: reservation.assistantMessageId,
+      lease,
       content: AGENT_RATE_LIMIT_MESSAGE,
       status: "failed",
+    });
+    await finishAgentTurn({
+      ...lease,
+      status: "failed",
+      failureCode: "rate_limited",
     });
     return NextResponse.json(
       {
@@ -210,6 +225,12 @@ export async function POST(request: Request) {
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       let open = true;
+      let leaseFailure: unknown = null;
+      const heartbeat = setInterval(() => {
+        void renewAgentTurnLease(lease).catch((error) => {
+          leaseFailure = error;
+        });
+      }, 30_000);
       const send = (event: AgentStreamEvent) => {
         if (!open) return;
         try {
@@ -230,6 +251,7 @@ export async function POST(request: Request) {
             updateAssistantMessage({
               profileId: input.profileId,
               messageId: reservation.assistantMessageId,
+              lease,
               content: assistantText,
               status: "partial",
             }),
@@ -247,6 +269,7 @@ export async function POST(request: Request) {
               turnId: input.commandId,
               kind,
               label,
+              lease,
             }).then(() => undefined),
           );
         };
@@ -255,6 +278,7 @@ export async function POST(request: Request) {
             request: input,
             rateIdentity: identity,
             turnId: input.commandId,
+            leaseToken: lease.leaseToken,
             onStatus: (value) => {
               const event = { type: "status" as const, value };
               persistStatus(event);
@@ -265,11 +289,13 @@ export async function POST(request: Request) {
               send({ type: "text_delta", value });
             },
           });
+          if (leaseFailure) throw leaseFailure;
           await persistenceQueue;
           assistantText = result.assistantText.slice(0, 4_000);
           await updateAssistantMessage({
             profileId: input.profileId,
             messageId: reservation.assistantMessageId,
+            lease,
             content: assistantText,
             status: "final",
           });
@@ -281,8 +307,7 @@ export async function POST(request: Request) {
             assistantText,
           };
           await finishAgentTurn({
-            profileId: input.profileId,
-            commandId: input.commandId,
+            ...lease,
             status: "completed",
             result: persisted as unknown as Record<string, unknown>,
           });
@@ -309,6 +334,7 @@ export async function POST(request: Request) {
           await updateAssistantMessage({
             profileId: input.profileId,
             messageId: reservation.assistantMessageId,
+            lease,
             content: assistantText || safeMessage,
             status: "failed",
           }).catch(() => undefined);
@@ -319,10 +345,10 @@ export async function POST(request: Request) {
             kind: "failure",
             label: "This turn failed safely; confirmed state was preserved",
             status: "failed",
+            lease,
           }).catch(() => undefined);
           await finishAgentTurn({
-            profileId: input.profileId,
-            commandId: input.commandId,
+            ...lease,
             status: "failed",
             failureCode,
           }).catch(() => undefined);
@@ -361,6 +387,7 @@ export async function POST(request: Request) {
             },
           });
         } finally {
+          clearInterval(heartbeat);
           if (open) controller.close();
         }
       })();

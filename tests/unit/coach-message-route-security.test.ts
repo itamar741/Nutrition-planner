@@ -14,6 +14,7 @@ vi.mock("@/application/coach-turn", () => ({ executeCoachTurn }));
 
 type MockTurnInput = {
   request: CoachMessageRequest;
+  leaseToken: string;
   onStatus: (value: "thinking") => void;
   onText: (value: string) => void;
 };
@@ -27,6 +28,26 @@ function coachRequest(commandId: string, text = "Hello") {
       expectedVersion: 1,
       commandId,
       input: { type: "text", text },
+    }),
+  });
+}
+
+function coachInteractionRequest(
+  commandId: string,
+  action: "approve_draft" | "generate_adjustment",
+) {
+  return new Request("http://localhost/api/coach/message", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      profileId: "new",
+      expectedVersion: 1,
+      commandId,
+      input: {
+        type: "interaction",
+        interactionId: "test-interaction",
+        action,
+      },
     }),
   });
 }
@@ -69,6 +90,9 @@ describe("protected coach route", () => {
     expect(duplicate.status).toBe(200);
     expect(body.duplicate).toBe(true);
     expect(executeCoachTurn).toHaveBeenCalledOnce();
+    expect(executeCoachTurn.mock.calls[0][0].leaseToken).toEqual(
+      expect.any(String),
+    );
   });
 
   it("returns a fixed message when a command is replayed with new input", async () => {
@@ -142,6 +166,29 @@ describe("protected coach route", () => {
       retryAfterSeconds: 60,
     });
     expect(executeCoachTurn).toHaveBeenCalledTimes(30);
+  });
+
+  it("does not spend an AI-rate-limit slot on a deterministic button action", async () => {
+    for (let index = 0; index < 30; index += 1) {
+      const response = await POST(coachRequest(`button-rate-seed-${index}`));
+      expect(response.status).toBe(200);
+      await response.text();
+    }
+
+    const deterministic = await POST(
+      coachInteractionRequest("button-after-ai-limit", "approve_draft"),
+    );
+    expect(deterministic.status).toBe(200);
+    await deterministic.text();
+
+    const modelBacked = await POST(
+      coachInteractionRequest(
+        "model-action-after-ai-limit",
+        "generate_adjustment",
+      ),
+    );
+    expect(modelBacked.status).toBe(429);
+    expect(executeCoachTurn).toHaveBeenCalledTimes(31);
   });
 });
 

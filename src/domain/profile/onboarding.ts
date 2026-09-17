@@ -22,6 +22,10 @@ const requiredFactKeys: ProfileFactKey[] = [
   "mealPattern",
 ];
 
+export function getOnboardingFactKeys(): ProfileFactKey[] {
+  return [...requiredFactKeys];
+}
+
 const basicsKeys: ProfileFactKey[] = [
   "age",
   "equationSex",
@@ -104,6 +108,23 @@ export function applyFactPatch(
     if (allowed.has(key) && profile[key] === null) {
       Object.assign(next, { [key]: value });
     }
+  }
+
+  return structuredProfileSchema.parse(next);
+}
+
+export function applyOnboardingFactPatch(
+  profile: StructuredProfile,
+  patch: ProfileFactPatch,
+): StructuredProfile {
+  const validatedPatch = profileFactPatchSchema.parse(patch);
+  const next = { ...profile };
+
+  for (const [key, value] of Object.entries(validatedPatch) as [
+    ProfileFactKey,
+    StructuredProfile[ProfileFactKey],
+  ][]) {
+    if (requiredFactKeys.includes(key)) Object.assign(next, { [key]: value });
   }
 
   return structuredProfileSchema.parse(next);

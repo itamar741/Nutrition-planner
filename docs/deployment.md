@@ -176,7 +176,9 @@ The free Web Service may be sleeping. Wait for the visible loading state instead
 - Before access is granted, all users share one anonymous limit of five access-code attempts per 15 minutes. This avoids trusting spoofable forwarding headers, but one user can temporarily exhaust the shared bucket and block other users until the window expires.
 - 10 lookup workflows per hour for the same verified, hashed access session.
 - 30 lookup workflows per day globally.
-- 30 AI conversation turns per hour for the same verified, hashed access session.
+- 30 AI conversation turns in a rolling one-minute window for the same verified,
+  hashed access session. The state endpoint returns the authoritative remaining
+  cooldown so a page reload resumes the countdown instead of hiding it.
 - 100 AI conversation turns per day globally.
 - One pending agent turn per shared profile; a turn older than 90 seconds becomes recoverable.
 - USDA source requests abort after 15 seconds.

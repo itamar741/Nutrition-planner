@@ -1,10 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { generateAdjustmentDraft } from "@/ai/plan";
-import {
-  createExistingDemoState,
-  existingReadyProfile,
-} from "@/data/demo-fixtures";
-import { roundTo25HalfUp } from "@/domain/nutrition/calculations";
+import { createExistingDemoState } from "@/data/demo-fixtures";
 
 test.beforeEach(async ({ request }) => {
   const current = (await (
@@ -151,25 +146,24 @@ test("B-01 reviews, declines, revises, and approves an adjustment in chat", asyn
           ? request.input.text
           : undefined;
       feedbackRequests.push(feedback);
-      const draft = await generateAdjustmentDraft(
-        {
-          commandId: request.commandId,
-          feedback,
-          profile: existingReadyProfile,
-          activePlan: state.activePlan,
-          direction: "decrease",
-          adjustmentKcal: Math.max(
-            100,
-            Math.min(
-              200,
-              roundTo25HalfUp(
-                state.activePlan.plan.validation.totals.energyKcal * 0.05,
-              ),
-            ),
-          ),
+      const draft = {
+        schemaVersion: 1 as const,
+        id: `adjustment-${request.commandId}`,
+        basePlanVersion: state.activePlan.version,
+        reason: "modification" as const,
+        summary: feedback
+          ? "A mocked evening-focused adjustment Draft."
+          : "A mocked bounded adjustment Draft.",
+        plan: {
+          ...structuredClone(state.activePlan.plan),
+          id: `adjustment-plan-${request.commandId}`,
+          version: state.activePlan.version + 1,
+          targetSnapshot: {
+            ...state.activePlan.plan.targetSnapshot,
+            energyKcal: state.activePlan.plan.targetSnapshot.energyKcal - 150,
+          },
         },
-        async () => "not json",
-      );
+      };
       state = {
         ...state,
         agentSession: {

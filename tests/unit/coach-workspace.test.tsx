@@ -88,7 +88,10 @@ function successResponse() {
   );
 }
 
-function installCloudFetch(onboarding: () => Promise<Response>) {
+function installCloudFetch(
+  onboarding: () => Promise<Response>,
+  agentRateLimit = { limited: false, retryAfterSeconds: 0 },
+) {
   let state: DemoState = createNewDemoState();
   let version = 1;
   vi.stubGlobal(
@@ -102,6 +105,7 @@ function installCloudFetch(onboarding: () => Promise<Response>) {
             ok: true,
             profile: { profileId: "new", version, state },
             catalog: foodCatalog,
+            agentRateLimit,
           }),
         };
       }
@@ -138,6 +142,22 @@ describe("CoachWorkspace", () => {
     expect(isAgentRateLimitMessage(AGENT_RATE_LIMIT_MESSAGE)).toBe(true);
     expect(isAgentRateLimitMessage(LEGACY_AGENT_RATE_LIMIT_MESSAGE)).toBe(true);
     expect(isAgentRateLimitMessage("A normal coach response.")).toBe(false);
+  });
+
+  it("restores the server-owned countdown after a page reload", async () => {
+    installCloudFetch(async () => successResponse(), {
+      limited: true,
+      retryAfterSeconds: 45,
+    });
+
+    render(<CoachWorkspace profileId="new" />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      AGENT_RATE_LIMIT_MESSAGE,
+    );
+    expect(screen.getByRole("timer")).toHaveTextContent(
+      "Available again in 00:45.",
+    );
   });
 
   it("UI-01 starts with text enabled and no quick replies", () => {
