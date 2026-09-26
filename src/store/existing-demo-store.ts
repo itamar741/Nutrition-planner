@@ -18,7 +18,7 @@ export interface ExistingChatMessage {
 }
 
 export interface ExistingDemoState {
-  schemaVersion: 2;
+  schemaVersion: 3;
   activePlan: ActivePlan;
   draft: DraftProposal | null;
   measurements: WeightMeasurement[];
@@ -29,7 +29,7 @@ export interface ExistingDemoState {
 
 export const existingStateSchema = z
   .object({
-    schemaVersion: z.literal(2),
+    schemaVersion: z.literal(3),
     activePlan: activePlanSchema,
     draft: draftProposalSchema.nullable(),
     measurements: z.array(
@@ -50,13 +50,13 @@ export const existingStateSchema = z
 
 export function parseExistingState(value: unknown): ExistingDemoState {
   const legacy = z
-    .object({ schemaVersion: z.literal(1) })
+    .object({ schemaVersion: z.union([z.literal(1), z.literal(2)]) })
     .passthrough()
     .safeParse(value);
   const upgraded = legacy.success
     ? {
         ...legacy.data,
-        schemaVersion: 2 as const,
+        schemaVersion: 3 as const,
         draft: "draft" in legacy.data ? legacy.data.draft : null,
       }
     : value;

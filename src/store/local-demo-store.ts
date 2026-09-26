@@ -12,7 +12,7 @@ import {
 
 export const persistedStateSchema = z
   .object({
-    schemaVersion: z.literal(2),
+    schemaVersion: z.literal(3),
     profileId: z.literal("new"),
     profile: structuredProfileSchema,
     messages: z.array(projectedConversationMessageSchema),

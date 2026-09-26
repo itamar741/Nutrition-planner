@@ -28,7 +28,7 @@ export interface PendingCommand {
 }
 
 export interface DemoState {
-  schemaVersion: 2;
+  schemaVersion: 3;
   profileId: DemoProfileId;
   profile: StructuredProfile;
   messages: ChatMessage[];
