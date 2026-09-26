@@ -5,8 +5,10 @@ import type {
   ResponseInputItem,
 } from "openai/resources/responses/responses";
 import { z } from "zod";
+import { modelFactExtractionSchema } from "./contracts";
 
 export const coachToolNames = [
+  "submit_onboarding_facts",
   "remember_preference",
   "remove_approved_food",
   "inspect_food_availability",
@@ -15,6 +17,7 @@ export const coachToolNames = [
   "delete_weight",
   "search_foods",
   "select_food_candidate",
+  "offer_approved_food_alternatives",
   "submit_draft_proposal",
   "submit_adjustment_proposal",
 ] as const;
@@ -69,7 +72,169 @@ const proposalParameters = {
   },
 };
 
+const draftChangeContextParameters = {
+  anyOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "kind",
+        "evidence",
+        "scope",
+        "requiredCatalogFoodIds",
+        "excludedCatalogFoodIds",
+      ],
+      properties: {
+        kind: { type: "string", enum: ["new_request"] },
+        evidence: { type: "string", minLength: 1, maxLength: 500 },
+        scope: {
+          type: "string",
+          enum: ["whole_plan", "food_replacement", "unspecified"],
+        },
+        requiredCatalogFoodIds: {
+          type: "array",
+          maxItems: 8,
+          items: { type: "string", minLength: 1, maxLength: 100 },
+        },
+        excludedCatalogFoodIds: {
+          type: "array",
+          maxItems: 8,
+          items: { type: "string", minLength: 1, maxLength: 100 },
+        },
+      },
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "kind",
+        "planChangeId",
+        "selectedAlternativeFoodId",
+        "retryStrategy",
+      ],
+      properties: {
+        kind: { type: "string", enum: ["continuation"] },
+        planChangeId: { type: "string", minLength: 1, maxLength: 200 },
+        selectedAlternativeFoodId: {
+          type: ["string", "null"],
+          minLength: 1,
+          maxLength: 100,
+        },
+        retryStrategy: {
+          type: ["string", "null"],
+          enum: ["preserve_structure", "different_approved_mix", null],
+        },
+      },
+    },
+  ],
+};
+
+const draftProposalParameters = {
+  ...proposalParameters,
+  required: [...proposalParameters.required, "changeContext"],
+  properties: {
+    ...proposalParameters.properties,
+    changeContext: draftChangeContextParameters,
+  },
+};
+
 const tools = {
+  submit_onboarding_facts: {
+    type: "function" as const,
+    name: "submit_onboarding_facts",
+    description:
+      "Submit only profile facts explicitly stated in the current onboarding message. The server validates ranges, permitted fields, and the active onboarding step.",
+    strict: true,
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["facts", "acknowledgement", "supportingMessageId"],
+      properties: {
+        facts: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "age",
+            "equationSex",
+            "heightCm",
+            "currentWeightKg",
+            "goal",
+            "dailyRoutine",
+            "exerciseType",
+            "exerciseFrequencyPerWeek",
+            "exerciseSessionMinutes",
+            "exerciseIntensity",
+            "eatingRoutine",
+            "mealPattern",
+          ],
+          properties: {
+            age: { type: ["integer", "null"], minimum: 18, maximum: 120 },
+            equationSex: {
+              type: ["string", "null"],
+              enum: ["male", "female", null],
+            },
+            heightCm: {
+              type: ["number", "null"],
+              minimum: 100,
+              maximum: 260,
+            },
+            currentWeightKg: {
+              type: ["number", "null"],
+              minimum: 30,
+              maximum: 400,
+            },
+            goal: {
+              type: ["string", "null"],
+              enum: ["fat_loss", "maintenance", "muscle_gain", null],
+            },
+            dailyRoutine: {
+              type: ["string", "null"],
+              enum: [
+                "mostly_seated",
+                "mixed_or_on_feet",
+                "physically_demanding",
+                null,
+              ],
+            },
+            exerciseType: {
+              type: ["string", "null"],
+              enum: ["none", "resistance", "cardio", "mixed", null],
+            },
+            exerciseFrequencyPerWeek: {
+              type: ["integer", "null"],
+              minimum: 0,
+              maximum: 14,
+            },
+            exerciseSessionMinutes: {
+              type: ["integer", "null"],
+              minimum: 0,
+              maximum: 300,
+            },
+            exerciseIntensity: {
+              type: ["string", "null"],
+              enum: ["moderate", "vigorous", null],
+            },
+            eatingRoutine: { type: ["string", "null"], maxLength: 500 },
+            mealPattern: {
+              type: ["string", "null"],
+              enum: [
+                "three_meals",
+                "three_meals_one_snack",
+                "four_meals",
+                null,
+              ],
+            },
+          },
+        },
+        acknowledgement: { type: "string", minLength: 1, maxLength: 180 },
+        supportingMessageId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 200,
+        },
+      },
+    },
+  },
   remember_preference: {
     type: "function" as const,
     name: "remember_preference",
@@ -174,12 +339,21 @@ const tools = {
     parameters: {
       type: "object",
       additionalProperties: false,
-      required: ["normalizedEnglishQuery"],
+      required: ["requestedFoodPhrase", "normalizedEnglishQuery", "purpose"],
       properties: {
+        requestedFoodPhrase: {
+          type: "string",
+          minLength: 1,
+          maxLength: 120,
+        },
         normalizedEnglishQuery: {
           type: "string",
           minLength: 2,
           maxLength: 120,
+        },
+        purpose: {
+          type: "string",
+          enum: ["catalog_only", "integrate_into_plan"],
         },
       },
     },
@@ -197,13 +371,35 @@ const tools = {
       properties: { candidateId: { type: "string", format: "uuid" } },
     },
   },
+  offer_approved_food_alternatives: {
+    type: "function" as const,
+    name: "offer_approved_food_alternatives",
+    description:
+      "Offer relevant replacements from the profile's approved foods, excluding the disliked food. This records the offered choices and waits for the user to choose one; it does not create a Draft.",
+    strict: true,
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["evidence", "sourceMessageId", "excludedCatalogFoodIds"],
+      properties: {
+        evidence: { type: "string", minLength: 1, maxLength: 500 },
+        sourceMessageId: { type: "string", minLength: 1, maxLength: 200 },
+        excludedCatalogFoodIds: {
+          type: "array",
+          minItems: 1,
+          maxItems: 8,
+          items: { type: "string", minLength: 1, maxLength: 100 },
+        },
+      },
+    },
+  },
   submit_draft_proposal: {
     type: "function" as const,
     name: "submit_draft_proposal",
     description:
       "Submit a complete daily Draft made only from approved catalog foods. Server calculations and validation are authoritative.",
     strict: true,
-    parameters: proposalParameters,
+    parameters: draftProposalParameters,
   },
   submit_adjustment_proposal: {
     type: "function" as const,
@@ -251,7 +447,40 @@ const proposalArgumentsSchema = z
   })
   .strict();
 
+const draftChangeContextSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("new_request"),
+      evidence: z.string().trim().min(1).max(500),
+      scope: z.enum(["whole_plan", "food_replacement", "unspecified"]),
+      requiredCatalogFoodIds: z.array(z.string().min(1).max(100)).max(8),
+      excludedCatalogFoodIds: z.array(z.string().min(1).max(100)).max(8),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("continuation"),
+      planChangeId: z.string().min(1).max(200),
+      selectedAlternativeFoodId: z.string().min(1).max(100).nullable(),
+      retryStrategy: z
+        .enum(["preserve_structure", "different_approved_mix"])
+        .nullable(),
+    })
+    .strict(),
+]);
+
+const draftProposalArgumentsSchema = proposalArgumentsSchema.extend({
+  changeContext: draftChangeContextSchema,
+});
+
 const toolArgumentSchemas: Record<CoachToolName, z.ZodType> = {
+  submit_onboarding_facts: z
+    .object({
+      facts: modelFactExtractionSchema.shape.facts,
+      acknowledgement: z.string().trim().min(1).max(180),
+      supportingMessageId: z.string().min(1).max(200),
+    })
+    .strict(),
   remember_preference: z
     .object({
       type: z.enum(["food", "meal_distribution", "meal_timing", "preparation"]),
@@ -280,19 +509,40 @@ const toolArgumentSchemas: Record<CoachToolName, z.ZodType> = {
     .strict(),
   search_foods: z
     .object({
+      requestedFoodPhrase: z.string().trim().min(1).max(120),
       normalizedEnglishQuery: z
         .string()
         .min(2)
         .max(120)
         .regex(/^[A-Za-z0-9\s,'()\-/]+$/),
+      purpose: z.enum(["catalog_only", "integrate_into_plan"]),
     })
     .strict(),
   select_food_candidate: z.object({ candidateId: z.string().uuid() }).strict(),
-  submit_draft_proposal: proposalArgumentsSchema,
+  offer_approved_food_alternatives: z
+    .object({
+      evidence: z.string().trim().min(1).max(500),
+      sourceMessageId: z.string().min(1).max(200),
+      excludedCatalogFoodIds: z.array(z.string().min(1).max(100)).min(1).max(8),
+    })
+    .strict(),
+  submit_draft_proposal: draftProposalArgumentsSchema,
   submit_adjustment_proposal: proposalArgumentsSchema,
 };
 
 export type ProposalArguments = z.infer<typeof proposalArgumentsSchema>;
+export type DraftProposalArguments = z.infer<
+  typeof draftProposalArgumentsSchema
+>;
+
+export type CoachToolResultStatus =
+  "completed" | "blocked" | "needs_user_action" | "rejected";
+
+export type CoachToolResult = {
+  status: CoachToolResultStatus;
+  code: string;
+  message: string;
+} & Record<string, unknown>;
 
 export interface CoachToolCall {
   name: CoachToolName;

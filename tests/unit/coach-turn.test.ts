@@ -378,10 +378,15 @@ function planChangeWorkflow(
   input: Partial<PlanChangeWorkflow> = {},
 ): PlanChangeWorkflow {
   return {
+    id: "test-plan-change",
+    status: "ready_for_draft",
+    sourceMessageId: null,
+    requestEvidence: null,
     mode: "replace_active",
     basePlanVersion: 1,
     baseDraftId: null,
     requiredCatalogFoodIds: [],
+    unresolvedFoodNames: [],
     excludedCatalogFoodIds: [],
     mustDiffer: true,
     scope: "unspecified",
@@ -390,6 +395,7 @@ function planChangeWorkflow(
     offeredAlternativeFoodIds: [],
     selectedAlternativeFoodId: null,
     attemptBatch: 1,
+    currentDraftId: null,
     ...input,
   };
 }

@@ -79,23 +79,27 @@ export type AgentInteraction =
       type: "food_candidates";
       lookupId: string;
       candidates: FoodSearchCandidate[];
+      planChangeId?: string | null;
     }
   | {
       id: string;
       type: "food_approval";
       candidate: FoodApprovalCandidate;
+      planChangeId?: string | null;
     }
   | {
       id: string;
       type: "existing_food";
       food: CatalogFood;
       alreadyApproved: boolean;
+      planChangeId?: string | null;
     }
   | {
       id: string;
       type: "confirm_draft_food";
       foodId: string;
       displayName: string;
+      planChangeId?: string | null;
     }
   | {
       id: string;
@@ -103,6 +107,7 @@ export type AgentInteraction =
       lookupId: string;
       query: string;
       failureCode: string;
+      planChangeId?: string | null;
     }
   | {
       id: string;
@@ -115,6 +120,7 @@ export type AgentInteraction =
       id: string;
       type: "draft_approval";
       proposalId: string;
+      planChangeId?: string | null;
     }
   | {
       id: string;
@@ -128,7 +134,19 @@ export type AgentInteraction =
       basePlanVersion?: number;
       attempts: DraftAttemptReview[];
       prompt: string;
+      planChangeId?: string | null;
     };
+
+export const planChangeStatusSchema = z.enum([
+  "resolving_foods",
+  "awaiting_food_approval",
+  "awaiting_draft_confirmation",
+  "ready_for_draft",
+  "draft_pending_approval",
+  "failure_review",
+]);
+
+export type PlanChangeStatus = z.infer<typeof planChangeStatusSchema>;
 
 export const conversationPreferenceSchema = z
   .object({
@@ -172,10 +190,18 @@ export type ConversationActivity = z.infer<typeof conversationActivitySchema>;
 
 export const planChangeWorkflowSchema = z
   .object({
+    id: z.string().min(1).max(200).default("legacy-plan-change"),
+    status: planChangeStatusSchema.default("ready_for_draft"),
+    sourceMessageId: z.string().min(1).max(200).nullable().default(null),
+    requestEvidence: z.string().trim().min(1).max(500).nullable().default(null),
     mode: z.enum(["create_initial", "replace_active", "revise_pending"]),
     basePlanVersion: z.number().int().positive().nullable(),
     baseDraftId: z.string().min(1).max(200).nullable(),
     requiredCatalogFoodIds: z.array(z.string().min(1).max(100)).max(8),
+    unresolvedFoodNames: z
+      .array(z.string().trim().min(1).max(120))
+      .max(8)
+      .default([]),
     excludedCatalogFoodIds: z.array(z.string().min(1).max(100)).max(8),
     mustDiffer: z.boolean(),
     scope: z.enum(["whole_plan", "food_replacement", "unspecified"]),
@@ -186,6 +212,7 @@ export const planChangeWorkflowSchema = z
     offeredAlternativeFoodIds: z.array(z.string().min(1).max(100)).max(12),
     selectedAlternativeFoodId: z.string().min(1).max(100).nullable(),
     attemptBatch: z.number().int().positive(),
+    currentDraftId: z.string().min(1).max(200).nullable().default(null),
   })
   .strict();
 
@@ -244,6 +271,7 @@ export const agentInteractionSchema = z.discriminatedUnion("type", [
       lookupId: z.string().uuid(),
       query: z.string().min(1).max(120),
       failureCode: z.string().min(1).max(80),
+      planChangeId: z.string().min(1).max(200).nullable().optional(),
     })
     .strict(),
   z
@@ -252,6 +280,7 @@ export const agentInteractionSchema = z.discriminatedUnion("type", [
       type: z.literal("food_candidates"),
       lookupId: z.string().uuid(),
       candidates: z.array(foodSearchCandidateSchema).min(1).max(5),
+      planChangeId: z.string().min(1).max(200).nullable().optional(),
     })
     .strict(),
   z
@@ -259,6 +288,7 @@ export const agentInteractionSchema = z.discriminatedUnion("type", [
       id: z.string().min(1).max(100),
       type: z.literal("food_approval"),
       candidate: foodApprovalCandidateSchema,
+      planChangeId: z.string().min(1).max(200).nullable().optional(),
     })
     .strict(),
   z
@@ -267,6 +297,7 @@ export const agentInteractionSchema = z.discriminatedUnion("type", [
       type: z.literal("existing_food"),
       food: catalogFoodSchema,
       alreadyApproved: z.boolean(),
+      planChangeId: z.string().min(1).max(200).nullable().optional(),
     })
     .strict(),
   z
@@ -275,6 +306,7 @@ export const agentInteractionSchema = z.discriminatedUnion("type", [
       type: z.literal("confirm_draft_food"),
       foodId: z.string().min(1).max(100),
       displayName: z.string().min(1).max(120),
+      planChangeId: z.string().min(1).max(200).nullable().optional(),
     })
     .strict(),
   z
@@ -291,6 +323,7 @@ export const agentInteractionSchema = z.discriminatedUnion("type", [
       id: z.string().min(1).max(100),
       type: z.literal("draft_approval"),
       proposalId: z.string().min(1).max(200),
+      planChangeId: z.string().min(1).max(200).nullable().optional(),
     })
     .strict(),
   z
@@ -308,6 +341,7 @@ export const agentInteractionSchema = z.discriminatedUnion("type", [
       basePlanVersion: z.number().int().positive().optional(),
       attempts: z.array(draftAttemptReviewSchema).min(1).max(3),
       prompt: z.string().min(1).max(500),
+      planChangeId: z.string().min(1).max(200).nullable().optional(),
     })
     .strict(),
 ]);

@@ -126,10 +126,15 @@ describe("interaction state transitions", () => {
         pendingInteraction: staleDraftApproval,
         pausedInteraction: foodQuestion,
         planChange: {
+          id: "stale-plan-change",
+          status: "ready_for_draft" as const,
+          sourceMessageId: null,
+          requestEvidence: null,
           mode: "replace_active" as const,
           basePlanVersion: state.activePlan.version + 1,
           baseDraftId: null,
           requiredCatalogFoodIds: [],
+          unresolvedFoodNames: [],
           excludedCatalogFoodIds: [],
           mustDiffer: true,
           scope: "whole_plan" as const,
@@ -138,6 +143,7 @@ describe("interaction state transitions", () => {
           offeredAlternativeFoodIds: [],
           selectedAlternativeFoodId: null,
           attemptBatch: 1,
+          currentDraftId: null,
         },
       },
     };

@@ -24,10 +24,15 @@ function candidateFromActivePlan(): {
     })),
   };
   state.agentSession.planChange = {
+    id: "test-plan-change",
+    status: "ready_for_draft",
+    sourceMessageId: null,
+    requestEvidence: null,
     mode: "replace_active",
     basePlanVersion: state.activePlan.version,
     baseDraftId: null,
     requiredCatalogFoodIds: [],
+    unresolvedFoodNames: [],
     excludedCatalogFoodIds: [],
     mustDiffer: true,
     scope: "whole_plan",
@@ -36,6 +41,7 @@ function candidateFromActivePlan(): {
     offeredAlternativeFoodIds: [],
     selectedAlternativeFoodId: null,
     attemptBatch: 1,
+    currentDraftId: null,
   };
   return { state, candidate };
 }

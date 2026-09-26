@@ -73,6 +73,10 @@ export function startPlanChange(
   input: Partial<PlanChangeWorkflow> = {},
 ): PlanChangeWorkflow {
   return {
+    id: randomUUID(),
+    status: "ready_for_draft",
+    sourceMessageId: null,
+    requestEvidence: null,
     mode: state.draft
       ? "revise_pending"
       : state.activePlan
@@ -81,6 +85,7 @@ export function startPlanChange(
     basePlanVersion: state.activePlan?.version ?? null,
     baseDraftId: state.draft?.id ?? null,
     requiredCatalogFoodIds: [],
+    unresolvedFoodNames: [],
     excludedCatalogFoodIds: [],
     mustDiffer: Boolean(state.activePlan || state.draft),
     scope: "unspecified",
@@ -89,6 +94,7 @@ export function startPlanChange(
     offeredAlternativeFoodIds: [],
     selectedAlternativeFoodId: null,
     attemptBatch: 1,
+    currentDraftId: null,
     ...input,
   };
 }
