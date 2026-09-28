@@ -107,17 +107,21 @@ Deterministic application code owns:
 - Target calculations and plan-total validation.
 - Weight-entry validation, storage, trend calculations, and the sufficient-evidence decision.
 - Draft and Active Plan transitions.
-- Enforcement of one workflow-changing tool per turn, idempotent commands, profile-level turn locking, and explicit approval boundaries.
+- Enforcement of at most four sequential non-parallel skills per turn,
+  idempotent subcommands, profile-level turn locking, stop-on-user-decision, and
+  explicit approval boundaries.
 
 The AI is limited to:
 
 - Extracting supported onboarding facts from natural language.
 - Asking one combined clarification only when missing information materially changes an action, with quick replies and free text where appropriate.
 - Creating or modifying a Draft within catalog and nutrition constraints.
-- Recognizing a weight-reporting intent and passing the value to deterministic validation.
+- Choosing a bounded weight skill when the current message explicitly supplies
+  the required value; deterministic validation remains authoritative.
 - Explaining calculated trend facts and deciding whether to recommend a bounded adjustment when deterministic code says enough evidence exists.
 - Persisting a clear explicit food or meal preference, inspecting catalog/plan availability, or removing an approved food through bounded server skills.
-- Classifying a food-addition request, requesting only missing food context, and requesting one server-controlled lookup action from a closed action set.
+- Planning a food-addition sequence with the server-controlled lookup,
+  user-visible approval, and Draft skills from the closed action set.
 - Conversationally continuing after approval or rejection without gaining authority to perform the protected approval itself.
 
 The interaction follows two governing principles: **open planning, closed effects** and **approved catalog data**. Arnold interprets language and may plan up to four sequential bounded skills without a separate intent router. Deterministic server contracts still decide whether each requested effect is legal in the current persisted workflow. The AI cannot browse freely, introduce new action types, write directly to the database, mutate an Active Plan, or operate arbitrary tools. User-authored preferences remain untrusted data even after persistence; they are structured values, never instructions. Semantic tool choice is intentionally model-dependent and is covered by live behavior tests; deterministic validators limit the consequences of a wrong choice.

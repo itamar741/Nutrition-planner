@@ -5,6 +5,7 @@ import {
   setInteraction,
 } from "@/application/interaction-state";
 import { createExistingDemoState } from "@/data/demo-fixtures";
+import { foodCatalogById } from "@/data/food-catalog";
 import type { AgentInteraction } from "@/domain/agent/types";
 
 const foodQuestion: AgentInteraction = {
@@ -152,5 +153,81 @@ describe("interaction state transitions", () => {
     expect(reconciled.agentSession.planChange).toBeNull();
     expect(reconciled.agentSession.pendingInteraction).toEqual(foodQuestion);
     expect(reconciled.agentSession.pausedInteraction).toBeNull();
+  });
+
+  it("prunes an interaction that belongs to another Plan Change", () => {
+    const state = createExistingDemoState();
+    state.agentSession.planChange = {
+      id: "current-plan-change",
+      status: "awaiting_draft_confirmation",
+      sourceMessageId: null,
+      requestEvidence: null,
+      mode: "replace_active",
+      basePlanVersion: state.activePlan.version,
+      baseDraftId: null,
+      requiredCatalogFoodIds: ["couscous-cooked"],
+      unresolvedFoodNames: [],
+      excludedCatalogFoodIds: [],
+      mustDiffer: true,
+      scope: "food_replacement",
+      portionRecalculation: "whole_draft",
+      strategy: null,
+      offeredAlternativeFoodIds: [],
+      selectedAlternativeFoodId: null,
+      attemptBatch: 1,
+      currentDraftId: null,
+    };
+    state.agentSession.pendingInteraction = {
+      id: "stale-confirmation",
+      type: "confirm_draft_food",
+      foodId: "couscous-cooked",
+      displayName: "Couscous",
+      planChangeId: "stale-plan-change",
+    };
+
+    expect(
+      reconcileAgentWorkflowState(state).agentSession.pendingInteraction,
+    ).toBeNull();
+  });
+
+  it("turns a legacy already-approved food card into an actionable Create Draft card", () => {
+    const state = createExistingDemoState();
+    const food = foodCatalogById.get("couscous-cooked");
+    if (!food) throw new Error("Expected Couscous in the catalog.");
+    state.agentSession.planChange = {
+      id: "legacy-plan-change",
+      status: "awaiting_food_approval",
+      sourceMessageId: null,
+      requestEvidence: null,
+      mode: "replace_active",
+      basePlanVersion: state.activePlan.version,
+      baseDraftId: null,
+      requiredCatalogFoodIds: [],
+      unresolvedFoodNames: ["couscous"],
+      excludedCatalogFoodIds: [],
+      mustDiffer: true,
+      scope: "food_replacement",
+      portionRecalculation: "whole_draft",
+      strategy: null,
+      offeredAlternativeFoodIds: [],
+      selectedAlternativeFoodId: null,
+      attemptBatch: 1,
+      currentDraftId: null,
+    };
+    state.agentSession.pendingInteraction = {
+      id: "legacy-existing-food",
+      type: "existing_food",
+      food,
+      alreadyApproved: true,
+      planChangeId: "legacy-plan-change",
+    };
+
+    expect(
+      reconcileAgentWorkflowState(state).agentSession.pendingInteraction,
+    ).toMatchObject({
+      type: "confirm_draft_food",
+      foodId: "couscous-cooked",
+      planChangeId: "legacy-plan-change",
+    });
   });
 });

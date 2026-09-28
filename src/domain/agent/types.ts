@@ -73,6 +73,7 @@ export type AgentInteraction =
         "onboarding" | "weight" | "food" | "draft" | "adjustment" | "general";
       prompt: string;
       quickReplies: string[];
+      planChangeId?: string | null;
     }
   | {
       id: string;
@@ -262,6 +263,7 @@ export const agentInteractionSchema = z.discriminatedUnion("type", [
       ]),
       prompt: z.string().min(1).max(500),
       quickReplies: z.array(z.string().min(1).max(100)).max(6),
+      planChangeId: z.string().min(1).max(200).nullable().optional(),
     })
     .strict(),
   z

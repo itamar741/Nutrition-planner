@@ -33,6 +33,9 @@ function planChangeIsCurrent(state: PersistedDemoState) {
   if (!workflow) return true;
   const activeVersion = state.activePlan?.version ?? null;
   if (workflow.basePlanVersion !== activeVersion) return false;
+  if (workflow.status === "draft_pending_approval") {
+    return Boolean(state.draft && workflow.currentDraftId === state.draft.id);
+  }
   if (workflow.mode === "create_initial") return !state.activePlan;
   if (workflow.mode === "replace_active") return Boolean(state.activePlan);
   return Boolean(state.draft && workflow.baseDraftId === state.draft.id);
@@ -43,6 +46,13 @@ function interactionIsCurrent(
   value: AgentInteraction | null,
 ) {
   if (!value) return false;
+  if (
+    "planChangeId" in value &&
+    value.planChangeId &&
+    value.planChangeId !== state.agentSession.planChange?.id
+  ) {
+    return false;
+  }
   if (value.type === "draft_approval") {
     return Boolean(state.draft && value.proposalId === state.draft.id);
   }
@@ -83,11 +93,24 @@ export function reconcileAgentWorkflowState(state: PersistedDemoState) {
           ...state,
           agentSession: { ...state.agentSession, planChange },
         };
-  let pending = interactionIsCurrent(
-    stateWithPlanChange,
-    stateWithPlanChange.agentSession.pendingInteraction,
-  )
-    ? stateWithPlanChange.agentSession.pendingInteraction
+  const normalizedPending =
+    stateWithPlanChange.agentSession.pendingInteraction?.type ===
+      "existing_food" &&
+    stateWithPlanChange.agentSession.pendingInteraction.alreadyApproved
+      ? stateWithPlanChange.agentSession.planChange
+        ? ({
+            id: stateWithPlanChange.agentSession.pendingInteraction.id,
+            type: "confirm_draft_food",
+            foodId: stateWithPlanChange.agentSession.pendingInteraction.food.id,
+            displayName:
+              stateWithPlanChange.agentSession.pendingInteraction.food
+                .displayName,
+            planChangeId: stateWithPlanChange.agentSession.planChange.id,
+          } satisfies AgentInteraction)
+        : null
+      : stateWithPlanChange.agentSession.pendingInteraction;
+  let pending = interactionIsCurrent(stateWithPlanChange, normalizedPending)
+    ? normalizedPending
     : null;
   let paused = interactionIsCurrent(
     stateWithPlanChange,

@@ -1,72 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type {
-  AgentInteraction,
-  PlanChangeWorkflow,
-} from "@/domain/agent/types";
-import {
-  requestsFoodAlternativeOffer,
-  requestsPlanMutation,
-  type TurnDecision,
-} from "@/domain/agent/turn-decision";
-import type { CatalogFood } from "@/domain/catalog/types";
+import type { PlanChangeWorkflow } from "@/domain/agent/types";
 import type { DraftCandidate } from "@/domain/plan/types";
 import type { PersistedDemoState } from "@/persistence/repository";
-import { setInteraction } from "./interaction-state";
-
-function approvedIdsOf(state: PersistedDemoState) {
-  return "profile" in state
-    ? state.profile.approvedCatalogFoodIds
-    : state.approvedCatalogFoodIds;
-}
-
-function approvedCatalog(catalog: CatalogFood[], ids: string[]) {
-  const wanted = new Set(ids);
-  return catalog.filter((food) => wanted.has(food.id));
-}
-
-function normalizedFoodText(value: string) {
-  return value
-    .normalize("NFKD")
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim()
-    .toLocaleLowerCase("en-US");
-}
-
-function foodMatchingNames(foods: CatalogFood[], names: string[]) {
-  const normalizedNames = names.map(normalizedFoodText).filter(Boolean);
-  return (
-    foods.find((food) => {
-      const displayName = normalizedFoodText(food.displayName);
-      return normalizedNames.some(
-        (name) => displayName.includes(name) || name.includes(displayName),
-      );
-    }) ?? null
-  );
-}
-
-function foodsMatchingNames(foods: CatalogFood[], names: string[]) {
-  const normalizedNames = names.map(normalizedFoodText).filter(Boolean);
-  return foods.filter((food) => {
-    const displayName = normalizedFoodText(food.displayName);
-    return normalizedNames.some(
-      (name) => displayName.includes(name) || name.includes(displayName),
-    );
-  });
-}
-
-function alternativeFoodsFor(
-  state: PersistedDemoState,
-  catalog: CatalogFood[],
-  excludedFoods: CatalogFood[],
-) {
-  const approved = approvedCatalog(catalog, approvedIdsOf(state));
-  const excludedIds = new Set(excludedFoods.map((food) => food.id));
-  const category = excludedFoods[0]?.category ?? "carbohydrate";
-  return approved
-    .filter((food) => !excludedIds.has(food.id) && food.category === category)
-    .sort((left, right) => left.displayName.localeCompare(right.displayName))
-    .slice(0, 5);
-}
 
 export function startPlanChange(
   state: PersistedDemoState,
@@ -99,170 +34,78 @@ export function startPlanChange(
   };
 }
 
-function selectedOfferedFood(
-  decision: TurnDecision,
-  workflow: PlanChangeWorkflow | null,
-  currentInteraction: AgentInteraction | null,
-  catalog: CatalogFood[],
-) {
-  if (
-    decision.intent !== "food_alternative_selection" ||
-    decision.speechAct !== "answer" ||
-    !workflow ||
-    currentInteraction?.type !== "clarification" ||
-    currentInteraction.workflow !== "draft"
-  ) {
-    return null;
-  }
-  const offered = new Set(workflow.offeredAlternativeFoodIds);
-  return foodMatchingNames(
-    catalog.filter((food) => offered.has(food.id)),
-    decision.foodNames,
-  );
+export function waitForFoodApproval(workflow: PlanChangeWorkflow) {
+  return { ...workflow, status: "awaiting_food_approval" as const };
 }
 
-export function offeredFoodNames(
-  state: PersistedDemoState,
-  catalog: CatalogFood[],
+export function resolvePlanChangeFood(
+  workflow: PlanChangeWorkflow,
+  foodId: string,
 ) {
-  const offered = new Set(
-    state.agentSession.planChange?.offeredAlternativeFoodIds ?? [],
-  );
-  return catalog
-    .filter((food) => offered.has(food.id))
-    .map((food) => food.displayName);
-}
-
-export function applyPlanChangeDecision(input: {
-  state: PersistedDemoState;
-  catalog: CatalogFood[];
-  decision: TurnDecision;
-  currentInteraction: AgentInteraction | null;
-}) {
-  let { state, currentInteraction } = input;
-  let selectedAlternativeFood: CatalogFood | null = null;
-  let planMutationAuthorized = false;
-  let currentAlternativeOfferIds: string[] | null = null;
-
-  if (requestsFoodAlternativeOffer(input.decision)) {
-    const approved = approvedCatalog(input.catalog, approvedIdsOf(state));
-    const excludedFoods = foodsMatchingNames(
-      approved,
-      input.decision.foodNames,
-    );
-    const offeredFoods = alternativeFoodsFor(
-      state,
-      input.catalog,
-      excludedFoods,
-    );
-    currentAlternativeOfferIds = offeredFoods.map((food) => food.id);
-    if (offeredFoods.length === 0) {
-      return {
-        state,
-        currentInteraction,
-        selectedAlternativeFood,
-        requiredCatalogFoodId: null,
-        planMutationAuthorized,
-        currentAlternativeOfferIds,
-      };
-    }
-    const planChange = startPlanChange(state, {
-      excludedCatalogFoodIds: excludedFoods.map((food) => food.id),
-      mustDiffer: true,
-      scope: "food_replacement",
-      offeredAlternativeFoodIds: offeredFoods.map((food) => food.id),
-    });
-    state = setInteraction(
-      {
-        ...state,
-        agentSession: { ...state.agentSession, planChange },
-      },
-      {
-        id: randomUUID(),
-        type: "clarification",
-        workflow: "draft",
-        prompt: "Which approved alternative would you like to use?",
-        quickReplies: offeredFoods.map((food) => food.displayName),
-      },
-    );
-    currentInteraction = state.agentSession.pendingInteraction;
-  } else {
-    selectedAlternativeFood = selectedOfferedFood(
-      input.decision,
-      state.agentSession.planChange,
-      currentInteraction,
-      input.catalog,
-    );
-    if (selectedAlternativeFood && state.agentSession.planChange) {
-      const planChange = {
-        ...state.agentSession.planChange,
-        requiredCatalogFoodIds: [selectedAlternativeFood.id],
-        selectedAlternativeFoodId: selectedAlternativeFood.id,
-      };
-      state = setInteraction(
-        {
-          ...state,
-          agentSession: { ...state.agentSession, planChange },
-        },
-        null,
-      );
-      currentInteraction = state.agentSession.pendingInteraction;
-      planMutationAuthorized = true;
-    } else if (
-      requestsPlanMutation(input.decision) &&
-      ["plan_create", "plan_replace", "plan_revise"].includes(
-        input.decision.intent,
-      )
-    ) {
-      const previous = state.agentSession.planChange;
-      state = {
-        ...state,
-        agentSession: {
-          ...state.agentSession,
-          planChange: startPlanChange(state, {
-            ...(previous ?? {}),
-            scope:
-              input.decision.intent === "plan_replace"
-                ? "whole_plan"
-                : (previous?.scope ?? "unspecified"),
-          }),
-        },
-      };
-      planMutationAuthorized = true;
-    } else if (
-      input.decision.intent === "draft_retry" &&
-      input.decision.speechAct === "answer" &&
-      input.decision.planChangeStrategy &&
-      currentInteraction?.type === "draft_failure_review" &&
-      currentInteraction.proposalKind !== "adjustment"
-    ) {
-      const previous = state.agentSession.planChange ?? startPlanChange(state);
-      state = setInteraction(
-        {
-          ...state,
-          agentSession: {
-            ...state.agentSession,
-            planChange: {
-              ...previous,
-              strategy: input.decision.planChangeStrategy,
-              attemptBatch: previous.attemptBatch + 1,
-            },
-          },
-        },
-        null,
-      );
-      currentInteraction = state.agentSession.pendingInteraction;
-      planMutationAuthorized = true;
-    }
-  }
-
   return {
-    state,
-    currentInteraction,
-    selectedAlternativeFood,
-    requiredCatalogFoodId: selectedAlternativeFood?.id ?? null,
-    planMutationAuthorized,
-    currentAlternativeOfferIds,
+    ...workflow,
+    status: "awaiting_draft_confirmation" as const,
+    requiredCatalogFoodIds: [foodId],
+    unresolvedFoodNames: [],
+  };
+}
+
+export function makePlanChangeDraftReady(
+  workflow: PlanChangeWorkflow,
+  input: {
+    requiredFoodId?: string | null;
+    selectedAlternativeFoodId?: string | null;
+    retryStrategy?: PlanChangeWorkflow["strategy"];
+  } = {},
+) {
+  const startsNewAttemptBatch = Boolean(input.retryStrategy);
+  return {
+    ...workflow,
+    status: "ready_for_draft" as const,
+    requiredCatalogFoodIds: input.selectedAlternativeFoodId
+      ? [input.selectedAlternativeFoodId]
+      : input.requiredFoodId
+        ? [input.requiredFoodId]
+        : workflow.requiredCatalogFoodIds,
+    unresolvedFoodNames: input.requiredFoodId
+      ? []
+      : workflow.unresolvedFoodNames,
+    selectedAlternativeFoodId:
+      input.selectedAlternativeFoodId ?? workflow.selectedAlternativeFoodId,
+    strategy: input.retryStrategy ?? workflow.strategy,
+    attemptBatch: startsNewAttemptBatch
+      ? workflow.attemptBatch + 1
+      : workflow.attemptBatch,
+  };
+}
+
+export function markPlanChangeFailure(workflow: PlanChangeWorkflow) {
+  return { ...workflow, status: "failure_review" as const };
+}
+
+export function markPlanChangeDraftPending(
+  workflow: PlanChangeWorkflow,
+  draftId: string,
+) {
+  return {
+    ...workflow,
+    status: "draft_pending_approval" as const,
+    currentDraftId: draftId,
+  };
+}
+
+export function retainPlanChangeAfterDraftRejection(
+  workflow: PlanChangeWorkflow,
+  state: PersistedDemoState,
+) {
+  return {
+    ...workflow,
+    status: "ready_for_draft" as const,
+    mode: state.activePlan
+      ? ("replace_active" as const)
+      : ("create_initial" as const),
+    baseDraftId: null,
+    currentDraftId: null,
   };
 }
 

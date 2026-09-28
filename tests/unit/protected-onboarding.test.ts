@@ -6,22 +6,57 @@ import {
 } from "@/persistence/repository";
 import type { DemoState } from "@/store/demo-reducer";
 
-const extractOnboardingFacts = vi.hoisted(() => vi.fn());
-const interpretTurnDecision = vi.hoisted(() => vi.fn());
 const allowedToolSnapshots = vi.hoisted(() => [] as string[][]);
+const onboardingTool = vi.hoisted(() => ({
+  arguments: null as Record<string, unknown> | null,
+}));
 
-vi.mock("@/ai/onboarding", () => ({ extractOnboardingFacts }));
-vi.mock("@/ai/turn-decision", () => ({ interpretTurnDecision }));
 vi.mock("@/ai/coach-agent", () => ({
+  coachToolNames: [
+    "submit_onboarding_facts",
+    "remember_preference",
+    "remove_approved_food",
+    "inspect_food_availability",
+    "record_weight",
+    "edit_weight",
+    "delete_weight",
+    "search_foods",
+    "select_food_candidate",
+    "offer_approved_food_alternatives",
+    "submit_draft_proposal",
+    "submit_adjustment_proposal",
+  ],
   buildArnoldSystemPrompt: () => "ARNOLD",
   runCoachAgent: async (input: {
     getAllowedTools: () => string[];
     onText: (value: string) => void;
+    onTool: (
+      call: {
+        name: "submit_onboarding_facts";
+        callId: string;
+        arguments: Record<string, unknown>;
+      },
+      sequence: number,
+    ) => Promise<Record<string, unknown>>;
   }) => {
     allowedToolSnapshots.push(input.getAllowedTools());
-    input.onText("Please continue onboarding.");
+    const result = onboardingTool.arguments
+      ? await input.onTool(
+          {
+            name: "submit_onboarding_facts",
+            callId: "onboarding-call",
+            arguments: onboardingTool.arguments,
+          },
+          1,
+        )
+      : null;
+    const acknowledgement =
+      result && typeof result.acknowledgement === "string"
+        ? result.acknowledgement
+        : "Please continue onboarding.";
+    input.onText(acknowledgement);
     return {
-      text: "Please continue onboarding.",
+      text: acknowledgement,
       toolCall: null,
       toolResult: null,
     };
@@ -32,20 +67,38 @@ beforeEach(() => {
   delete process.env.DATABASE_URL;
   resetMemoryPersistenceForTests();
   allowedToolSnapshots.length = 0;
-  interpretTurnDecision.mockReset().mockResolvedValue({
-    intent: "onboarding_answer",
-    speechAct: "answer",
-    foodNames: [],
-    candidateOrdinal: null,
-    referenceScope: "explicit_current",
-    planChangeStrategy: null,
-    evidence: "I am 30",
-  });
-  extractOnboardingFacts.mockReset().mockResolvedValue({
-    patch: { age: 30 },
-    acknowledgement: "Noted your age.",
-  });
+  onboardingTool.arguments = onboardingArguments(
+    { age: 30 },
+    {
+      acknowledgement: "Noted your age.",
+    },
+  );
 });
+
+function onboardingArguments(
+  facts: Record<string, unknown>,
+  options: { acknowledgement: string; messageId?: string },
+) {
+  return {
+    facts: {
+      age: null,
+      equationSex: null,
+      heightCm: null,
+      currentWeightKg: null,
+      goal: null,
+      dailyRoutine: null,
+      exerciseType: null,
+      exerciseFrequencyPerWeek: null,
+      exerciseSessionMinutes: null,
+      exerciseIntensity: null,
+      eatingRoutine: null,
+      mealPattern: null,
+      ...facts,
+    },
+    acknowledgement: options.acknowledgement,
+    supportingMessageId: options.messageId ?? "user-protected-onboarding-age",
+  };
+}
 
 describe("protected onboarding", () => {
   it("persists extracted facts through the unified coach turn", async () => {
@@ -75,89 +128,56 @@ describe("protected onboarding", () => {
     expect(onText).toHaveBeenCalledWith(
       expect.stringContaining("Noted your age."),
     );
-    expect(interpretTurnDecision).toHaveBeenCalledWith(
-      expect.objectContaining({
-        onboardingRequired: true,
-        onboardingTurn: expect.objectContaining({ id: "collect-basics" }),
-      }),
-    );
-    expect(extractOnboardingFacts).toHaveBeenCalledWith(
-      expect.objectContaining({ allowCorrections: true }),
-    );
+    expect(allowedToolSnapshots[0]).toContain("submit_onboarding_facts");
   });
 
   it.each([
     {
       name: "hypothetical fact",
+      key: "hypothetical-fact",
       text: "What would happen if I were 30?",
-      decision: {
-        intent: "onboarding_answer",
-        speechAct: "hypothetical",
-        evidence: "if I were 30",
-      },
     },
     {
       name: "negated fact",
+      key: "negated-fact",
       text: "Do not set my age to 30",
-      decision: {
-        intent: "onboarding_answer",
-        speechAct: "negated",
-        evidence: "Do not set my age to 30",
-      },
     },
     {
       name: "nutrition question",
+      key: "nutrition-question",
       text: "What is protein?",
-      decision: {
-        intent: "nutrition_question",
-        speechAct: "question",
-        evidence: "What is protein?",
-      },
     },
     {
       name: "premature plan request",
+      key: "premature-plan-request",
       text: "Create my meal plan",
-      decision: {
-        intent: "plan_create",
-        speechAct: "request",
-        evidence: "Create my meal plan",
-      },
     },
     {
       name: "unsupported request",
+      key: "unsupported-request",
       text: "Write a JavaScript loop",
-      decision: {
-        intent: "unsupported",
-        speechAct: "request",
-        evidence: "Write a JavaScript loop",
-      },
     },
   ])(
-    "does not extract or expose tools for a $name",
-    async ({ text, decision }) => {
-      interpretTurnDecision.mockResolvedValue({
-        foodNames: [],
-        planChangeStrategy: null,
-        ...decision,
-      });
+    "does not mutate onboarding when Arnold calls no skill for a $name",
+    async ({ text, key }) => {
+      onboardingTool.arguments = null;
       const before = await getProfile<DemoState>("new");
 
       const result = await executeCoachTurn({
         request: {
           profileId: "new",
           expectedVersion: before.version,
-          commandId: `protected-${decision.intent}-${decision.speechAct}`,
+          commandId: `protected-${key}`,
           input: { type: "text", text },
         },
         rateIdentity: { sessionHash: "session", ipHash: "ip" },
-        turnId: `protected-${decision.intent}-${decision.speechAct}`,
+        turnId: `protected-${key}`,
         leaseToken: null,
         onStatus: vi.fn(),
         onText: vi.fn(),
       });
 
-      expect(extractOnboardingFacts).not.toHaveBeenCalled();
-      expect(allowedToolSnapshots).toEqual([[]]);
+      expect(allowedToolSnapshots[0]).toContain("submit_onboarding_facts");
       expect(result.profile.state).toMatchObject({
         profile: before.state.profile,
         activeTurn: before.state.activeTurn,
@@ -168,19 +188,13 @@ describe("protected onboarding", () => {
 
   it("persists an explicit correction while onboarding is still incomplete", async () => {
     const before = await getProfile<DemoState>("new");
-    extractOnboardingFacts.mockResolvedValue({
-      patch: { age: 31 },
-      acknowledgement: "Corrected your age.",
-    });
-    interpretTurnDecision.mockResolvedValue({
-      intent: "onboarding_answer",
-      speechAct: "answer",
-      foodNames: [],
-      candidateOrdinal: null,
-      referenceScope: "explicit_current",
-      planChangeStrategy: null,
-      evidence: "Actually, I am 31",
-    });
+    onboardingTool.arguments = onboardingArguments(
+      { age: 31 },
+      {
+        acknowledgement: "Corrected your age.",
+        messageId: "user-protected-onboarding-correction",
+      },
+    );
 
     const result = await executeCoachTurn({
       request: {
@@ -203,10 +217,13 @@ describe("protected onboarding", () => {
 
   it("replaces the onboarding weight measurement when current weight is corrected", async () => {
     const before = await getProfile<DemoState>("new");
-    extractOnboardingFacts.mockResolvedValueOnce({
-      patch: { currentWeightKg: 80 },
-      acknowledgement: "Recorded your weight.",
-    });
+    onboardingTool.arguments = onboardingArguments(
+      { currentWeightKg: 80 },
+      {
+        acknowledgement: "Recorded your weight.",
+        messageId: "user-protected-onboarding-weight",
+      },
+    );
     const recorded = await executeCoachTurn({
       request: {
         profileId: "new",
@@ -220,19 +237,13 @@ describe("protected onboarding", () => {
       onStatus: vi.fn(),
       onText: vi.fn(),
     });
-    extractOnboardingFacts.mockResolvedValueOnce({
-      patch: { currentWeightKg: 78 },
-      acknowledgement: "Corrected your weight.",
-    });
-    interpretTurnDecision.mockResolvedValueOnce({
-      intent: "onboarding_answer",
-      speechAct: "answer",
-      foodNames: [],
-      candidateOrdinal: null,
-      referenceScope: "explicit_current",
-      planChangeStrategy: null,
-      evidence: "Actually, I weigh 78 kg",
-    });
+    onboardingTool.arguments = onboardingArguments(
+      { currentWeightKg: 78 },
+      {
+        acknowledgement: "Corrected your weight.",
+        messageId: "user-protected-onboarding-weight-correction",
+      },
+    );
     const corrected = await executeCoachTurn({
       request: {
         profileId: "new",

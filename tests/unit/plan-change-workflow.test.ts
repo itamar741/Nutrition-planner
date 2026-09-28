@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
-  applyPlanChangeDecision,
+  makePlanChangeDraftReady,
+  markPlanChangeDraftPending,
+  markPlanChangeFailure,
   planChangeCandidateIssues,
+  resolvePlanChangeFood,
+  startPlanChange,
+  waitForFoodApproval,
 } from "@/application/plan-change-workflow";
 import { createExistingDemoState } from "@/data/demo-fixtures";
-import { foodCatalog } from "@/data/food-catalog";
 import type { DraftCandidate } from "@/domain/plan/types";
 
 function candidateFromActivePlan(): {
@@ -47,6 +51,51 @@ function candidateFromActivePlan(): {
 }
 
 describe("plan change workflow", () => {
+  it("advances one operation through food resolution, Draft, failure, and retry", () => {
+    const state = createExistingDemoState();
+    const resolving = startPlanChange(state, {
+      status: "resolving_foods",
+      unresolvedFoodNames: ["cottage cheese"],
+      requestEvidence: "add cottage cheese to my meal plan",
+    });
+    const awaitingFood = waitForFoodApproval(resolving);
+    const awaitingDraft = resolvePlanChangeFood(
+      awaitingFood,
+      "cottage-cheese-approved",
+    );
+    const ready = makePlanChangeDraftReady(awaitingDraft, {
+      requiredFoodId: "cottage-cheese-approved",
+    });
+    const pending = markPlanChangeDraftPending(ready, "draft-1");
+    const failed = markPlanChangeFailure(ready);
+    const retried = makePlanChangeDraftReady(failed, {
+      retryStrategy: "different_approved_mix",
+    });
+
+    expect(awaitingFood).toMatchObject({
+      id: resolving.id,
+      status: "awaiting_food_approval",
+    });
+    expect(awaitingDraft).toMatchObject({
+      id: resolving.id,
+      status: "awaiting_draft_confirmation",
+      requiredCatalogFoodIds: ["cottage-cheese-approved"],
+      unresolvedFoodNames: [],
+    });
+    expect(ready.status).toBe("ready_for_draft");
+    expect(pending).toMatchObject({
+      id: resolving.id,
+      status: "draft_pending_approval",
+      currentDraftId: "draft-1",
+    });
+    expect(retried).toMatchObject({
+      id: resolving.id,
+      status: "ready_for_draft",
+      strategy: "different_approved_mix",
+      attemptBatch: 2,
+    });
+  });
+
   it("does not accept gram-only edits as a different approved-food mix", () => {
     const { state, candidate } = candidateFromActivePlan();
     candidate.meals[0].items[0].grams += 5;
@@ -62,43 +111,6 @@ describe("plan change workflow", () => {
 
     expect(planChangeCandidateIssues(state, candidate).issues).not.toContain(
       "The requested strategy requires a different mix of approved foods; changing gram amounts alone is not enough.",
-    );
-  });
-
-  it("does not accept an offered-food answer after another workflow became current", () => {
-    const { state } = candidateFromActivePlan();
-    state.agentSession.planChange = {
-      ...state.agentSession.planChange!,
-      offeredAlternativeFoodIds: ["potato-baked"],
-    };
-    const currentInteraction = {
-      id: "current-food-search",
-      type: "clarification" as const,
-      workflow: "food" as const,
-      prompt: "Which food should I search for?",
-      quickReplies: [],
-    };
-    state.agentSession.pendingInteraction = currentInteraction;
-
-    const result = applyPlanChangeDecision({
-      state,
-      catalog: [...foodCatalog],
-      currentInteraction,
-      decision: {
-        intent: "food_alternative_selection",
-        speechAct: "answer",
-        foodNames: ["Potato"],
-        candidateOrdinal: null,
-        referenceScope: "persisted_interaction",
-        planChangeStrategy: null,
-        evidence: "Potato",
-      },
-    });
-
-    expect(result.planMutationAuthorized).toBe(false);
-    expect(result.selectedAlternativeFood).toBeNull();
-    expect(result.state.agentSession.pendingInteraction).toEqual(
-      currentInteraction,
     );
   });
 });
