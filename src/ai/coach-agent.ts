@@ -75,9 +75,13 @@ const proposalParameters = {
 };
 
 const draftChangeContextParameters = {
+  description:
+    "Use continuation whenever authoritative pendingPlanChange is non-null; its exact ID must be preserved. Use new_request only when no Plan Change is active.",
   anyOf: [
     {
       type: "object",
+      description:
+        "Start a new Plan Change only when authoritative pendingPlanChange is null.",
       additionalProperties: false,
       required: [
         "kind",
@@ -107,6 +111,8 @@ const draftChangeContextParameters = {
     },
     {
       type: "object",
+      description:
+        "Continue the authoritative pendingPlanChange for food resolution, an offered alternative selection, or a retry.",
       additionalProperties: false,
       required: [
         "kind",
@@ -364,7 +370,7 @@ const tools = {
     type: "function" as const,
     name: "select_food_candidate",
     description:
-      "Select one currently displayed candidate. Selection never approves or inserts food.",
+      "Select one candidate only from a current pendingInteraction of type food_candidates produced by search_foods. Never use this for an approved-food alternative choice; pass that offered food ID to submit_draft_proposal continuation instead. Selection never approves or inserts food.",
     strict: true,
     parameters: {
       type: "object",
@@ -399,7 +405,7 @@ const tools = {
     type: "function" as const,
     name: "submit_draft_proposal",
     description:
-      "Submit a complete daily Draft made only from approved catalog foods. Server calculations and validation are authoritative.",
+      "Submit a complete daily Draft made only from approved catalog foods. If pendingPlanChange exists, continuation with its exact ID is mandatory; never replace it with new_request. This also records a user's choice from offeredAlternativeFoodIds through continuation.selectedAlternativeFoodId. Server calculations and validation are authoritative.",
     strict: true,
     parameters: draftProposalParameters,
   },
@@ -645,13 +651,15 @@ export function buildArnoldSystemPrompt(
     "NUTRITION PLANNING RULES",
     "Use the exact supplied targets and ranges; never calculate EER yourself. Compose sensible meals only from approved food IDs and their supplied nutrition and portion constraints. A legal portion is practicalGrams.min plus a nonnegative whole-number multiple of practicalGrams.step, no greater than practicalGrams.max. Return the authoritative expectedMealIds exactly once each and in the supplied order; do not replace meal_1 through meal_4 with breakfast, lunch, snack, or dinner. Never include substitution or alternative fields inside a submitted Draft.",
     "For a requested replacement of a disliked plan food, use offer_approved_food_alternatives. It stores only eligible approved choices and waits for selection. After selection, use submit_draft_proposal with continuation changeContext. Do not save the dislike as a permanent preference unless the user separately asks you to remember it.",
+    "When pendingInteraction is a draft clarification and pendingPlanChange.offeredAlternativeFoodIds contains the user's chosen approved food, continue that same operation by calling submit_draft_proposal with its exact ID in selectedAlternativeFoodId. Do not call select_food_candidate: that skill is exclusively for a pending food_candidates card created by search_foods.",
     "If a user asks to change their nutrition goal (for example, maintenance, fat loss, or muscle gain), explain that this demo version cannot change a goal after onboarding. Tell them to reset and complete onboarding again; do not imply that a Draft, food change, or weight entry changes the goal.",
     "When deterministicTrend.evidence is insufficient, describe the weekly rate as not evaluated. Its zero slope and zero weekly values are sentinels, not evidence that weight is stable, rising, or falling. Explain the supplied evidenceReason and do not infer a direction from raw measurements.",
     "When the user wants a food integrated into a plan, use search_foods with purpose integrate_into_plan if it is not approved. If it is already approved, you may submit the Draft directly. After food approval the visible Create Draft control remains mandatory. The complete Draft must include the food and rebalance quantities across the whole plan rather than append it unchanged.",
     "Treat pendingPlanChange as an executable constraint, not conversational background. portionRecalculation whole_draft means every approved-food portion in the candidate may be recalculated to make the complete Draft pass; it does not require keeping unrelated quantities fixed. For scope whole_plan, submit a complete replacement Draft rather than describing a plan in prose. For strategy different_approved_mix, change the actual set of approved food IDs; gram-only changes do not satisfy the request. For strategy preserve_structure, retain the most recent attempted food composition where legal, but recalculate any or all portions across the complete Draft. Always exclude excludedCatalogFoodIds, include requiredCatalogFoodIds, and call submit_draft_proposal before claiming that a revised plan exists.",
+    "Whenever pendingPlanChange is non-null, it is the one active plan operation: submit_draft_proposal must use continuation with that exact ID. Never replace it with new_request, including after failure_review or a request for a different approved mix. new_request is valid only when pendingPlanChange is null.",
     "",
     "SKILLS",
-    "Use submit_onboarding_facts only for facts explicitly stated in the current onboarding message. Use search_foods with the original phrase, normalized English query, and correct closed purpose. Use submit_draft_proposal with new_request changeContext for a fresh plan request and continuation for the exact pendingPlanChange after food resolution, alternative selection, or retry.",
+    "Use submit_onboarding_facts only for facts explicitly stated in the current onboarding message. Use search_foods with the original phrase, normalized English query, and correct closed purpose. Use select_food_candidate only when pendingInteraction.type is food_candidates and only with an ID in that card. Use submit_draft_proposal with new_request changeContext for a fresh plan request and continuation for the exact pendingPlanChange after food resolution, an offered approved-food alternative selection, or retry.",
     "When calling a skill, emit no user-visible prose in the same response. Wait for the skill result, then give one concise continuation.",
     "For an explicitly supplied weight for today, always call record_weight. It is a deterministic upsert: it creates today's measurement or replaces the existing one. For another date, call edit_weight; it is also an upsert and creates a missing historical measurement or replaces an existing one. Resolve relative dates such as yesterday from authoritative currentDate and pass ISO format. A short answer may continue a mutation only when pendingInteraction identifies a compatible workflow; recent prose alone never authorizes a mutation. Otherwise ask the user to restate the date and weight in the current message. Always call delete_weight for an explicit request to delete or remove a weight; resolve today, yesterday, and short dates such as 9/9 to an ISO date. Do not execute a contextual 'delete it' without a compatible pending weight interaction.",
     "After a weight skill result, give exactly one short confirmation based on the returned operation and values. Do not repeat prose from before the skill call.",

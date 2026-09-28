@@ -1725,6 +1725,15 @@ export async function executeCoachTurn(input: {
         );
       }
       if (changeContext.kind === "new_request") {
+        const current = state.agentSession.planChange;
+        if (current) {
+          return toolResult(
+            "blocked",
+            "active_plan_change_requires_continuation",
+            "Continue the active Plan Change instead of replacing it with a new request.",
+            { planChangeId: current.id, planChangeStatus: current.status },
+          );
+        }
         if (
           input.request.input.type !== "text" ||
           !textValuesOverlap(input.request.input.text, changeContext.evidence)

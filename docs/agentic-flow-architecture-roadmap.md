@@ -103,8 +103,8 @@ not yet present on `origin/docs/final-submission-evidence`.
 | 6     | `architecture/06-final-verification`       | Phase 5                                       | Code complete (`6825994`) |
 | 7     | `architecture/07-tool-first-contract`      | Phase 6 merge                                 | Complete (`6b896c0`)      |
 | 8     | `architecture/08-plan-change-state`        | Phase 7                                       | Complete (`d235f02`)      |
-| 9     | `architecture/09-tool-first-orchestrator`  | Phase 8                                       | Ready to commit           |
-| 10    | `architecture/10-tool-first-verification`  | Phase 9                                       | Pending                   |
+| 9     | `architecture/09-tool-first-orchestrator`  | Phase 8                                       | Complete (`3e01d75`)      |
+| 10    | `architecture/10-tool-first-verification`  | Phase 9                                       | Complete on branch        |
 
 Create each branch only after its parent phase is committed and verified. Push
 each branch with its explicit upstream. Do not rebase or squash the chain during
@@ -362,11 +362,12 @@ Drafts, foods, or existing interactions.
 
 ## Phase 9 — Tool-First Orchestrator and Skills
 
-Current implementation phase. Remove the old decision classifier and extraction
-pass; expose all skills for free text; add onboarding-fact and approved-alternative
-skills; preserve UI-only approvals; persist every mutating skill before returning
-its result; and carry one Plan Change ID through food resolution, approval,
-Create Draft, validation, failure review, retry, Draft approval, or cancellation.
+Completed in `3e01d75`. The old decision classifier and extraction pass are
+removed; all skills are exposed for free text; onboarding-fact and
+approved-alternative skills are present; UI-only approvals are preserved; every
+mutating skill is persisted before its result returns; and one Plan Change ID is
+carried through food resolution, approval, Create Draft, validation, failure
+review, retry, Draft approval, or cancellation.
 
 Required focused flows:
 
@@ -383,63 +384,26 @@ Required focused flows:
 
 ## Phase 10 — Tool-First Verification and Handoff
 
-Create only after Phase 9 is committed. Run formatting, lint, typecheck, unit,
-security, production build, browser E2E, live model matrix when API quota is
-available, and `git diff --check`. Record skipped external checks explicitly and
-do not claim that a mocked contract test proves live semantic tool selection.
+Completed on `architecture/10-tool-first-verification`; detailed evidence is in
+[`verification-results/tool-first-orchestration.md`](verification-results/tool-first-orchestration.md).
 
-Implemented Phase 6 checkpoint:
-
-- Added an explicit reference-scope dimension to the structured decision. A
-  mutating request must be supported by the current message, while a short answer
-  must be supported by the compatible persisted interaction. Conversation history
-  alone cannot authorize an action.
-- Added a fail-closed guard for a bare number while onboarding asks for multiple
-  facts, and separated nutrition-goal changes from meal-plan changes. A goal-change
-  request now returns the Reset/onboarding path deterministically and cannot expose
-  the Draft skill.
-- Aligned projected conversation-message limits with the 4,000-character assistant
-  persistence limit. User-visible success text is now emitted only after the
-  authoritative profile write succeeds, so a rejected or stale write cannot first
-  claim success.
-- Provider failures from the decision call are no longer retried or disguised as
-  malformed structured output. Contract repair remains limited to successful
-  provider responses that violate the decision schema or evidence rule.
-- Final automated verification on local revision `6825994`: formatting, lint,
-  typecheck, 36 unit files / 275 tests, security scan (178 project files), production
-  build, 23 Chromium tests, and diff checks passed.
-- The live decision/coach suite passed 2 files / 5 tests before the last hardening
-  changes. A later targeted live run confirmed the plan, goal-change, alternative,
-  and continuation classifications in its first two tests; the remaining onboarding
-  test and subsequent rerun were blocked when the configured external OpenAI project
-  returned HTTP 429 `no credits remaining`. Re-run `npm run test:ai-live` after that
-  external credit is restored.
-
-Manual local conversation matrix on the worktree committed as `6825994`:
-
-- The misspelled rice-alternative request offered only stored approved foods and
-  created no Draft. Choosing Pasta produced a server-valid Draft on Arnold's second
-  attempt, removed rice from the Draft, changed quantities across several foods,
-  and left Active Plan version 1 unchanged.
-- A whole-plan change made three observable Draft attempts and persisted a failure
-  review. `different mix of approved foods` opened a new attempt batch and produced
-  a valid persisted Draft on its third attempt instead of returning a prose plan.
-- `Do not change my meal plan` created neither a Draft nor a Plan Change workflow.
-  Fresh `30` and premature `Create my meal plan now` stayed in onboarding, while a
-  complete age/sex/height/weight answer advanced to the goal question.
-- Trend review returned the current deterministic increasing trend at +0.19 kg/week,
-  and the calculation explanation used the stored target snapshot without mutation.
-- Weight recording exposed a cross-layer message-length mismatch: the model said
-  the measurement was recorded before profile persistence failed. After the general
-  persistence-order and message-contract fix, the same request persisted 76.2 kg and
-  only then emitted its confirmation.
-- Goal change exposed an incorrect Draft route. The typed `goal_change` path and
-  deterministic no-mutation response were implemented and covered end-to-end by unit
-  tests; the direct live classifier assertion passed before external credits were
-  exhausted. A final HTTP conversation replay remains part of the live-suite rerun.
-- Food management and out-of-topic security flows remain covered by the passing
-  browser, unit, and security suites; additional real-model turns could not be sent
-  after the external-credit failure.
+- Formatting, lint, typecheck, security scan (177 project files), production
+  build, and diff checks pass.
+- The complete unit suite passes: 33 files / 253 tests.
+- The browser suite passes: 23 Chromium scenarios.
+- The credentialed live-model matrix passes: 2 files / 10 tests. It covers the
+  cottage-cheese dependency flow, the misspelled rice-alternative request,
+  whole-plan replacement, stored alternative continuation, different-mix retry,
+  hypothetical and negated requests, and the unsupported-topic boundary.
+- Live verification exposed two semantic contract ambiguities before the final
+  pass. `select_food_candidate` is now explicitly limited to a current
+  `food_candidates` card, while approved-alternative selection belongs to Draft
+  continuation. A second ambiguity allowed retry to open `new_request`; prompt,
+  schema descriptions, and a server-side guard now require continuation whenever
+  a Plan Change is active.
+- The legacy live alternative test that deliberately hid every tool was removed;
+  the exact sentence remains covered against the production tool-first contract
+  with all skills available.
 
 ## Invariants That Must Never Regress
 
@@ -486,12 +450,13 @@ After any summary or interruption:
 
 ## Current Checkpoint
 
-- Current branch: `architecture/09-tool-first-orchestrator`.
-- Current phase: Phase 9. Contract commit `6b896c0` and state/migration commit
-  `d235f02` are complete. The orchestrator work is ready for its phase commit.
-- Verification so far: formatting, lint, typecheck, the full unit suite (33
-  files, 252 tests), security scan (184 files), and diff checks pass. Production
-  build, E2E, and live checks remain for Phase 10.
+- Current branch: `architecture/10-tool-first-verification`.
+- Current phase: Phase 10 is complete on this branch. Contract
+  commit `6b896c0`, state/migration commit `d235f02`, and orchestrator commit
+  `3e01d75` are complete.
+- Final verification: formatting, lint, typecheck, 33 unit files / 253 tests,
+  security scan (177 files), production build, 23 Chromium scenarios, 2 live
+  model files / 10 tests, and diff checks pass.
 - Residual model dependency: semantic skill choice and candidate-plan composition
   intentionally vary between model calls. Their effects are bounded by strict
   schemas, current-message evidence, persisted Plan Change state, leases, closed

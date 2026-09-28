@@ -110,7 +110,7 @@ vi.mock("@/ai/coach-agent", () => ({
         : agent.tool
           ? [agent.tool]
           : [];
-      const promptContext = JSON.parse(
+      let promptContext = JSON.parse(
         agent.systemPrompts.at(-1)!.replace(/^ARNOLD\n/u, ""),
       ) as {
         pendingPlanChange?: {
@@ -121,6 +121,11 @@ vi.mock("@/ai/coach-agent", () => ({
         approvedFoods?: Array<{ id: string; name: string }>;
       };
       for (const [index, tool] of tools.entries()) {
+        if (index > 0) {
+          promptContext = JSON.parse(
+            input.getSystemPrompt().replace(/^ARNOLD\n/u, ""),
+          ) as typeof promptContext;
+        }
         const allowed = input.getAllowedTools();
         agent.allowedAfterCalls.push([...allowed]);
         if (!allowed.includes(tool.name)) break;
@@ -2695,5 +2700,72 @@ describe("unified coach orchestration", () => {
       attemptBatch: 2,
     });
     expect(retried.profile.state.draft).toBeNull();
+  });
+
+  it("blocks a new Draft request from replacing an active Plan Change", async () => {
+    const initial = await getProfile("new");
+    const activePlanChange = planChangeWorkflow({
+      status: "failure_review",
+      strategy: "different_approved_mix",
+      mode: "create_initial",
+      basePlanVersion: null,
+      mustDiffer: false,
+    });
+    const seeded = await mutateProfile({
+      profileId: "new",
+      expectedVersion: initial.version,
+      commandId: "seed-active-plan-change",
+      mutation: () => {
+        const ready = makeReadyState();
+        return {
+          ...ready,
+          agentSession: {
+            ...ready.agentSession,
+            planChange: activePlanChange,
+          },
+        };
+      },
+    });
+    const valid = makeValidDraft("blocked-replacement");
+    agent.tool = {
+      name: "submit_draft_proposal",
+      arguments: {
+        summary:
+          "A separate plan request that must not replace the active one.",
+        meals: valid.plan.meals.map((meal) => ({
+          id: meal.id,
+          items: meal.items.map(({ catalogFoodId, grams }) => ({
+            catalogFoodId,
+            grams,
+          })),
+        })),
+        changeContext: {
+          kind: "new_request",
+          evidence: "Create a new Draft instead.",
+          scope: "whole_plan",
+          requiredCatalogFoodIds: [],
+          excludedCatalogFoodIds: [],
+        },
+      },
+    };
+
+    const result = await executeCoachTurn(
+      turnInput(
+        "new",
+        seeded.version,
+        "do-not-replace-active-plan-change",
+        "Create a new Draft instead.",
+      ),
+    );
+
+    expect(agent.toolResults[0]).toMatchObject({
+      status: "blocked",
+      code: "active_plan_change_requires_continuation",
+      planChangeId: activePlanChange.id,
+    });
+    expect(result.profile.state.agentSession.planChange).toEqual(
+      activePlanChange,
+    );
+    expect(result.profile.state.draft).toBeNull();
   });
 });

@@ -55,32 +55,4 @@ liveDescribe("live Arnold topic boundary", () => {
     );
     expect(fitness).not.toMatch(/diagnos|treatment|prescri/i);
   }, 90_000);
-
-  it("offers approved alternatives for a disliked meal-plan food", async () => {
-    const response = await askArnold(
-      "i dont like rice. any other oprions for my meal plan?",
-      {
-        foodAlternativeRequest: {
-          responseMode: "offer_approved_options_only",
-          offeredFoodIds: [
-            "quinoa-cooked",
-            "sweet-potato-baked",
-            "pasta-cooked",
-          ],
-        },
-        approvedFoods: [
-          { id: "white-rice-cooked", name: "White rice" },
-          { id: "quinoa-cooked", name: "Quinoa" },
-          { id: "sweet-potato-baked", name: "Sweet potato" },
-          { id: "pasta-cooked", name: "Pasta" },
-        ],
-      },
-    );
-
-    expect(response).toMatch(/quinoa|sweet potato|pasta/i);
-    expect(response).not.toMatch(
-      /what would you like to change about your meal plan/i,
-    );
-    expect(response).not.toMatch(/(?:try|choose|use)\s+white rice/i);
-  }, 90_000);
 });

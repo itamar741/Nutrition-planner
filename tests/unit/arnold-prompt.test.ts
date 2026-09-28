@@ -51,6 +51,12 @@ describe("Arnold system prompt", () => {
     expect(prompt).toContain("ordinary spelling mistakes");
     expect(prompt).toContain("use offer_approved_food_alternatives");
     expect(prompt).toContain(
+      "Do not call select_food_candidate: that skill is exclusively for a pending food_candidates card",
+    );
+    expect(prompt).toContain(
+      "Never replace it with new_request, including after failure_review",
+    );
+    expect(prompt).toContain(
       "Never include substitution or alternative fields inside a submitted Draft",
     );
     expect(prompt).toContain(
