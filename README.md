@@ -1,5 +1,5 @@
 # Live website
-https://tribunal-0hfn.onrender.com/cases/8a4c0acf-cb73-4d21-ab88-67a37e0d5b3f?start=1
+https://nutrition-coach-demo.onrender.com/
 
 # Nutrition Coach Demo
 
