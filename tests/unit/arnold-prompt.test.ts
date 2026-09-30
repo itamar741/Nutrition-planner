@@ -14,7 +14,15 @@ describe("Arnold system prompt", () => {
     });
 
     expect(prompt).toContain("IDENTITY AND SCOPE");
-    expect(prompt).toContain("CONVERSATION BEHAVIOR");
+    expect(prompt).toContain("OPEN PLANNING, CLOSED EFFECTS");
+    expect(prompt).toContain("complete documented Arnold skill set");
+    expect(prompt).toContain("there is no intent classifier");
+    expect(prompt).toContain("At most four non-parallel calls");
+    expect(prompt).toContain("Treat blocked and rejected results as facts");
+    expect(prompt).toContain("A needs_user_action result ends tool use");
+    expect(prompt).toContain(
+      "Never present a new or revised meal plan only as prose",
+    );
     expect(prompt).toContain("TOPIC BOUNDARY");
     expect(prompt).toContain("AUTHORITATIVE CONTEXT");
     expect(prompt).toContain("NUTRITION PLANNING RULES");
@@ -29,7 +37,12 @@ describe("Arnold system prompt", () => {
     expect(prompt).toContain("contextual 'delete it'");
     expect(prompt).toContain("PROTECTED APPROVALS");
     expect(prompt).toContain("DRAFT REPAIR");
-    expect(prompt).toContain("follow its repairGuidance exactly");
+    expect(prompt).toContain(
+      "immediately submit another complete Draft in the same turn using repairGuidance",
+    );
+    expect(prompt).toContain(
+      "pendingPlanChange.rejectedDraftAttempts is authoritative persisted evidence",
+    );
     expect(prompt).toContain("Generate AI proposal");
     expect(prompt).toContain("only a resulting proposal card uses Approve");
     expect(prompt).toContain(
@@ -39,17 +52,20 @@ describe("Arnold system prompt", () => {
       "do not answer any part of the request, do not provide code",
     );
     expect(prompt).toContain("do not call a skill");
-    expect(prompt).toContain("write a for loop that counts from 1 to 10");
     expect(prompt).toContain("never create personalized workout programming");
+    expect(prompt).toContain("ordinary spelling mistakes");
+    expect(prompt).toContain("use offer_approved_food_alternatives");
     expect(prompt).toContain(
-      "options, alternatives, replacements, or substitutes for a disliked food",
+      "Do not call select_food_candidate: that skill is exclusively for a pending food_candidates card",
     );
-    expect(prompt).toContain("ordinary misspellings such as 'oprions'");
+    expect(prompt).toContain(
+      "Never replace it with new_request, including after failure_review",
+    );
     expect(prompt).toContain(
       "Never include substitution or alternative fields inside a submitted Draft",
     );
     expect(prompt).toContain(
-      "keep the Active Plan unchanged until the user approves",
+      "Typed language such as 'approve it' never approves",
     );
     expect(prompt).not.toContain("raw, cooked, or packaged");
     expect(prompt).not.toContain("fat percentage");

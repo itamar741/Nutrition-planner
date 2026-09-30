@@ -19,7 +19,7 @@ There are no accounts, additional users, or profile-management flows. Selecting 
 
 Both journeys use one server-owned streaming conversation led by Arnold. For every free-text turn, the server loads the complete structured profile, targets, relevant approved foods, Draft and Active Plan, weight history and deterministic trend where applicable, pending interaction, and reset-scoped transcript. PostgreSQL—not the browser or OpenAI-hosted storage—is the memory source; OpenAI requests use `store: false`.
 
-The model can request only tools currently permitted by server state. The server validates each call, executes the bounded operation, returns only sanitized structured results, and persists the completed turn. The agent never receives SQL, credentials, arbitrary URLs, browser tools, raw USDA payloads, or direct database access. A topic change may pause one workflow for later resumption.
+The model receives all documented bounded Arnold tools on a free-text turn and chooses the useful sequence itself. The server validates every call and prerequisite, executes only bounded effects, returns sanitized structured results, and commits each successful effect before the next model round. An inapplicable tool returns a structured result without mutation. The agent never receives SQL, credentials, arbitrary URLs, browser tools, raw USDA payloads, or direct database access. A topic change may pause one workflow for later resumption.
 
 Arnold's supported conversation topics are nutrition planning, food choices, basic meal preparation and cooking, weight tracking, and high-level non-medical fitness information. Programming, technical support, and unrelated general requests receive one brief redirect in the user's language without an answer or skill call. General fitness remains informational only: Arnold does not create personalized workout programs, track exercise, diagnose conditions, or use fitness discussion to alter authoritative nutrition state. This redirect is a model instruction rather than a deterministic content filter; server-side tool and state validation remains the security boundary.
 
@@ -107,20 +107,24 @@ Deterministic application code owns:
 - Target calculations and plan-total validation.
 - Weight-entry validation, storage, trend calculations, and the sufficient-evidence decision.
 - Draft and Active Plan transitions.
-- Enforcement of one workflow-changing tool per turn, idempotent commands, profile-level turn locking, and explicit approval boundaries.
+- Enforcement of at most four sequential non-parallel skills per turn,
+  idempotent subcommands, profile-level turn locking, stop-on-user-decision, and
+  explicit approval boundaries.
 
 The AI is limited to:
 
 - Extracting supported onboarding facts from natural language.
 - Asking one combined clarification only when missing information materially changes an action, with quick replies and free text where appropriate.
 - Creating or modifying a Draft within catalog and nutrition constraints.
-- Recognizing a weight-reporting intent and passing the value to deterministic validation.
+- Choosing a bounded weight skill when the current message explicitly supplies
+  the required value; deterministic validation remains authoritative.
 - Explaining calculated trend facts and deciding whether to recommend a bounded adjustment when deterministic code says enough evidence exists.
 - Persisting a clear explicit food or meal preference, inspecting catalog/plan availability, or removing an approved food through bounded server skills.
-- Classifying a food-addition request, requesting only missing food context, and requesting one server-controlled lookup action from a closed action set.
+- Planning a food-addition sequence with the server-controlled lookup,
+  user-visible approval, and Draft skills from the closed action set.
 - Conversationally continuing after approval or rejection without gaining authority to perform the protected approval itself.
 
-The interaction follows two governing principles: **open language, closed actions** and **approved catalog data**. A strict structured decision interprets open language, while deterministic server policy authorizes only the action matching that decision and the current persisted workflow. Questions, hypotheticals, negations, and unknown classifications cannot expose a mutating skill. The AI cannot browse freely, introduce new action types, write to the database, directly mutate an Active Plan, or operate arbitrary tools. User-authored preferences remain untrusted data even after persistence; they are structured values, never instructions.
+The interaction follows two governing principles: **open planning, closed effects** and **approved catalog data**. Arnold interprets language and may plan up to four sequential bounded skills without a separate intent router. Deterministic server contracts still decide whether each requested effect is legal in the current persisted workflow. The AI cannot browse freely, introduce new action types, write directly to the database, mutate an Active Plan, or operate arbitrary tools. User-authored preferences remain untrusted data even after persistence; they are structured values, never instructions. Semantic tool choice is intentionally model-dependent and is covered by live behavior tests; deterministic validators limit the consequences of a wrong choice.
 
 ## Deployed Runtime Architecture
 

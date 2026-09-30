@@ -113,6 +113,65 @@ async function initializePostgres() {
   await pool.query(
     `UPDATE demo_profiles
      SET state = jsonb_set(
+           state,
+           '{agentSession,planChange}',
+           (state->'agentSession'->'planChange') || jsonb_build_object(
+             'id', COALESCE(
+               state->'agentSession'->'planChange'->'id',
+               to_jsonb('legacy-' || profile_id || '-' || version::text)
+             ),
+             'status', COALESCE(
+               state->'agentSession'->'planChange'->'status',
+               CASE state->'agentSession'->'pendingInteraction'->>'type'
+                 WHEN 'food_candidates' THEN '"awaiting_food_approval"'::jsonb
+                 WHEN 'food_approval' THEN '"awaiting_food_approval"'::jsonb
+                 WHEN 'existing_food' THEN '"awaiting_food_approval"'::jsonb
+                 WHEN 'confirm_draft_food' THEN '"awaiting_draft_confirmation"'::jsonb
+                 WHEN 'draft_approval' THEN '"draft_pending_approval"'::jsonb
+                 WHEN 'draft_failure_review' THEN '"failure_review"'::jsonb
+                 ELSE '"ready_for_draft"'::jsonb
+               END
+             ),
+             'sourceMessageId', COALESCE(state->'agentSession'->'planChange'->'sourceMessageId', 'null'::jsonb),
+             'requestEvidence', COALESCE(state->'agentSession'->'planChange'->'requestEvidence', 'null'::jsonb),
+             'unresolvedFoodNames', COALESCE(state->'agentSession'->'planChange'->'unresolvedFoodNames', '[]'::jsonb),
+             'currentDraftId', COALESCE(state->'agentSession'->'planChange'->'currentDraftId', state->'draft'->'id', 'null'::jsonb)
+           ),
+           true
+         ),
+         updated_at = now()
+     WHERE jsonb_typeof(state->'agentSession'->'planChange') = 'object'`,
+  );
+  await pool.query(
+    `UPDATE demo_profiles
+     SET state = jsonb_set(
+           state,
+           '{agentSession,planChange}',
+           (state->'agentSession'->'planChange') || jsonb_build_object(
+             'rejectedDraftAttempts', COALESCE(
+               state->'agentSession'->'planChange'->'rejectedDraftAttempts',
+               CASE
+                 WHEN state->'agentSession'->'pendingInteraction'->>'type' = 'draft_failure_review'
+                 THEN COALESCE(state->'agentSession'->'pendingInteraction'->'attempts', '[]'::jsonb)
+                 ELSE '[]'::jsonb
+               END
+             )
+           ),
+           true
+         ),
+         updated_at = now()
+     WHERE jsonb_typeof(state->'agentSession'->'planChange') = 'object'
+       AND NOT (state->'agentSession'->'planChange' ? 'rejectedDraftAttempts')`,
+  );
+  await pool.query(
+    `UPDATE demo_profiles
+     SET state = jsonb_set(state, '{schemaVersion}', '4'::jsonb, true),
+         updated_at = now()
+     WHERE state->>'schemaVersion' IS DISTINCT FROM '4'`,
+  );
+  await pool.query(
+    `UPDATE demo_profiles
+     SET state = jsonb_set(
            jsonb_set(
              state,
              '{draft}',
@@ -120,7 +179,7 @@ async function initializePostgres() {
              true
            ),
            '{schemaVersion}',
-           '2'::jsonb,
+           '4'::jsonb,
            true
          ),
          updated_at = now()

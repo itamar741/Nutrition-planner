@@ -45,6 +45,13 @@ function proposalCall(index: number) {
             id,
             items: [{ catalogFoodId: "approved-food", grams: 100 }],
           })),
+          changeContext: {
+            kind: "new_request",
+            evidence: "Generate my Draft Meal Plan",
+            scope: "unspecified",
+            requiredCatalogFoodIds: [],
+            excludedCatalogFoodIds: [],
+          },
         }),
       },
     ],
@@ -60,7 +67,11 @@ function foodSearchCall() {
         type: "function_call",
         name: "search_foods",
         call_id: "call-search",
-        arguments: JSON.stringify({ normalizedEnglishQuery: "milk" }),
+        arguments: JSON.stringify({
+          requestedFoodPhrase: "milk",
+          normalizedEnglishQuery: "milk",
+          purpose: "catalog_only",
+        }),
       },
     ],
   };
@@ -219,7 +230,7 @@ describe("Arnold bounded skill loop", () => {
         { role: "user", content: "I want to add milk to my catalog" },
       ],
       getAllowedTools: () => ["search_foods"],
-      getRequiredFirstTool: () => "search_foods",
+      getRequiredTool: (sequence) => (sequence === 1 ? "search_foods" : null),
       onText: vi.fn(),
       onTool,
     });
@@ -231,13 +242,17 @@ describe("Arnold bounded skill loop", () => {
     expect(onTool).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "search_foods",
-        arguments: { normalizedEnglishQuery: "milk" },
+        arguments: {
+          requestedFoodPhrase: "milk",
+          normalizedEnglishQuery: "milk",
+          purpose: "catalog_only",
+        },
       }),
       1,
     );
   });
 
-  it("forces a Draft repair tool after deterministic validation rejects the first candidate", async () => {
+  it("allows the model to repair a rejected Draft with another bounded call", async () => {
     provider.responses = [
       proposalCall(1),
       proposalCall(2),
@@ -257,8 +272,8 @@ describe("Arnold bounded skill loop", () => {
       getSystemPrompt: () => "fixed prompt",
       conversation: [{ role: "user", content: "Generate my Draft Meal Plan" }],
       getAllowedTools: () => (attempts < 2 ? ["submit_draft_proposal"] : []),
-      getRequiredFirstTool: () => "submit_draft_proposal",
-      getRequiredTool: () => (attempts === 1 ? "submit_draft_proposal" : null),
+      getRequiredTool: (sequence) =>
+        sequence <= 2 ? "submit_draft_proposal" : null,
       onText: vi.fn(),
       onTool,
     });
@@ -270,6 +285,29 @@ describe("Arnold bounded skill loop", () => {
     expect(provider.calls[1]).toMatchObject({
       tool_choice: { type: "function", name: "submit_draft_proposal" },
     });
+  });
+
+  it("does not accept prose in place of a required repair skill", async () => {
+    provider.responses = [
+      {
+        status: "completed",
+        output_text: "I can try another version if you want.",
+        output: [],
+      },
+    ];
+
+    await expect(
+      runCoachAgent({
+        getSystemPrompt: () => "fixed prompt",
+        conversation: [{ role: "user", content: "Repair the Draft." }],
+        getAllowedTools: () => ["submit_draft_proposal"],
+        getRequiredTool: () => "submit_draft_proposal",
+        onText: vi.fn(),
+        onTool: vi.fn(),
+      }),
+    ).rejects.toThrow(
+      "The model did not call the required submit_draft_proposal skill.",
+    );
   });
 
   it("tags provider failures with a safe diagnostic stage", async () => {

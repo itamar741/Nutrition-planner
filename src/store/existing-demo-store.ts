@@ -10,6 +10,7 @@ import {
   projectedConversationMessageSchema,
   type AgentSessionState,
 } from "@/domain/agent/types";
+import { upgradePersistedStateV4 } from "./state-schema";
 
 export interface ExistingChatMessage {
   id: string;
@@ -18,7 +19,7 @@ export interface ExistingChatMessage {
 }
 
 export interface ExistingDemoState {
-  schemaVersion: 2;
+  schemaVersion: 4;
   activePlan: ActivePlan;
   draft: DraftProposal | null;
   measurements: WeightMeasurement[];
@@ -29,7 +30,7 @@ export interface ExistingDemoState {
 
 export const existingStateSchema = z
   .object({
-    schemaVersion: z.literal(2),
+    schemaVersion: z.literal(4),
     activePlan: activePlanSchema,
     draft: draftProposalSchema.nullable(),
     measurements: z.array(
@@ -50,19 +51,22 @@ export const existingStateSchema = z
 
 export function parseExistingState(value: unknown): ExistingDemoState {
   const legacy = z
-    .object({ schemaVersion: z.literal(1) })
+    .object({
+      schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+    })
     .passthrough()
     .safeParse(value);
   const upgraded = legacy.success
     ? {
         ...legacy.data,
-        schemaVersion: 2 as const,
+        schemaVersion: 3 as const,
         draft: "draft" in legacy.data ? legacy.data.draft : null,
       }
     : value;
+  const upgradedV4 = upgradePersistedStateV4(upgraded);
   const record =
-    typeof upgraded === "object" && upgraded !== null
-      ? (upgraded as Record<string, unknown>)
+    typeof upgradedV4 === "object" && upgradedV4 !== null
+      ? (upgradedV4 as Record<string, unknown>)
       : null;
   const activePlan =
     record &&
@@ -91,6 +95,6 @@ export function parseExistingState(value: unknown): ExistingDemoState {
               maintenanceReferenceWeightFromInitialMeasurements(measurements),
           },
         }
-      : upgraded;
+      : upgradedV4;
   return existingStateSchema.parse(withMaintenanceReference);
 }

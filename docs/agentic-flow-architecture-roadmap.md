@@ -1,10 +1,38 @@
 # Agentic Flow Architecture Roadmap and Recovery Anchor
 
-Last updated: 2026-09-15
+Last updated: 2026-09-30
 
 This is the durable source of truth for the multi-phase Arnold agentic-flow
 work. Read this file before continuing after a context summary, interruption, or
 new session. Update the checkpoint section before leaving a phase.
+
+## Superseding Architecture Decision (2026-09-26)
+
+Phases 1–6 below are retained as implementation history, but their intent-router
+design is superseded. The current architecture is **tool-first orchestration**:
+
+- Every documented Arnold skill is visible on every free-text turn.
+- Arnold chooses up to four sequential, non-parallel skill calls. There is no
+  preliminary `TurnDecision`, intent classifier, phrase router, or semantic tool
+  allow-list.
+- A forced first skill is permitted only for an unambiguous visible control such
+  as Create Draft or Generate AI proposal.
+- The server owns effects rather than semantic planning. Strict schemas, source
+  evidence, catalog membership, current-state prerequisites, leases, nutrition
+  calculations, Draft validation, and visible approvals remain deterministic.
+- Skill results use `completed`, `blocked`, `needs_user_action`, or `rejected`.
+  A user-decision result stops the loop; a completed result may be followed by
+  another skill.
+- Each mutating skill result is persisted under the active turn lease before it
+  is returned to Arnold. A later provider or skill failure does not roll back an
+  earlier success.
+- Plan changes are durable operations with explicit lifecycle state, evidence,
+  baseline, unresolved and required foods, exclusions, strategy, attempt batch,
+  and current Draft reference.
+
+The governing phrase is **open planning, closed effects**. Any historical text
+below that says tools are filtered or forced from a model-classified intent is
+not a current requirement.
 
 ## Objective
 
@@ -39,18 +67,19 @@ These decisions are authoritative unless the user explicitly changes them:
    include the selected approved replacement and exclude the unwanted food, but
    may recalculate quantities in every meal and may change other approved foods as
    needed. It must not assume a one-for-one gram substitution.
-4. **Three model attempts remain observable.** Arnold may repair a rejected Draft
-   twice. After the third rejection it shows the complete attempt record and asks
-   one focused question. A user's retry choice opens a new three-attempt batch and
-   must call the Draft tool before any replacement-plan prose.
+4. **Three model attempts remain observable and continuous.** Arnold must repair a
+   rejected Draft immediately while attempts remain; it may not stop to ask for
+   permission. Every rejection is persisted before the next attempt. After the
+   third rejection it shows the complete attempt record and asks one focused
+   question. A user's retry choice opens a new three-attempt batch and must call
+   the Draft tool before any replacement-plan prose.
 5. **Different mix has real semantics.** `different_approved_mix` requires a
    change in the actual set of approved food IDs; gram-only edits do not satisfy
    it.
-6. **Open language, closed actions.** A structured model decision interprets the
-   current message. Deterministic policy intersects it with authoritative state
-   and exposes the minimum permitted skill set. Questions, hypotheticals,
-   negations, unsupported requests, and unknown decisions cannot expose mutating
-   skills.
+6. **Open planning, closed effects.** Arnold receives the complete skill set and
+   chooses the semantic plan. Deterministic contracts accept, block, or reject
+   effects using authoritative state. Model behavior tests cover hypotheticals,
+   negations, unsupported requests, and tool selection.
 7. **Approvals are protected.** Text such as "approve it" never approves a food,
    Draft, or adjustment. Only the current visible typed interaction can do so.
 8. **Deterministic controls do not spend AI quota.** Controls that need no model
@@ -74,12 +103,17 @@ not yet present on `origin/docs/final-submission-evidence`.
 | 4     | `architecture/04-onboarding-routing`       | Phase 3                                       | Complete (`dd0ec01`)      |
 | 5     | `architecture/05-contract-hardening`       | Phase 4                                       | Complete (`0aebf22`)      |
 | 6     | `architecture/06-final-verification`       | Phase 5                                       | Code complete (`6825994`) |
+| 7     | `architecture/07-tool-first-contract`      | Phase 6 merge                                 | Complete (`6b896c0`)      |
+| 8     | `architecture/08-plan-change-state`        | Phase 7                                       | Complete (`d235f02`)      |
+| 9     | `architecture/09-tool-first-orchestrator`  | Phase 8                                       | Complete (`3e01d75`)      |
+| 10    | `architecture/10-tool-first-verification`  | Phase 9                                       | Complete on branch        |
+| 11    | `architecture/11-draft-repair-continuity`  | Phase 10                                      | Complete on branch        |
 
 Create each branch only after its parent phase is committed and verified. Push
 each branch with its explicit upstream. Do not rebase or squash the chain during
 implementation.
 
-## Phase 1 — Structured Turn Contract
+## Historical Phase 1 — Structured Turn Contract (Superseded)
 
 Purpose: replace mutation authorization based on scattered phrase checks with a
 typed interpretation and deterministic execution policy.
@@ -316,58 +350,86 @@ capability cards and the regression messages above. Record the exact deployed or
 local revision used for evidence. Final output should identify any residual
 model-dependent limitation honestly.
 
-Implemented Phase 6 checkpoint:
+## Phase 7 — Tool-First Contracts and Documentation
 
-- Added an explicit reference-scope dimension to the structured decision. A
-  mutating request must be supported by the current message, while a short answer
-  must be supported by the compatible persisted interaction. Conversation history
-  alone cannot authorize an action.
-- Added a fail-closed guard for a bare number while onboarding asks for multiple
-  facts, and separated nutrition-goal changes from meal-plan changes. A goal-change
-  request now returns the Reset/onboarding path deterministically and cannot expose
-  the Draft skill.
-- Aligned projected conversation-message limits with the 4,000-character assistant
-  persistence limit. User-visible success text is now emitted only after the
-  authoritative profile write succeeds, so a rejected or stale write cannot first
-  claim success.
-- Provider failures from the decision call are no longer retried or disguised as
-  malformed structured output. Contract repair remains limited to successful
-  provider responses that violate the decision schema or evidence rule.
-- Final automated verification on local revision `6825994`: formatting, lint,
-  typecheck, 36 unit files / 275 tests, security scan (178 project files), production
-  build, 23 Chromium tests, and diff checks passed.
-- The live decision/coach suite passed 2 files / 5 tests before the last hardening
-  changes. A later targeted live run confirmed the plan, goal-change, alternative,
-  and continuation classifications in its first two tests; the remaining onboarding
-  test and subsequent rerun were blocked when the configured external OpenAI project
-  returned HTTP 429 `no credits remaining`. Re-run `npm run test:ai-live` after that
-  external credit is restored.
+Completed in `6b896c0`. The product, implementation, verification, README, and
+agent contracts now define open planning, closed effects; the complete tool set;
+the common result envelope; expanded food search and Draft contexts; and durable
+Plan Change lifecycle fields.
 
-Manual local conversation matrix on the worktree committed as `6825994`:
+## Phase 8 — State Schema v3 and Migration
 
-- The misspelled rice-alternative request offered only stored approved foods and
-  created no Draft. Choosing Pasta produced a server-valid Draft on Arnold's second
-  attempt, removed rice from the Draft, changed quantities across several foods,
-  and left Active Plan version 1 unchanged.
-- A whole-plan change made three observable Draft attempts and persisted a failure
-  review. `different mix of approved foods` opened a new attempt batch and produced
-  a valid persisted Draft on its third attempt instead of returning a prose plan.
-- `Do not change my meal plan` created neither a Draft nor a Plan Change workflow.
-  Fresh `30` and premature `Create my meal plan now` stayed in onboarding, while a
-  complete age/sex/height/weight answer advanced to the goal question.
-- Trend review returned the current deterministic increasing trend at +0.19 kg/week,
-  and the calculation explanation used the stored target snapshot without mutation.
-- Weight recording exposed a cross-layer message-length mismatch: the model said
-  the measurement was recorded before profile persistence failed. After the general
-  persistence-order and message-contract fix, the same request persisted 76.2 kg and
-  only then emitted its confirmation.
-- Goal change exposed an incorrect Draft route. The typed `goal_change` path and
-  deterministic no-mutation response were implemented and covered end-to-end by unit
-  tests; the direct live classifier assertion passed before external credits were
-  exhausted. A final HTTP conversation replay remains part of the live-suite rerun.
-- Food management and out-of-topic security flows remain covered by the passing
-  browser, unit, and security suites; additional real-model turns could not be sent
-  after the external-credit failure.
+Completed in `d235f02`. Both demo states use schema v3. Migration 007 upgrades
+Plan Change state and interaction references without deleting conversations,
+Drafts, foods, or existing interactions.
+
+## Phase 9 — Tool-First Orchestrator and Skills
+
+Completed in `3e01d75`. The old decision classifier and extraction pass are
+removed; all skills are exposed for free text; onboarding-fact and
+approved-alternative skills are present; UI-only approvals are preserved; every
+mutating skill is persisted before its result returns; and one Plan Change ID is
+carried through food resolution, approval, Create Draft, validation, failure
+review, retry, Draft approval, or cancellation.
+
+Required focused flows:
+
+- `i want to add cottage cheese to my meal plan` resolves the food first, waits
+  for Add to my foods and Create Draft, then submits a complete rebalanced Draft.
+- `i dont like rice. any other oprions for my meal plan?` offers only approved
+  alternatives, records the offered IDs, and submits a Draft only after selection.
+- `i want to change the whole meal plan` submits a formal complete Draft rather
+  than returning a prose menu.
+- A retry such as `different mix of approved foods` submits a new Draft attempt
+  batch and never falls back to a prose-only plan.
+- A combined weight and plan request can complete sequential skills; an early
+  completed mutation remains stored if a later step fails.
+
+## Phase 10 — Tool-First Verification and Handoff
+
+Completed on `architecture/10-tool-first-verification`; detailed evidence is in
+[`verification-results/tool-first-orchestration.md`](verification-results/tool-first-orchestration.md).
+
+- Formatting, lint, typecheck, security scan (177 project files), production
+  build, and diff checks pass.
+- The complete unit suite passes: 33 files / 253 tests.
+- The browser suite passes: 23 Chromium scenarios.
+- The credentialed live-model matrix passes: 2 files / 10 tests. It covers the
+  cottage-cheese dependency flow, the misspelled rice-alternative request,
+  whole-plan replacement, stored alternative continuation, different-mix retry,
+  hypothetical and negated requests, and the unsupported-topic boundary.
+- Live verification exposed two semantic contract ambiguities before the final
+  pass. `select_food_candidate` is now explicitly limited to a current
+  `food_candidates` card, while approved-alternative selection belongs to Draft
+  continuation. A second ambiguity allowed retry to open `new_request`; prompt,
+  schema descriptions, and a server-side guard now require continuation whenever
+  a Plan Change is active.
+- The legacy live alternative test that deliberately hid every tool was removed;
+  the exact sentence remains covered against the production tool-first contract
+  with all skills available.
+
+## Phase 11 — Durable Draft Repair Continuity
+
+The deployed conversation exposed a remaining orchestration gap: after a rejected
+cottage-cheese Draft, Arnold could stop with “I can try again if you want,” and a
+later details request saw only generic transcript prose. Early rejected attempts
+existed only in turn-local memory, while the live matrix verified first-tool
+selection rather than a complete repair loop.
+
+This phase closes that gap without restoring intent routing:
+
+- state schema v4 persists every ordinary rejected Draft attempt inside its Plan
+  Change, including meals, grams, totals, checks, and issues;
+- the schema upgrade recovers attempt history from an existing v3 failure review;
+- a `rejected` proposal result with attempts remaining requires the same proposal
+  tool on the next model round, while the third rejection remains a user decision;
+- a provider failure after an early rejection cannot erase the stored attempt;
+- failure-detail answers receive the exact persisted attempts as authoritative
+  context;
+- safe numeric and common named HTML entities in model prose are normalized before
+  persistence and display; and
+- a credentialed live test executes three forced Draft attempts and verifies that
+  the model changes the candidate between repairs.
 
 ## Invariants That Must Never Regress
 
@@ -414,15 +476,14 @@ After any summary or interruption:
 
 ## Current Checkpoint
 
-- Current branch: `architecture/06-final-verification`.
-- Current phase: Phase 6 implementation is committed as `6825994`; this file records
-  the final verification and handoff state.
-- Verification: every local deterministic, security, build, and browser check passed.
-  The final real-model rerun is externally blocked by exhausted OpenAI API credits;
-  it must be repeated when credits are restored.
-- Residual model dependency: natural-language classification and candidate-plan
-  composition can vary between model calls. Their effects remain bounded by explicit
-  reference scope, persisted workflow state, allowed-skill policy, strict schemas,
-  and server-side plan validation. A provider outage fails without mutating confirmed
-  state.
-- Merge/deploy status: not authorized; do neither.
+- Current branch: `architecture/11-draft-repair-continuity`.
+- Current phase: Phase 11 implementation and full verification are complete; the
+  phase commit remains.
+- Verification: formatting, lint, typecheck, 35 unit files / 260 tests, security
+  scan (183 project files), production build, 23 Chromium scenarios, and the
+  complete 2-file / 11-test live-model matrix pass. Final diff checks pass.
+- Residual model dependency: semantic skill choice and candidate-plan composition
+  intentionally vary between model calls. Their effects are bounded by strict
+  schemas, current-message evidence, persisted Plan Change state, leases, closed
+  identifiers, deterministic calculations, and protected visible approvals.
+- Merge, push, PR, and deployment have not been requested for this phase.

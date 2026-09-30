@@ -246,7 +246,7 @@ export function createExistingActivePlan(now = new Date()): ActivePlan {
 
 export function createExistingDemoState(now = new Date()): ExistingDemoState {
   return {
-    schemaVersion: 2,
+    schemaVersion: 4,
     activePlan: createExistingActivePlan(now),
     draft: null,
     measurements: createExistingWeightHistory(now),
@@ -265,7 +265,7 @@ export function createExistingDemoState(now = new Date()): ExistingDemoState {
 export function createNewDemoState(): DemoState {
   const activeTurn = getNextTurn(emptyProfile);
   return {
-    schemaVersion: 2,
+    schemaVersion: 4,
     profileId: "new",
     profile: structuredClone(emptyProfile),
     messages: [

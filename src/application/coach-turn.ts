@@ -1,30 +1,26 @@
 import { randomUUID } from "node:crypto";
 import {
   buildArnoldSystemPrompt,
+  coachToolNames,
   runCoachAgent,
   type CoachToolCall,
   type CoachToolName,
+  type DraftProposalArguments,
   type ProposalArguments,
 } from "@/ai/coach-agent";
-import { extractOnboardingFacts } from "@/ai/onboarding";
-import { interpretTurnDecision } from "@/ai/turn-decision";
+import {
+  coachToolResult as toolResult,
+  type CoachToolResult,
+} from "@/domain/agent/tool-result";
 import { existingReadyProfile } from "@/data/demo-fixtures";
 import type {
   AgentInteraction,
   CoachMessageRequest,
   DraftAttemptReview,
 } from "@/domain/agent/types";
-import {
-  requestsFoodAlternativeOffer,
-  type TurnDecision,
-} from "@/domain/agent/turn-decision";
 import { createCatalogSnapshot } from "@/domain/catalog/snapshot";
 import type { CatalogFood } from "@/domain/catalog/types";
-import {
-  catalogFoodMatchesQuery,
-  normalizeCatalogText,
-  textValuesOverlap,
-} from "@/domain/catalog/identity";
+import { textValuesOverlap } from "@/domain/catalog/identity";
 import { calculateTargets } from "@/domain/nutrition/calculations";
 import {
   buildPlanValidationExplanation,
@@ -34,20 +30,14 @@ import {
   validateAndBuildPlan,
 } from "@/domain/plan/validation";
 import type { DraftCandidate, DraftProposal } from "@/domain/plan/types";
-import {
-  applyOnboardingFactPatch,
-  getNextTurn,
-  isProfileReady,
-} from "@/domain/profile/onboarding";
+import { isProfileReady } from "@/domain/profile/onboarding";
 import type { StructuredProfile } from "@/domain/profile/types";
 import { evaluateWeightAdjustmentDecision } from "@/domain/weight/decision";
 import {
   calculateWeightTrend,
   currentPlanWeightFromMeasurements,
-  formatWeightKg,
   maintenanceReferenceWeightFromInitialMeasurements,
   maintenanceReferenceWeightFromRecentMeasurements,
-  normalizeWeightKg,
 } from "@/domain/weight/trend";
 import {
   addExistingFoodToProfile,
@@ -78,26 +68,33 @@ import {
   usdaFoodUrl,
 } from "@/sources/usda";
 import { rankUsdaCandidates } from "@/ai/food-catalog";
+import { normalizeModelText } from "@/ai/model-text";
 import { prepareAiEstimate, prepareFoodCandidate } from "./food-candidates";
 import {
-  finishNonInteractiveWorkflow,
-  interactionWorkflow,
   reconcileAgentWorkflowState,
   setInteraction,
 } from "./interaction-state";
 import {
-  applyPlanChangeDecision,
-  offeredFoodNames,
+  makePlanChangeDraftReady,
+  markPlanChangeDraftPending,
+  markPlanChangeFailure,
   planChangeCandidateIssues,
+  recordPlanChangeDraftRejection,
+  resolvePlanChangeFood,
+  retainPlanChangeAfterDraftRejection,
   startPlanChange,
+  waitForFoodApproval,
 } from "./plan-change-workflow";
 import {
-  allowedToolsForDecision,
   coachInputRequiresModel,
-  decisionAuthorizesOnboardingExtraction,
-  decisionAuthorizesIntent,
   deterministicInteractionText,
 } from "./turn-execution-policy";
+import { submitOnboardingFacts } from "./coach-tools/onboarding";
+import { executeWeightTool } from "./coach-tools/weight";
+import {
+  offerApprovedFoodAlternatives,
+  removeApprovedFood,
+} from "./coach-tools/approved-foods";
 
 type RateIdentity = { sessionHash: string; ipHash: string };
 type Status =
@@ -162,15 +159,6 @@ function measurementsOf(state: PersistedDemoState) {
   return "profile" in state ? state.weightMeasurements : state.measurements;
 }
 
-function withMeasurements(
-  state: PersistedDemoState,
-  measurements: ReturnType<typeof measurementsOf>,
-): PersistedDemoState {
-  return "profile" in state
-    ? { ...state, weightMeasurements: measurements }
-    : { ...state, measurements };
-}
-
 function contextFor(
   profile: VersionedProfile,
   catalog: CatalogFood[],
@@ -178,8 +166,6 @@ function contextFor(
   allowed: CoachToolName[],
   conversationDigest: Record<string, unknown> | null,
   requiredCatalogFoodId: string | null,
-  turnDecision: TurnDecision | null,
-  currentAlternativeOfferIds: string[] | null,
 ) {
   const state = profile.state;
   const currentDate = new Date().toISOString().slice(0, 10);
@@ -199,7 +185,6 @@ function contextFor(
             interactionId: currentInput.interactionId,
           }
         : null,
-    turnDecision,
     onboarding:
       "profile" in state && !isProfileReady(state.profile)
         ? {
@@ -209,32 +194,6 @@ function contextFor(
               "Do not claim a profile update unless the onboarding extractor already persisted one. If no facts were accepted, answer an in-scope question or redirect an unsupported request without changing state; when useful, remind the user of currentTurn.prompt.",
           }
         : { required: false },
-    foodAlternativeRequest:
-      turnDecision && requestsFoodAlternativeOffer(turnDecision)
-        ? {
-            responseMode:
-              currentAlternativeOfferIds?.length === 0
-                ? "no_approved_options"
-                : "offer_approved_options_only",
-            offeredFoodIds:
-              currentAlternativeOfferIds ??
-              state.agentSession.planChange?.offeredAlternativeFoodIds ??
-              [],
-            rules:
-              currentAlternativeOfferIds?.length === 0
-                ? [
-                    "Say that there are no eligible approved alternatives for this request.",
-                    "Suggest adding an approved food before trying the replacement again.",
-                    "Do not invent an option, persist a preference, remove a food, create a Draft, or change the Active Plan.",
-                  ]
-                : [
-                    "Offer concise relevant choices matching offeredFoodIds only.",
-                    "Exclude the food the user dislikes from the offered choices.",
-                    "Ask which option the user prefers.",
-                    "Do not persist a preference, remove a food, create a Draft, or change the Active Plan in this turn.",
-                  ],
-          }
-        : null,
     currentDate,
     weightHistory: {
       todayMeasurement:
@@ -360,93 +319,6 @@ function tokenEstimate(value: string) {
   return Math.ceil(value.length / 4) + 8;
 }
 
-const genericFoodSubjects = new Set([
-  "food",
-  "a food",
-  "foods",
-  "something",
-  "אוכל",
-  "מזון",
-]);
-
-function explicitFoodRequestSubject(text: string) {
-  const match = text.match(
-    /(?:\b(?:add|find|search|lookup|look\s+up)\b|(?:להוסיף|לחפש|חפש|מצא|תמצא))\s+(?:for\s+)?(.+)/iu,
-  );
-  if (!match) return null;
-  return match[1]
-    .replace(/\b(?:to|in)\s+(?:my\s+)?(?:food\s+)?catalog\b.*$/iu, "")
-    .trim()
-    .toLocaleLowerCase("en-US");
-}
-
-function requestsFoodWithoutName(input: CoachMessageRequest["input"]) {
-  if (input.type !== "text") return false;
-  const subject = explicitFoodRequestSubject(input.text);
-  return subject !== null && genericFoodSubjects.has(subject);
-}
-
-function requiresImmediateFoodSearch(
-  input: CoachMessageRequest["input"],
-  pending: AgentInteraction | null,
-) {
-  if (input.type !== "text") return false;
-  const text = input.text.trim();
-  if (/^(?:never mind|cancel|stop|no thanks|לא משנה|בטל|עצור)\b/iu.test(text)) {
-    return false;
-  }
-  if (pending?.type === "clarification" && pending.workflow === "food") {
-    return (
-      text.length >= 2 &&
-      (/^[\p{L}][\p{L}\s'’%.-]{1,119}$/u.test(text) ||
-        explicitFoodRequestSubject(text) !== null)
-    );
-  }
-  const subject = explicitFoodRequestSubject(text);
-  return subject !== null && !genericFoodSubjects.has(subject);
-}
-
-function requestsDraftIntegration(input: CoachMessageRequest["input"]) {
-  if (input.type !== "text") return false;
-  const text = input.text.trim();
-  return (
-    /\b(?:add|put|include|use|integrate|create|make|propose|generate|build|draft)\b[\s\S]{0,80}\b(?:plan|draft|menu)\b/iu.test(
-      text,
-    ) || /(?:הוסף|להוסיף|לשלב)[\s\S]{0,80}(?:לתפריט|בתפריט|לטיוטה)/u.test(text)
-  );
-}
-
-function requestsTodayWeightUpsert(input: CoachMessageRequest["input"]) {
-  if (input.type !== "text") return false;
-  const text = input.text.trim();
-  const number = "\\d{1,3}(?:[.,]\\d{1,2})?";
-  return new RegExp(
-    `(?:\\bi\\s+weigh\\s+${number}(?:\\s*kg)?(?:\\s+today)?\\b|\\btoday(?:'s|s)?\\s+weight\\s+(?:is\\s+)?${number}(?:\\s*kg)?\\b|^${number}\\s*kg\\s+today$)`,
-    "iu",
-  ).test(text);
-}
-
-function requestsContextualTodayWeightUpsert(
-  input: CoachMessageRequest["input"],
-  conversation: Array<{ role: "assistant" | "user"; content: string }>,
-) {
-  if (
-    input.type !== "text" ||
-    !/\b(?:edit|update|replace|change)\b[\s\S]{0,40}\b(?:it|today|weight)\b/iu.test(
-      input.text,
-    )
-  ) {
-    return false;
-  }
-  return conversation
-    .slice(-8)
-    .some(
-      (message) =>
-        message.role === "user" &&
-        requestsTodayWeightUpsert({ type: "text", text: message.content }),
-    );
-}
-
 type ResolvedHistoricalWeightUpsert = {
   date: string;
   weightKg: number;
@@ -493,6 +365,7 @@ function resolveWeightDelete(
   input: CoachMessageRequest["input"],
   conversation: Array<{ role: "assistant" | "user"; content: string }>,
   currentDate: string,
+  allowConversationReference: boolean,
 ) {
   if (
     input.type !== "text" ||
@@ -502,6 +375,7 @@ function resolveWeightDelete(
   }
   const explicitDate = historicalDateFromText(input.text, currentDate);
   if (explicitDate) return explicitDate;
+  if (!allowConversationReference) return null;
   if (!/\b(?:it|weight|measurement|entry)\b/iu.test(input.text)) return null;
   for (const message of [...conversation].reverse().slice(0, 12)) {
     if (message.role !== "user") continue;
@@ -532,58 +406,11 @@ function standaloneWeightFromText(text: string) {
   return value > 0 && value <= 500 ? value : null;
 }
 
-function approvedFoodSelectedByDecision(input: {
-  decision: TurnDecision | null;
-  approvedFoodIds: string[];
-  catalog: CatalogFood[];
-}) {
-  const names = input.decision?.foodNames ?? [];
-  const approved = new Set(input.approvedFoodIds);
-  const matches = input.catalog.filter(
-    (food) =>
-      approved.has(food.id) &&
-      names.some((name) => catalogFoodMatchesQuery(food, name)),
-  );
-  const exact = matches.filter((food) =>
-    names.some(
-      (name) =>
-        normalizeCatalogText(name) === normalizeCatalogText(food.displayName),
-    ),
-  );
-  const unambiguous = exact.length === 1 ? exact : matches;
-  return unambiguous.length === 1 ? (unambiguous[0] ?? null) : null;
-}
-
-function searchQueryMatchesDecision(
-  query: string,
-  decision: TurnDecision | null,
-) {
-  return Boolean(
-    decision?.foodNames.some((name) => textValuesOverlap(query, name)),
-  );
-}
-
-function decisionSelectsFoodCandidate(
-  decision: TurnDecision | null,
-  candidates: Array<{ id: string; title: string }>,
-  candidateId: string,
-) {
-  if (!decision || decision.intent !== "food_candidate_selection") {
-    return false;
-  }
-  if (decision.candidateOrdinal !== null) {
-    return candidates[decision.candidateOrdinal - 1]?.id === candidateId;
-  }
-  const matches = candidates.filter((candidate) =>
-    decision.foodNames.some((name) => textValuesOverlap(candidate.title, name)),
-  );
-  return matches.length === 1 && matches[0]?.id === candidateId;
-}
-
 function resolveHistoricalWeightUpsert(
   input: CoachMessageRequest["input"],
   conversation: Array<{ role: "assistant" | "user"; content: string }>,
   currentDate: string,
+  allowConversationReference: boolean,
 ): ResolvedHistoricalWeightUpsert | null {
   if (input.type !== "text") return null;
   const currentDateValue = historicalDateFromText(input.text, currentDate);
@@ -591,6 +418,7 @@ function resolveHistoricalWeightUpsert(
   if (currentDateValue && currentWeight !== null) {
     return { date: currentDateValue, weightKg: currentWeight };
   }
+  if (!allowConversationReference) return null;
 
   const contextualIntent =
     /\b(?:add|record|edit|update|replace|change)\b/iu.test(input.text) ||
@@ -606,20 +434,6 @@ function resolveHistoricalWeightUpsert(
     if (date && weightKg !== null) return { date, weightKg };
   }
   return null;
-}
-
-function requiresImmediateDraftProposal(
-  input: CoachMessageRequest["input"],
-  state: PersistedDemoState,
-) {
-  if ("profile" in state && !isProfileReady(state.profile)) return false;
-  if (input.type === "interaction" && input.action === "confirm_draft_food") {
-    return true;
-  }
-  return Boolean(
-    state.agentSession.planChange?.requiredCatalogFoodIds.length &&
-    requestsDraftIntegration(input),
-  );
 }
 
 async function conversationForModel(input: {
@@ -855,61 +669,6 @@ function adjustedTargetsFor(
   };
 }
 
-function allowedTools(
-  state: PersistedDemoState,
-  input: CoachMessageRequest["input"],
-  proposalAttempts: number,
-  allowOrdinaryDraftProposal: boolean,
-): CoachToolName[] {
-  if ("profile" in state && !isProfileReady(state.profile)) return [];
-  const common: CoachToolName[] = [
-    "remember_preference",
-    "remove_approved_food",
-    "inspect_food_availability",
-    "search_foods",
-    "select_food_candidate",
-  ];
-  if ("profile" in state) {
-    if (state.activePlan)
-      common.push("record_weight", "edit_weight", "delete_weight");
-    if (
-      isProfileReady(state.profile) &&
-      allowOrdinaryDraftProposal &&
-      proposalAttempts < 3
-    ) {
-      common.push("submit_draft_proposal");
-    }
-  } else {
-    common.push("record_weight", "edit_weight", "delete_weight");
-    const pending = state.agentSession.pendingInteraction;
-    const adjustmentRequested =
-      input.type === "interaction" && input.action === "generate_adjustment";
-    const adjustmentFeedback =
-      (pending?.type === "clarification" &&
-        pending.workflow === "adjustment") ||
-      (pending?.type === "draft_failure_review" &&
-        pending.proposalKind === "adjustment");
-    const adjustmentPending =
-      pending?.type === "adjustment_offer" ||
-      pending?.type === "adjustment_approval" ||
-      adjustmentFeedback;
-    if (
-      !state.draft &&
-      (adjustmentRequested || adjustmentFeedback) &&
-      proposalAttempts < 3
-    ) {
-      common.push("submit_adjustment_proposal");
-    } else if (
-      !adjustmentPending &&
-      allowOrdinaryDraftProposal &&
-      proposalAttempts < 3
-    ) {
-      common.push("submit_draft_proposal");
-    }
-  }
-  return common;
-}
-
 function interaction(
   id: string,
   value: InteractionWithoutId,
@@ -937,7 +696,10 @@ async function searchFoods(input: {
     await renewAgentTurnLease(input.agentTurnLease);
   }
   if (!(await recordAndCheckRateLimit(input.rateIdentity))) {
-    throw new Error("The food-search limit has been reached. Try again later.");
+    return {
+      outcome: "rate_limited" as const,
+      message: "The food-search limit has been reached. Try again later.",
+    };
   }
   const lookup = await createLookup(
     {
@@ -1067,24 +829,21 @@ export async function executeCoachTurn(input: {
   let actionSummary: Record<string, unknown> | null = null;
   let requiredCatalogFoodId =
     state.agentSession.planChange?.requiredCatalogFoodIds[0] ?? null;
-  let selectedAlternativeFood: CatalogFood | null = null;
-  let currentAlternativeOfferIds: string[] | null = null;
-  let turnDecision: TurnDecision | null = null;
-  let planMutationAuthorized = false;
-  let proposalAttempts = 0;
+  let proposalAttempts =
+    state.agentSession.planChange?.rejectedDraftAttempts.length ?? 0;
+  let toolStatePersisted = false;
   const turnCurrentDate = new Date().toISOString().slice(0, 10);
   let resolvedHistoricalWeightUpsert: ResolvedHistoricalWeightUpsert | null =
     null;
   let resolvedTodayWeightUpsert: number | null = null;
   let resolvedWeightDelete: string | null = null;
-  let authorizedRemovalFoodId: string | null = null;
   let weightConfirmation: string | null = null;
   const rejectedDraftAttempts: DraftAttemptReview[] = [];
-  const foodNameMissing = requestsFoodWithoutName(input.request.input);
+  const executedToolNames: CoachToolName[] = [];
 
   const activePlanVersion = state.activePlan?.version ?? null;
 
-  let currentInteraction = state.agentSession.pendingInteraction;
+  const currentInteraction = state.agentSession.pendingInteraction;
   const interactionAtTurnStart = currentInteraction;
   console.info("coach_turn_received", {
     turnId: input.turnId,
@@ -1101,184 +860,6 @@ export async function executeCoachTurn(input: {
     activePlanVersion,
     hasDraft: Boolean(state.draft),
   });
-  if (input.request.input.type === "text") {
-    const currentText = input.request.input.text;
-    const onboardingRequired =
-      "profile" in state && !isProfileReady(state.profile);
-    const recentConversation = (
-      await listConversationMessages(input.request.profileId)
-    )
-      .filter(
-        (message) =>
-          message.content.length > 0 &&
-          (message.role === "user" || message.status !== "pending"),
-      )
-      .slice(-6)
-      .map(({ role, content }) => ({ role, content }));
-    turnDecision = await atTurnStage("turn_decision", () =>
-      interpretTurnDecision({
-        message: currentText,
-        hasActivePlan: Boolean(state.activePlan),
-        hasDraft: Boolean(state.draft),
-        onboardingRequired,
-        onboardingTurn:
-          onboardingRequired && "profile" in state
-            ? {
-                id: state.activeTurn.id,
-                type: state.activeTurn.type,
-                field:
-                  "field" in state.activeTurn ? state.activeTurn.field : null,
-                prompt: state.activeTurn.prompt,
-                optionLabels:
-                  state.activeTurn.type === "closed_question"
-                    ? state.activeTurn.options.map((option) => option.label)
-                    : [],
-              }
-            : null,
-        recentConversation,
-        pendingInteraction: currentInteraction
-          ? {
-              type: currentInteraction.type,
-              workflow: interactionWorkflow(currentInteraction),
-              offeredFoodNames: offeredFoodNames(state, catalog),
-            }
-          : null,
-      }),
-    );
-    if (!onboardingRequired) {
-      const planChangeResult = applyPlanChangeDecision({
-        state,
-        catalog,
-        decision: turnDecision,
-        currentInteraction,
-      });
-      state = planChangeResult.state;
-      currentInteraction = planChangeResult.currentInteraction;
-      selectedAlternativeFood = planChangeResult.selectedAlternativeFood;
-      requiredCatalogFoodId =
-        planChangeResult.requiredCatalogFoodId ?? requiredCatalogFoodId;
-      planMutationAuthorized = planChangeResult.planMutationAuthorized;
-      currentAlternativeOfferIds = planChangeResult.currentAlternativeOfferIds;
-      authorizedRemovalFoodId =
-        turnDecision.intent === "food_remove"
-          ? (approvedFoodSelectedByDecision({
-              decision: turnDecision,
-              approvedFoodIds: approvedIdsOf(state),
-              catalog,
-            })?.id ?? null)
-          : null;
-    }
-  }
-  if (
-    "profile" in state &&
-    !isProfileReady(state.profile) &&
-    !state.agentSession.pendingInteraction &&
-    input.request.input.type === "text" &&
-    decisionAuthorizesOnboardingExtraction(turnDecision, true)
-  ) {
-    const onboardingState = state;
-    const onboardingInput = input.request.input;
-    input.onStatus("thinking");
-    const extraction = await atTurnStage("onboarding_extraction", () =>
-      extractOnboardingFacts({
-        commandId: input.request.commandId,
-        message: onboardingInput.text,
-        profile: onboardingState.profile,
-        allowCorrections: true,
-      }),
-    );
-    if (Object.keys(extraction.patch).length > 0) {
-      const nextProfile = applyOnboardingFactPatch(
-        onboardingState.profile,
-        extraction.patch,
-      );
-      const activeTurn = getNextTurn(nextProfile);
-      const currentWeightWasExplicit =
-        extraction.patch.currentWeightKg !== undefined;
-      const currentWeightKg = nextProfile.currentWeightKg;
-      let measurements = onboardingState.weightMeasurements;
-      if (currentWeightKg !== null && currentWeightWasExplicit) {
-        const existingTodayWeight = measurements.find(
-          (measurement) => measurement.date === turnCurrentDate,
-        );
-        measurements = existingTodayWeight
-          ? measurements.map((measurement) =>
-              measurement.id === existingTodayWeight.id
-                ? {
-                    ...measurement,
-                    weightKg: currentWeightKg,
-                    commandId: input.request.commandId,
-                  }
-                : measurement,
-            )
-          : [
-              ...measurements,
-              {
-                id: `weight-onboarding-${input.request.commandId}`,
-                date: turnCurrentDate,
-                weightKg: currentWeightKg,
-                commandId: input.request.commandId,
-              },
-            ];
-      } else if (currentWeightKg !== null && measurements.length === 0) {
-        measurements = [
-          {
-            id: `weight-onboarding-${input.request.commandId}`,
-            date: turnCurrentDate,
-            weightKg: currentWeightKg,
-            commandId: input.request.commandId,
-          },
-        ];
-      }
-      state = {
-        ...onboardingState,
-        profile: nextProfile,
-        activeTurn,
-        targets: calculateTargets(nextProfile),
-        weightMeasurements: measurements,
-        status: "idle",
-        pendingCommand: null,
-        pendingOperation: null,
-        processedCommandIds: onboardingState.processedCommandIds.includes(
-          input.request.commandId,
-        )
-          ? onboardingState.processedCommandIds
-          : [...onboardingState.processedCommandIds, input.request.commandId],
-        error: null,
-      };
-      const assistantText =
-        `${extraction.acknowledgement} ${activeTurn.prompt}`.trim();
-      profile = await atTurnStage("profile_persist", () =>
-        mutateProfile({
-          profileId: input.request.profileId,
-          expectedVersion: profile.version,
-          commandId: input.request.commandId,
-          agentTurnLease: turnLease,
-          mutation: () => state,
-        }),
-      );
-      input.onText(assistantText);
-      return { profile, assistantText };
-    }
-  }
-  if (
-    input.request.input.type === "text" &&
-    decisionAuthorizesIntent(turnDecision, "goal_change")
-  ) {
-    const assistantText =
-      "To choose a different nutrition goal, use Reset and complete onboarding again. Your current goal and Active Plan were not changed.";
-    profile = await atTurnStage("profile_persist", () =>
-      mutateProfile({
-        profileId: input.request.profileId,
-        expectedVersion: profile.version,
-        commandId: input.request.commandId,
-        agentTurnLease: turnLease,
-        mutation: () => state,
-      }),
-    );
-    input.onText(assistantText);
-    return { profile, assistantText };
-  }
   if (input.request.input.type === "interaction") {
     input.onStatus("validating");
     const action = input.request.input.action;
@@ -1344,13 +925,19 @@ export async function executeCoachTurn(input: {
           activePlanVersion: nextVersion,
         };
       } else {
+        const retainedPlanChange = state.agentSession.planChange
+          ? retainPlanChangeAfterDraftRejection(
+              state.agentSession.planChange,
+              state,
+            )
+          : startPlanChange({ ...state, draft: null });
         state = setInteraction(
           {
             ...state,
             draft: null,
             agentSession: {
               ...state.agentSession,
-              planChange: startPlanChange({ ...state, draft: null }),
+              planChange: retainedPlanChange,
             },
           },
           interaction(randomUUID(), {
@@ -1358,6 +945,7 @@ export async function executeCoachTurn(input: {
             workflow: "draft",
             prompt: "What would you like changed in the next Draft?",
             quickReplies: [],
+            planChangeId: retainedPlanChange.id,
           }),
         );
         actionSummary = { event: "draft_rejected", askWhatToCorrect: true };
@@ -1434,6 +1022,7 @@ export async function executeCoachTurn(input: {
         interaction(randomUUID(), {
           type: "food_approval",
           candidate: selected,
+          planChangeId: pending.planChangeId ?? null,
         }),
       );
       actionSummary = {
@@ -1472,12 +1061,27 @@ export async function executeCoachTurn(input: {
         turnLease,
       );
       profile = result.profile;
+      const approvedPlanChange =
+        pending.planChangeId &&
+        profile.state.agentSession.planChange?.id === pending.planChangeId
+          ? resolvePlanChangeFood(
+              profile.state.agentSession.planChange,
+              result.food.id,
+            )
+          : profile.state.agentSession.planChange;
       state = setInteraction(
-        profile.state,
+        {
+          ...profile.state,
+          agentSession: {
+            ...profile.state.agentSession,
+            planChange: approvedPlanChange,
+          },
+        },
         interaction(randomUUID(), {
           type: "confirm_draft_food",
           foodId: result.food.id,
           displayName: result.food.displayName,
+          planChangeId: approvedPlanChange?.id ?? null,
         }),
       );
       catalog = await listCatalogFoods();
@@ -1521,12 +1125,27 @@ export async function executeCoachTurn(input: {
         agentTurnLease: turnLease,
       });
       profile = result.profile;
+      const existingPlanChange =
+        pending.planChangeId &&
+        profile.state.agentSession.planChange?.id === pending.planChangeId
+          ? resolvePlanChangeFood(
+              profile.state.agentSession.planChange,
+              result.food.id,
+            )
+          : profile.state.agentSession.planChange;
       state = setInteraction(
-        profile.state,
+        {
+          ...profile.state,
+          agentSession: {
+            ...profile.state.agentSession,
+            planChange: existingPlanChange,
+          },
+        },
         interaction(randomUUID(), {
           type: "confirm_draft_food",
           foodId: result.food.id,
           displayName: result.food.displayName,
+          planChangeId: existingPlanChange?.id ?? null,
         }),
       );
       actionSummary = {
@@ -1602,17 +1221,24 @@ export async function executeCoachTurn(input: {
       if (!pending || pending.type !== "confirm_draft_food")
         throw new Error("There is no food continuation awaiting confirmation.");
       requiredCatalogFoodId = pending.foodId;
+      const planChange =
+        pending.planChangeId &&
+        state.agentSession.planChange?.id === pending.planChangeId
+          ? makePlanChangeDraftReady(state.agentSession.planChange, {
+              requiredFoodId: pending.foodId,
+            })
+          : startPlanChange(state, {
+              status: "ready_for_draft",
+              requiredCatalogFoodIds: [pending.foodId],
+              mustDiffer: true,
+              scope: "food_replacement",
+            });
       state = setInteraction(
         {
           ...state,
           agentSession: {
             ...state.agentSession,
-            planChange: startPlanChange(state, {
-              requiredCatalogFoodIds: [pending.foodId],
-              mustDiffer: true,
-              scope: "food_replacement",
-              selectedAlternativeFoodId: pending.foodId,
-            }),
+            planChange,
           },
         },
         null,
@@ -1699,35 +1325,27 @@ export async function executeCoachTurn(input: {
     return { profile, catalogFood: approvedCatalogFood, assistantText };
   }
 
-  if (
-    foodNameMissing &&
-    !(
-      state.agentSession.pendingInteraction?.type === "clarification" &&
-      state.agentSession.pendingInteraction.workflow === "food"
-    )
-  ) {
-    const hebrew =
-      input.request.input.type === "text" &&
-      /[\u0590-\u05ff]/.test(input.request.input.text);
-    state = setInteraction(
-      state,
-      interaction(randomUUID(), {
-        type: "clarification",
-        workflow: "food",
-        prompt: hebrew
-          ? "איזה מזון בסיסי תרצה להוסיף?"
-          : "Which basic food would you like to add?",
-        quickReplies: [],
-      }),
-    );
-    actionSummary = { event: "food_name_required" };
-  }
-
   const executeToolCore = async (
     call: CoachToolCall,
   ): Promise<Record<string, unknown>> => {
     if (call.name !== "search_foods") input.onStatus("validating");
     const args = call.arguments as Record<string, unknown>;
+    if (call.name === "submit_onboarding_facts") {
+      const handled = submitOnboardingFacts({
+        state,
+        facts: args.facts as Record<string, unknown>,
+        acknowledgement: String(args.acknowledgement),
+        supportingMessageId: String(args.supportingMessageId),
+        currentMessageId:
+          input.request.input.type === "text"
+            ? `user-${input.request.commandId}`
+            : null,
+        currentDate: turnCurrentDate,
+        commandId: input.request.commandId,
+      });
+      state = handled.state;
+      return handled.result;
+    }
     if (call.name === "remember_preference") {
       const supportingMessageId = String(args.supportingMessageId);
       const recentUserMessages = (
@@ -1740,7 +1358,9 @@ export async function executeCoachTurn(input: {
       );
       const subject = String(args.subject);
       if (!message || !textValuesOverlap(message.content, subject)) {
-        throw new Error(
+        return toolResult(
+          "blocked",
+          "missing_source_evidence",
           "That preference is not supported by a stored user message.",
         );
       }
@@ -1785,47 +1405,18 @@ export async function executeCoachTurn(input: {
       };
     }
     if (call.name === "remove_approved_food") {
-      if (!authorizedRemovalFoodId) {
-        throw new Error(
-          "Name the exact approved food you want removed in this message.",
-        );
-      }
-      const foodId = authorizedRemovalFoodId;
-      const food = catalog.find((item) => item.id === foodId);
-      if (!food || !approvedIdsOf(state).includes(foodId)) {
-        throw new Error("That food is not approved for this profile.");
-      }
-      const use = plansUsingFood(state, foodId);
-      state =
-        "profile" in state
-          ? {
-              ...state,
-              profile: {
-                ...state.profile,
-                approvedCatalogFoodIds:
-                  state.profile.approvedCatalogFoodIds.filter(
-                    (id) => id !== foodId,
-                  ),
-              },
-            }
-          : {
-              ...state,
-              approvedCatalogFoodIds: state.approvedCatalogFoodIds.filter(
-                (id) => id !== foodId,
-              ),
-            };
-      return {
-        removedFromFutureDrafts: true,
-        food: { id: food.id, name: food.displayName },
-        activePlanUnchanged: true,
-        ...use,
-      };
+      const handled = removeApprovedFood({
+        state,
+        catalog,
+        foodId: String(args.catalogFoodId),
+        currentText:
+          input.request.input.type === "text" ? input.request.input.text : null,
+      });
+      state = handled.state;
+      return handled.result;
     }
     if (call.name === "inspect_food_availability") {
       const requestedQuery = String(args.query);
-      if (!searchQueryMatchesDecision(requestedQuery, turnDecision)) {
-        throw new Error("Restate the food name you want to find.");
-      }
       input.onStatus("checking_foods");
       const query = requestedQuery.toLocaleLowerCase("en-US");
       const matches = catalog
@@ -1851,128 +1442,78 @@ export async function executeCoachTurn(input: {
         label: "Checking your foods and plans",
         lease: turnLease,
       });
-      return { query: String(args.query), matches };
+      return toolResult(
+        "completed",
+        "food_availability_inspected",
+        "Food availability was inspected.",
+        { query: String(args.query), matches },
+      );
     }
-    if (call.name === "record_weight") {
-      if ("profile" in state && !state.activePlan)
-        throw new Error("Activate your first plan before recording weight.");
-      const date = turnCurrentDate;
-      const existingMeasurements = measurementsOf(state);
-      if (resolvedTodayWeightUpsert === null) {
-        throw new Error("Restate today's weight in this message.");
-      }
-      const weightKg = normalizeWeightKg(resolvedTodayWeightUpsert);
-      const existingForDate = existingMeasurements.filter(
-        (item) => item.date === date,
-      );
-      const previous = existingForDate.at(-1) ?? null;
-      const measurement = previous
-        ? { ...previous, weightKg, commandId: input.request.commandId }
-        : {
-            id: `weight-${input.request.commandId}`,
-            date,
-            weightKg,
-            commandId: input.request.commandId,
-          };
-      const measurements = [
-        ...existingMeasurements.filter((item) => item.date !== date),
-        measurement,
-      ].sort((a, b) => a.date.localeCompare(b.date));
-      const trend = calculateWeightTrend(measurements, {
-        activePlanActivatedAt: state.activePlan?.activatedAt,
+    if (call.name === "offer_approved_food_alternatives") {
+      const handled = offerApprovedFoodAlternatives({
+        state,
+        catalog,
+        excludedFoodIds: args.excludedCatalogFoodIds as string[],
+        evidence: String(args.evidence),
+        sourceMessageId: String(args.sourceMessageId),
+        currentMessageId:
+          input.request.input.type === "text"
+            ? `user-${input.request.commandId}`
+            : null,
+        currentText:
+          input.request.input.type === "text" ? input.request.input.text : null,
       });
-      state = finishNonInteractiveWorkflow(
-        withMeasurements(state, measurements),
-        "weight",
-      );
-      weightConfirmation = previous
-        ? `Updated today’s weight from ${formatWeightKg(previous.weightKg)} kg to ${formatWeightKg(weightKg)} kg.`
-        : `Recorded ${formatWeightKg(weightKg)} kg for today.`;
-      return {
-        operation: previous ? "updated" : "created",
-        previousWeightKg: previous?.weightKg ?? null,
-        measurement: { date, weightKg },
-        trend,
-      };
+      state = handled.state;
+      return handled.result;
     }
-    if (call.name === "edit_weight") {
-      if ("profile" in state && !state.activePlan)
-        throw new Error("Activate your first plan before editing weight.");
-      if (!resolvedHistoricalWeightUpsert) {
-        throw new Error("Restate the date and weight in this message.");
-      }
-      const date = resolvedHistoricalWeightUpsert.date;
-      const existingMeasurements = measurementsOf(state);
-      const weightKg = normalizeWeightKg(
-        resolvedHistoricalWeightUpsert.weightKg,
-      );
-      const existingForDate = existingMeasurements.filter(
-        (item) => item.date === date,
-      );
-      const previous = existingForDate.at(-1) ?? null;
-      const measurement = previous
-        ? { ...previous, weightKg, commandId: input.request.commandId }
-        : {
-            id: `weight-${input.request.commandId}`,
-            date,
-            weightKg,
-            commandId: input.request.commandId,
-          };
-      const measurements = [
-        ...existingMeasurements.filter((item) => item.date !== date),
-        measurement,
-      ].sort((a, b) => a.date.localeCompare(b.date));
-      const trend = calculateWeightTrend(measurements, {
-        activePlanActivatedAt: state.activePlan?.activatedAt,
+    if (
+      call.name === "record_weight" ||
+      call.name === "edit_weight" ||
+      call.name === "delete_weight"
+    ) {
+      const handled = executeWeightTool({
+        name: call.name,
+        state,
+        commandId: input.request.commandId,
+        currentDate: turnCurrentDate,
+        todayWeight: resolvedTodayWeightUpsert,
+        historicalWeight: resolvedHistoricalWeightUpsert,
+        deleteDate: resolvedWeightDelete,
       });
-      state = finishNonInteractiveWorkflow(
-        withMeasurements(state, measurements),
-        "weight",
-      );
-      weightConfirmation = previous
-        ? `Updated ${date} from ${formatWeightKg(previous.weightKg)} kg to ${formatWeightKg(weightKg)} kg.`
-        : `Recorded ${formatWeightKg(weightKg)} kg for ${date}.`;
-      return {
-        operation: previous ? "updated" : "created",
-        previousWeightKg: previous?.weightKg ?? null,
-        measurement: { date, weightKg },
-        trend,
-      };
-    }
-    if (call.name === "delete_weight") {
-      if ("profile" in state && !state.activePlan)
-        throw new Error("Activate your first plan before deleting weight.");
-      if (!resolvedWeightDelete) {
-        throw new Error("Restate the measurement date in this message.");
-      }
-      const date = resolvedWeightDelete;
-      const existingMeasurements = measurementsOf(state);
-      const deleted = existingMeasurements.filter((item) => item.date === date);
-      if (deleted.length === 0)
-        throw new Error("No weight is recorded for that date.");
-      const measurements = existingMeasurements.filter(
-        (item) => item.date !== date,
-      );
-      const trend = calculateWeightTrend(measurements, {
-        activePlanActivatedAt: state.activePlan?.activatedAt,
-      });
-      state = finishNonInteractiveWorkflow(
-        withMeasurements(state, measurements),
-        "weight",
-      );
-      weightConfirmation = `Deleted the ${formatWeightKg(deleted.at(-1)!.weightKg)} kg measurement for ${date === turnCurrentDate ? "today" : date}.`;
-      return {
-        deleted: {
-          date,
-          weightKg: deleted.at(-1)?.weightKg,
-        },
-        trend,
-      };
+      state = handled.state;
+      weightConfirmation = handled.confirmation;
+      return handled.result;
     }
     if (call.name === "search_foods") {
+      const requestedFoodPhrase = String(args.requestedFoodPhrase);
       const normalizedEnglishQuery = String(args.normalizedEnglishQuery);
-      if (!searchQueryMatchesDecision(normalizedEnglishQuery, turnDecision)) {
-        throw new Error("Restate the food name you want to find.");
+      const purpose = args.purpose as "catalog_only" | "integrate_into_plan";
+      if (
+        input.request.input.type !== "text" ||
+        !textValuesOverlap(input.request.input.text, requestedFoodPhrase)
+      ) {
+        return toolResult(
+          "blocked",
+          "missing_source_evidence",
+          "The requested food phrase must come from the current message.",
+        );
+      }
+      const planChange =
+        purpose === "integrate_into_plan"
+          ? startPlanChange(state, {
+              status: "resolving_foods",
+              sourceMessageId: `user-${input.request.commandId}`,
+              requestEvidence: requestedFoodPhrase,
+              unresolvedFoodNames: [requestedFoodPhrase],
+              scope: "food_replacement",
+              mustDiffer: true,
+            })
+          : null;
+      if (planChange) {
+        state = {
+          ...state,
+          agentSession: { ...state.agentSession, planChange },
+        };
       }
       const result = await searchFoods({
         profileId: input.request.profileId,
@@ -1989,24 +1530,87 @@ export async function executeCoachTurn(input: {
         onStatus: input.onStatus,
       });
       input.onStatus("validating");
+      if (result.outcome === "rate_limited") {
+        return toolResult(
+          "blocked",
+          "food_search_rate_limited",
+          result.message,
+        );
+      }
       if (result.outcome === "needs_clarification") {
         const next = interaction(randomUUID(), {
           type: "clarification",
           workflow: "food",
           prompt: result.prompt,
           quickReplies: [],
+          planChangeId: planChange?.id ?? null,
         });
         state = setInteraction(state, next);
-        return { outcome: "needs_clarification", interaction: next };
+        return toolResult(
+          "needs_user_action",
+          "food_clarification_required",
+          "A focused food clarification is required.",
+          { outcome: "needs_clarification", interaction: next },
+        );
       }
       if (result.outcome === "existing") {
+        const alreadyApproved = approvedIdsOf(state).includes(result.food.id);
+        if (planChange && alreadyApproved) {
+          const readyPlanChange = makePlanChangeDraftReady(planChange, {
+            requiredFoodId: result.food.id,
+          });
+          state = {
+            ...state,
+            agentSession: {
+              ...state.agentSession,
+              planChange: readyPlanChange,
+            },
+          };
+          requiredCatalogFoodId = result.food.id;
+          return toolResult(
+            "completed",
+            "approved_food_resolved",
+            "The requested food is already approved and the Plan Change is ready for a Draft.",
+            {
+              outcome: "existing_approved",
+              planChangeId: readyPlanChange.id,
+              food: { id: result.food.id, name: result.food.displayName },
+            },
+          );
+        }
+        if (!planChange && alreadyApproved) {
+          return toolResult(
+            "completed",
+            "food_already_approved",
+            "The food is already approved for this profile.",
+            {
+              outcome: "existing_approved",
+              food: { id: result.food.id, name: result.food.displayName },
+            },
+          );
+        }
+        if (planChange) {
+          state = {
+            ...state,
+            agentSession: {
+              ...state.agentSession,
+              planChange: waitForFoodApproval(planChange),
+            },
+          };
+        }
         const next = interaction(randomUUID(), {
           type: "existing_food",
           food: result.food,
-          alreadyApproved: approvedIdsOf(state).includes(result.food.id),
+          alreadyApproved,
+          planChangeId: planChange?.id ?? null,
         });
         state = setInteraction(state, next);
-        return { outcome: "existing", interaction: next };
+        return toolResult(
+          "needs_user_action",
+          "food_approval_required",
+          "The catalog food requires a visible user action.",
+          { outcome: "existing", interaction: next },
+        );
       }
       if (result.outcome === "unavailable") {
         const next = interaction(randomUUID(), {
@@ -2014,32 +1618,53 @@ export async function executeCoachTurn(input: {
           lookupId: result.lookupId,
           query: result.query,
           failureCode: result.failureCode,
+          planChangeId: planChange?.id ?? null,
         });
         state = setInteraction(state, next);
-        return {
-          outcome: "source_unavailable",
-          interaction: next,
-          aiEstimateRequiresExplicitConfirmation: true,
+        return toolResult(
+          "needs_user_action",
+          "food_source_unavailable",
+          "The verified source is unavailable and the user must choose the next step.",
+          {
+            outcome: "source_unavailable",
+            interaction: next,
+            aiEstimateRequiresExplicitConfirmation: true,
+          },
+        );
+      }
+      if (planChange) {
+        state = {
+          ...state,
+          agentSession: {
+            ...state.agentSession,
+            planChange: waitForFoodApproval(planChange),
+          },
         };
       }
       const next = interaction(randomUUID(), {
         type: "food_candidates",
         lookupId: result.lookupId,
         candidates: result.candidates,
+        planChangeId: planChange?.id ?? null,
       });
       state = setInteraction(state, next);
-      return {
-        outcome: "candidates",
-        count: result.candidates.length,
-        candidates: result.candidates.map((candidate, index) => ({
-          ordinal: index + 1,
-          id: candidate.id,
-          name: candidate.title,
-          dataset: candidate.dataType,
-          preparation: candidate.description,
-          nutrientsPer100g: candidate.nutrientsPer100g,
-        })),
-      };
+      return toolResult(
+        "needs_user_action",
+        "food_candidate_selection_required",
+        "Food candidates are ready for user selection.",
+        {
+          outcome: "candidates",
+          count: result.candidates.length,
+          candidates: result.candidates.map((candidate, index) => ({
+            ordinal: index + 1,
+            id: candidate.id,
+            name: candidate.title,
+            dataset: candidate.dataType,
+            preparation: candidate.description,
+            nutrientsPer100g: candidate.nutrientsPer100g,
+          })),
+        },
+      );
     }
     if (call.name === "select_food_candidate") {
       const pending = state.agentSession.pendingInteraction;
@@ -2050,16 +1675,11 @@ export async function executeCoachTurn(input: {
           (candidate) => candidate.id === args.candidateId,
         )
       )
-        throw new Error("Select one of the currently displayed candidates.");
-      if (
-        !decisionSelectsFoodCandidate(
-          turnDecision,
-          pending.candidates,
-          String(args.candidateId),
-        )
-      ) {
-        throw new Error("Select one candidate from the current list.");
-      }
+        return toolResult(
+          "blocked",
+          "candidate_not_current",
+          "Select one of the currently displayed candidates.",
+        );
       const selected = await prepareFoodCandidate({
         profileId: input.request.profileId,
         candidateId: String(args.candidateId),
@@ -2068,26 +1688,158 @@ export async function executeCoachTurn(input: {
       const next = interaction(randomUUID(), {
         type: "food_approval",
         candidate: selected,
+        planChangeId: pending.planChangeId ?? null,
       });
       state = setInteraction(state, next);
-      return {
-        selected: {
-          name: selected.food.displayName,
-          nutrientsPer100g: selected.food.nutrientsPer100g,
+      return toolResult(
+        "needs_user_action",
+        "food_approval_required",
+        "The selected food is ready for explicit approval.",
+        {
+          selected: {
+            name: selected.food.displayName,
+            nutrientsPer100g: selected.food.nutrientsPer100g,
+          },
+          approvalRequired: true,
         },
-        approvalRequired: true,
-      };
+      );
     }
     if (call.name === "submit_draft_proposal") {
-      proposalAttempts += 1;
+      const proposalArguments = call.arguments as DraftProposalArguments;
+      const changeContext =
+        proposalArguments.changeContext ??
+        (input.request.input.type === "interaction" &&
+        input.request.input.action === "confirm_draft_food" &&
+        state.agentSession.planChange
+          ? {
+              kind: "continuation" as const,
+              planChangeId: state.agentSession.planChange.id,
+              selectedAlternativeFoodId: null,
+              retryStrategy: null,
+            }
+          : null);
+      if (!changeContext) {
+        return toolResult(
+          "blocked",
+          "missing_change_context",
+          "A Draft proposal must identify a new request or an active Plan Change.",
+        );
+      }
+      if (changeContext.kind === "new_request") {
+        const current = state.agentSession.planChange;
+        if (current) {
+          return toolResult(
+            "blocked",
+            "active_plan_change_requires_continuation",
+            "Continue the active Plan Change instead of replacing it with a new request.",
+            { planChangeId: current.id, planChangeStatus: current.status },
+          );
+        }
+        if (
+          input.request.input.type !== "text" ||
+          !textValuesOverlap(input.request.input.text, changeContext.evidence)
+        ) {
+          return toolResult(
+            "blocked",
+            "missing_source_evidence",
+            "A new Draft request must be supported by the current message.",
+          );
+        }
+        const approvedIds = new Set(approvedIdsOf(state));
+        if (
+          [
+            ...changeContext.requiredCatalogFoodIds,
+            ...changeContext.excludedCatalogFoodIds,
+          ].some((foodId) => !approvedIds.has(foodId))
+        ) {
+          return toolResult(
+            "blocked",
+            "unapproved_plan_constraint",
+            "Draft constraints may reference only foods approved for this profile.",
+          );
+        }
+        state = {
+          ...state,
+          agentSession: {
+            ...state.agentSession,
+            planChange: startPlanChange(state, {
+              status: "ready_for_draft",
+              sourceMessageId: `user-${input.request.commandId}`,
+              requestEvidence: changeContext.evidence,
+              requiredCatalogFoodIds: changeContext.requiredCatalogFoodIds,
+              excludedCatalogFoodIds: changeContext.excludedCatalogFoodIds,
+              scope: changeContext.scope,
+              mustDiffer: Boolean(state.activePlan || state.draft),
+            }),
+          },
+        };
+      } else {
+        const current = state.agentSession.planChange;
+        if (!current || current.id !== changeContext.planChangeId) {
+          return toolResult(
+            "blocked",
+            "stale_plan_change",
+            "That Plan Change is no longer active.",
+          );
+        }
+        if (
+          changeContext.selectedAlternativeFoodId &&
+          !current.offeredAlternativeFoodIds.includes(
+            changeContext.selectedAlternativeFoodId,
+          )
+        ) {
+          return toolResult(
+            "blocked",
+            "invalid_alternative_selection",
+            "The selected food was not one of the stored alternatives.",
+          );
+        }
+        state = {
+          ...state,
+          agentSession: {
+            ...state.agentSession,
+            planChange: makePlanChangeDraftReady(current, {
+              selectedAlternativeFoodId:
+                changeContext.selectedAlternativeFoodId,
+              retryStrategy: changeContext.retryStrategy,
+            }),
+          },
+        };
+      }
+      const activePlanChange = state.agentSession.planChange;
+      if (
+        !activePlanChange ||
+        activePlanChange.unresolvedFoodNames.length > 0 ||
+        activePlanChange.status !== "ready_for_draft"
+      ) {
+        return toolResult(
+          "blocked",
+          "plan_change_not_ready",
+          "Resolve the Plan Change prerequisites before submitting a Draft.",
+          { planChangeId: activePlanChange?.id ?? null },
+        );
+      }
+      proposalAttempts = activePlanChange.rejectedDraftAttempts.length + 1;
+      if (proposalAttempts > 3) {
+        return toolResult(
+          "blocked",
+          "draft_attempts_exhausted",
+          "Choose a retry strategy before starting another Draft attempt batch.",
+          { planChangeId: activePlanChange.id },
+        );
+      }
       input.onStatus(state.draft ? "revising_draft" : "creating_draft");
       const draftProfile = structuredProfileOf(state);
       const targets =
         state.activePlan?.plan.targetSnapshot ?? calculateTargets(draftProfile);
-      if (!targets) throw new Error("The profile is not ready for a Draft.");
-      const candidate = draftCandidateFromArguments(
-        call.arguments as ProposalArguments,
-      );
+      if (!targets) {
+        return toolResult(
+          "blocked",
+          "profile_not_ready",
+          "The profile is not ready for a Draft.",
+        );
+      }
+      const candidate = draftCandidateFromArguments(proposalArguments);
       const planChangeEvaluation = planChangeCandidateIssues(state, candidate);
       const { includesRequiredFood } = planChangeEvaluation;
       const plan = validateAndBuildPlan({
@@ -2121,33 +1873,58 @@ export async function executeCoachTurn(input: {
           catalog,
           issues,
         });
-        rejectedDraftAttempts.push(reviewedAttempt);
+        const planChangeWithAttempt = recordPlanChangeDraftRejection(
+          activePlanChange,
+          reviewedAttempt,
+        );
+        state = {
+          ...state,
+          agentSession: {
+            ...state.agentSession,
+            planChange: planChangeWithAttempt,
+          },
+        };
         if (proposalAttempts >= 3) {
+          const failedPlanChange = markPlanChangeFailure(planChangeWithAttempt);
           state = setInteraction(
-            state,
+            {
+              ...state,
+              agentSession: {
+                ...state.agentSession,
+                planChange: failedPlanChange,
+              },
+            },
             interaction(randomUUID(), {
               type: "draft_failure_review",
-              attempts: structuredClone(rejectedDraftAttempts),
+              attempts: structuredClone(failedPlanChange.rejectedDraftAttempts),
               prompt:
                 "For the next Draft, should I keep this food structure and use smaller portions, or use a different mix of your approved foods?",
+              planChangeId: failedPlanChange.id,
             }),
           );
         }
-        return {
-          accepted: false,
-          attempt: proposalAttempts,
-          attemptsRemaining: Math.max(0, 3 - proposalAttempts),
-          issues,
-          actualTotals: plan.validation.totals,
-          requiredTargets: targets,
-          repairGuidance: draftRepairGuidance(draftProfile, plan),
-          attemptedDraft: reviewedAttempt,
-          failedAttempts: structuredClone(rejectedDraftAttempts),
-          afterThirdFailure:
-            proposalAttempts >= 3
-              ? "The visible draft_failure_review contains the complete observable attempt history. Briefly direct the user to it and ask its focused question. Do not omit grams, invent reasoning, or submit another proposal in this turn."
-              : null,
-        };
+        return toolResult(
+          proposalAttempts >= 3 ? "needs_user_action" : "rejected",
+          "draft_validation_failed",
+          "The Draft failed deterministic validation.",
+          {
+            accepted: false,
+            attempt: proposalAttempts,
+            attemptsRemaining: Math.max(0, 3 - proposalAttempts),
+            issues,
+            actualTotals: plan.validation.totals,
+            requiredTargets: targets,
+            repairGuidance: draftRepairGuidance(draftProfile, plan),
+            attemptedDraft: reviewedAttempt,
+            failedAttempts: structuredClone(
+              planChangeWithAttempt.rejectedDraftAttempts,
+            ),
+            afterThirdFailure:
+              proposalAttempts >= 3
+                ? "The visible draft_failure_review contains the complete observable attempt history. Briefly direct the user to it and ask its focused question. Do not omit grams, invent reasoning, or submit another proposal in this turn."
+                : null,
+          },
+        );
       }
       const draft: DraftProposal = {
         schemaVersion: 1,
@@ -2161,11 +1938,15 @@ export async function executeCoachTurn(input: {
         {
           ...state,
           draft,
-          agentSession: { ...state.agentSession, planChange: null },
+          agentSession: {
+            ...state.agentSession,
+            planChange: markPlanChangeDraftPending(activePlanChange, draft.id),
+          },
         },
         interaction(draft.id, {
           type: "draft_approval",
           proposalId: draft.id,
+          planChangeId: activePlanChange.id,
         }),
       );
       requiredCatalogFoodId = null;
@@ -2177,18 +1958,30 @@ export async function executeCoachTurn(input: {
         label: "Checking plan safety",
         lease: turnLease,
       });
-      return {
-        accepted: true,
-        proposalId: draft.id,
-        totals: draft.plan.validation.totals,
-        approvalRequired: true,
-      };
+      return toolResult(
+        "needs_user_action",
+        "draft_approval_required",
+        "The validated Draft is awaiting explicit approval.",
+        {
+          accepted: true,
+          proposalId: draft.id,
+          totals: draft.plan.validation.totals,
+          approvalRequired: true,
+          planChangeId: activePlanChange.id,
+        },
+      );
     }
     if (call.name === "submit_adjustment_proposal") {
       if ("profile" in state)
-        throw new Error("Adjustment is available in the Existing demo.");
+        return toolResult(
+          "blocked",
+          "existing_profile_required",
+          "Adjustment is available in the Existing demo.",
+        );
       if (state.draft)
-        throw new Error(
+        return toolResult(
+          "blocked",
+          "draft_already_pending",
           "Decline or approve the current Draft before creating an adjustment.",
         );
       proposalAttempts += 1;
@@ -2197,7 +1990,9 @@ export async function executeCoachTurn(input: {
       );
       const adjustment = adjustedTargetsFor(state);
       if (!adjustment) {
-        throw new Error(
+        return toolResult(
+          "blocked",
+          "adjustment_not_supported",
           "The deterministic trend does not support an adjustment.",
         );
       }
@@ -2286,6 +2081,7 @@ export async function executeCoachTurn(input: {
   };
 
   let reachedUserDecision = false;
+  let requiredRepairTool: CoachToolName | null = null;
   const executeTool = async (call: CoachToolCall, sequence: number) => {
     console.info("coach_skill_started", {
       turnId: input.turnId,
@@ -2310,16 +2106,47 @@ export async function executeCoachTurn(input: {
       lease: turnLease,
     });
     try {
-      const interactionBeforeTool = state.agentSession.pendingInteraction?.id;
-      const result = await executeToolCore(call);
-      const interactionAfterTool = state.agentSession.pendingInteraction?.id;
-      reachedUserDecision = Boolean(
-        interactionAfterTool && interactionAfterTool !== interactionBeforeTool,
-      );
-      const rejected =
+      const stateBeforeTool = JSON.stringify(state);
+      const rawResult = await executeToolCore(call);
+      executedToolNames.push(call.name);
+      const result: CoachToolResult =
+        typeof rawResult.status === "string"
+          ? (rawResult as CoachToolResult)
+          : rawResult.accepted === false
+            ? toolResult(
+                proposalAttempts >= 3 ? "needs_user_action" : "rejected",
+                `${call.name}_rejected`,
+                "The proposal was rejected by deterministic validation.",
+                rawResult,
+              )
+            : toolResult(
+                "completed",
+                `${call.name}_completed`,
+                "The bounded action completed.",
+                rawResult,
+              );
+      if (JSON.stringify(state) !== stateBeforeTool) {
+        profile = await atTurnStage("skill_state_persist", () =>
+          mutateProfile({
+            profileId: input.request.profileId,
+            expectedVersion: profile.version,
+            commandId: `${input.request.commandId}:skill:${sequence}`,
+            agentTurnLease: turnLease,
+            mutation: () => state,
+          }),
+        );
+        state = structuredClone(profile.state);
+        toolStatePersisted = true;
+      }
+      reachedUserDecision = result.status === "needs_user_action";
+      const rejected = result.status === "rejected";
+      requiredRepairTool =
+        rejected &&
+        proposalAttempts < 3 &&
         (call.name === "submit_draft_proposal" ||
-          call.name === "submit_adjustment_proposal") &&
-        result.accepted === false;
+          call.name === "submit_adjustment_proposal")
+          ? call.name
+          : null;
       await recordAgentSkillCall({
         profileId: input.request.profileId,
         commandId: input.request.commandId,
@@ -2336,7 +2163,7 @@ export async function executeCoachTurn(input: {
         profileId: input.request.profileId,
         sequence,
         skill: call.name,
-        status: rejected ? "rejected" : "completed",
+        status: result.status,
         proposalAttempt:
           call.name === "submit_draft_proposal" ||
           call.name === "submit_adjustment_proposal"
@@ -2369,84 +2196,38 @@ export async function executeCoachTurn(input: {
 
   input.onStatus("thinking");
   const currentProfile = { ...profile, state };
-  const protectedButtonOnly =
-    input.request.input.type === "interaction" &&
-    !["generate_adjustment", "confirm_draft_food"].includes(
-      input.request.input.action,
-    );
   let loggedAllowedSkills = "";
   const getAllowed = () => {
     if (reachedUserDecision) return [];
-    const allowOrdinaryDraftProposal =
-      planMutationAuthorized ||
-      requiresImmediateDraftProposal(input.request.input, state);
-    const allowed = protectedButtonOnly
-      ? []
-      : allowedTools(
-          state,
-          input.request.input,
-          proposalAttempts,
-          allowOrdinaryDraftProposal,
-        );
-    let policyAllowed = allowedToolsForDecision(
-      allowed,
-      turnDecision,
-      interactionAtTurnStart,
-    );
-    if (foodNameMissing) {
-      policyAllowed = policyAllowed.filter((name) => name !== "search_foods");
-    }
-    if (
-      planMutationAuthorized ||
-      requiresImmediateDraftProposal(input.request.input, state)
-    ) {
-      policyAllowed = policyAllowed.filter(
-        (name) => name === "submit_draft_proposal",
-      );
-    } else if (
-      input.request.input.type === "interaction" &&
-      input.request.input.action === "generate_adjustment"
-    ) {
-      policyAllowed = policyAllowed.filter(
-        (name) => name === "submit_adjustment_proposal",
-      );
-    }
-    const signature = policyAllowed.join(",");
+    const allowed: CoachToolName[] =
+      input.request.input.type === "text"
+        ? [...coachToolNames]
+        : input.request.input.action === "generate_adjustment"
+          ? ["submit_adjustment_proposal"]
+          : input.request.input.action === "confirm_draft_food"
+            ? ["submit_draft_proposal"]
+            : [];
+    const signature = allowed.join(",");
     if (signature !== loggedAllowedSkills) {
       loggedAllowedSkills = signature;
       console.info("coach_skills_allowed", {
         turnId: input.turnId,
         commandId: input.request.commandId,
         profileId: input.request.profileId,
-        allowedSkills: policyAllowed,
+        allowedSkills: allowed,
         proposalAttempts,
       });
     }
-    return policyAllowed;
+    return allowed;
   };
-  const shouldForceDraftProposal = () => {
-    if (proposalAttempts >= 3) return false;
-    const revisingCurrentDraft = Boolean(
-      state.draft &&
-      state.agentSession.planChange?.mode === "revise_pending" &&
-      state.agentSession.planChange.baseDraftId === state.draft.id,
-    );
-    if (state.draft && !revisingCurrentDraft) return false;
-    return (
-      planMutationAuthorized ||
-      requiresImmediateDraftProposal(input.request.input, state) ||
-      selectedAlternativeFood !== null
-    );
-  };
+  const shouldForceDraftProposal = () =>
+    proposalAttempts < 3 &&
+    input.request.input.type === "interaction" &&
+    input.request.input.action === "confirm_draft_food";
   const shouldForceAdjustmentProposal = () =>
     proposalAttempts < 3 &&
-    ((input.request.input.type === "interaction" &&
-      input.request.input.action === "generate_adjustment") ||
-      decisionAuthorizesIntent(
-        turnDecision,
-        "adjustment_retry",
-        interactionAtTurnStart,
-      ));
+    input.request.input.type === "interaction" &&
+    input.request.input.action === "generate_adjustment";
   const contextWithoutDigest = {
     ...contextFor(
       currentProfile,
@@ -2455,8 +2236,6 @@ export async function executeCoachTurn(input: {
       getAllowed(),
       null,
       requiredCatalogFoodId,
-      turnDecision,
-      currentAlternativeOfferIds,
     ),
     latestUserMessageId:
       input.request.input.type === "text"
@@ -2477,11 +2256,15 @@ export async function executeCoachTurn(input: {
     input.request.input,
     conversation.messages,
     turnCurrentDate,
+    interactionAtTurnStart?.type === "clarification" &&
+      interactionAtTurnStart.workflow === "weight",
   );
   resolvedWeightDelete = resolveWeightDelete(
     input.request.input,
     conversation.messages,
     turnCurrentDate,
+    interactionAtTurnStart?.type === "clarification" &&
+      interactionAtTurnStart.workflow === "weight",
   );
   if (input.request.input.type === "text") {
     resolvedTodayWeightUpsert = weightFromText(input.request.input.text);
@@ -2506,8 +2289,6 @@ export async function executeCoachTurn(input: {
           getAllowed(),
           conversation.digest,
           requiredCatalogFoodId,
-          turnDecision,
-          currentAlternativeOfferIds,
         ),
         latestUserMessageId:
           input.request.input.type === "text"
@@ -2519,91 +2300,30 @@ export async function executeCoachTurn(input: {
       }),
     conversation: conversation.messages,
     getAllowedTools: getAllowed,
-    getRequiredFirstTool: () =>
-      shouldForceAdjustmentProposal()
-        ? "submit_adjustment_proposal"
-        : decisionAuthorizesIntent(
-              turnDecision,
-              "preference_save",
-              interactionAtTurnStart,
-            )
-          ? "remember_preference"
-          : decisionAuthorizesIntent(
-                turnDecision,
-                "food_candidate_selection",
-                interactionAtTurnStart,
-              )
-            ? "select_food_candidate"
-            : decisionAuthorizesIntent(
-                  turnDecision,
-                  "food_remove",
-                  interactionAtTurnStart,
-                ) && authorizedRemovalFoodId
-              ? "remove_approved_food"
-              : decisionAuthorizesIntent(
-                    turnDecision,
-                    "food_inspect",
-                    interactionAtTurnStart,
-                  )
-                ? "inspect_food_availability"
-                : !("profile" in state && !state.activePlan) &&
-                    decisionAuthorizesIntent(
-                      turnDecision,
-                      "weight_record",
-                      interactionAtTurnStart,
-                    ) &&
-                    resolvedTodayWeightUpsert !== null &&
-                    (requestsTodayWeightUpsert(input.request.input) ||
-                      requestsContextualTodayWeightUpsert(
-                        input.request.input,
-                        conversation.messages,
-                      ))
-                  ? "record_weight"
-                  : !("profile" in state && !state.activePlan) &&
-                      decisionAuthorizesIntent(
-                        turnDecision,
-                        "weight_delete",
-                        interactionAtTurnStart,
-                      ) &&
-                      resolvedWeightDelete
-                    ? "delete_weight"
-                    : !("profile" in state && !state.activePlan) &&
-                        decisionAuthorizesIntent(
-                          turnDecision,
-                          "weight_edit",
-                          interactionAtTurnStart,
-                        ) &&
-                        resolvedHistoricalWeightUpsert
-                      ? "edit_weight"
-                      : shouldForceDraftProposal()
-                        ? "submit_draft_proposal"
-                        : requiresImmediateFoodSearch(
-                              input.request.input,
-                              currentInteraction,
-                            ) &&
-                            decisionAuthorizesIntent(
-                              turnDecision,
-                              "food_search",
-                              interactionAtTurnStart,
-                            )
-                          ? "search_foods"
-                          : null,
     getRequiredTool: (sequence) => {
-      if (sequence <= 1) return null;
-      if (shouldForceAdjustmentProposal()) {
-        return "submit_adjustment_proposal";
-      }
-      return shouldForceDraftProposal() ? "submit_draft_proposal" : null;
+      if (requiredRepairTool) return requiredRepairTool;
+      if (sequence !== 1) return null;
+      return shouldForceAdjustmentProposal()
+        ? "submit_adjustment_proposal"
+        : shouldForceDraftProposal()
+          ? "submit_draft_proposal"
+          : null;
     },
     onText: (value) => {
       finalAgentText += value;
     },
     onTool: executeTool,
   });
-  const assistantText =
-    (weightConfirmation ?? finalAgentText.trim()) ||
-    result.text.trim() ||
-    "Done. What would you like to do next?";
+  const onlyWeightToolCompleted =
+    executedToolNames.length === 1 &&
+    (executedToolNames[0] === "record_weight" ||
+      executedToolNames[0] === "edit_weight" ||
+      executedToolNames[0] === "delete_weight");
+  const assistantText = normalizeModelText(
+    (onlyWeightToolCompleted ? weightConfirmation : finalAgentText.trim()) ||
+      result.text.trim() ||
+      "Done. What would you like to do next?",
+  );
   state = {
     ...state,
     agentSession: {
@@ -2614,15 +2334,22 @@ export async function executeCoachTurn(input: {
     },
   };
 
-  profile = await atTurnStage("profile_persist", () =>
-    mutateProfile({
-      profileId: input.request.profileId,
-      expectedVersion: profile.version,
-      commandId: input.request.commandId,
-      agentTurnLease: turnLease,
-      mutation: () => state,
-    }),
-  );
+  if (
+    !toolStatePersisted ||
+    JSON.stringify(state) !== JSON.stringify(profile.state)
+  ) {
+    profile = await atTurnStage("profile_persist", () =>
+      mutateProfile({
+        profileId: input.request.profileId,
+        expectedVersion: profile.version,
+        commandId: toolStatePersisted
+          ? `${input.request.commandId}:final`
+          : input.request.commandId,
+        agentTurnLease: turnLease,
+        mutation: () => state,
+      }),
+    );
+  }
   input.onText(assistantText);
   console.info("coach_turn_persisted", {
     turnId: input.turnId,
