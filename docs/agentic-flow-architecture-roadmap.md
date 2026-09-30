@@ -110,6 +110,7 @@ not yet present on `origin/docs/final-submission-evidence`.
 | 11    | `architecture/11-draft-repair-continuity`  | Phase 10                                      | Complete (`19d400e`)      |
 | 12    | `architecture/12-capability-contracts`     | Phase 11                                      | Complete on branch        |
 | 13    | `architecture/13-no-exercise-onboarding`   | Phase 12                                      | Complete on branch        |
+| 14    | `architecture/14-food-workflow-isolation`  | Phase 13                                      | Verification complete     |
 
 Create each branch only after its parent phase is committed and verified. Push
 each branch with its explicit upstream. Do not rebase or squash the chain during
@@ -476,6 +477,18 @@ This phase makes the exercise invariant conditional:
 - state schema v5 repairs already-stuck Fresh profiles, recomputes their turn and
   targets, and preserves conversation and agent state.
 
+## Phase 14 — Food Workflow Isolation
+
+A new named-food request is no longer mistaken for a retry merely because a
+failed Plan Change is present. `catalog_only` lookup and approval stay
+independent until the user selects `Create Draft`; `integrate_into_plan` safely
+extends the current operation and preserves already-approved requirements.
+Starting the resulting Draft clears obsolete failure-review interactions and
+opens a fresh attempt batch. Adjacent duplicate model sentences are collapsed
+before persistence. The live-model matrix covers cream-cheese catalog and plan
+requests plus an already-approved Greek-yogurt request while another Plan Change
+is active.
+
 ## Invariants That Must Never Regress
 
 - Client requests contain commands, never replacement profile state.
@@ -521,14 +534,13 @@ After any summary or interruption:
 
 ## Current Checkpoint
 
-- Current branch: `architecture/13-no-exercise-onboarding`.
-- Current phase: Phase 13 implementation, verification, and evidence are complete;
-  the phase commit remains.
-- Verification: formatting, lint, typecheck, 37 unit files / 273 tests, security
-  scan over 189 files, production build, 24 non-screenshot Chromium scenarios, and 18
-  credentialed live-model scenarios passed. The two screenshot-writing browser
-  cases were excluded to preserve the user-owned PNGs.
-- Detailed evidence: `docs/verification-results/no-exercise-onboarding.md`.
+- Current branch: `architecture/14-food-workflow-isolation`.
+- Current phase: Phase 14 implementation and local verification are complete;
+  commit and push have not yet been requested.
+- Verification: formatting, lint, typecheck, 37 unit files / 278 tests, security
+  scan over 189 files, production build, and all 26 Chromium scenarios passed.
+  Credentialed live-model execution was unavailable locally; three regression
+  cases were added to the live matrix for the next credentialed run.
 - Residual model dependency: semantic skill choice and candidate-plan composition
   intentionally vary between model calls. Their effects are bounded by strict
   schemas, current-message evidence, persisted Plan Change state, leases, closed

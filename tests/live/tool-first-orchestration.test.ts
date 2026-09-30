@@ -220,6 +220,73 @@ liveDescribe("live tool-first orchestration", () => {
     });
   }, 90_000);
 
+  it.each([
+    ["Find cream cheese and add it to my foods", "catalog_only"],
+    ["i want to add cream cheese to my plan", "integrate_into_plan"],
+  ])(
+    "keeps a new food request in scope while another Plan Change is active: %s",
+    async (message, purpose) => {
+      const call = await firstToolFor(message, {
+        pendingInteraction: {
+          type: "draft_failure_review",
+          prompt: "Keep this structure or use a different approved mix?",
+          planChangeId: "plan-change-existing",
+        },
+        pendingPlanChange: {
+          id: "plan-change-existing",
+          status: "failure_review",
+          requiredCatalogFoodIds: ["greek-yogurt-nonfat"],
+          excludedCatalogFoodIds: [],
+          unresolvedFoodNames: [],
+          offeredAlternativeFoodIds: [],
+          selectedAlternativeFoodId: null,
+          portionRecalculation: "whole_draft",
+          strategy: null,
+          attemptBatch: 1,
+          rejectedDraftAttempts: [],
+        },
+      });
+
+      expect(call).toMatchObject({
+        name: "search_foods",
+        arguments: {
+          purpose,
+          requestedFoodPhrase: expect.stringMatching(/cream cheese/i),
+        },
+      });
+    },
+    90_000,
+  );
+
+  it("acknowledges an already-approved food without retrying an older Draft", async () => {
+    const result = await answerFor("Find Greek yogurt and add it to my foods", {
+      pendingInteraction: {
+        type: "draft_failure_review",
+        prompt: "Keep this structure or use a different approved mix?",
+        planChangeId: "plan-change-existing",
+      },
+      pendingPlanChange: {
+        id: "plan-change-existing",
+        status: "failure_review",
+        requiredCatalogFoodIds: [],
+        excludedCatalogFoodIds: [],
+        unresolvedFoodNames: [],
+        offeredAlternativeFoodIds: [],
+        selectedAlternativeFoodId: null,
+        portionRecalculation: "whole_draft",
+        strategy: null,
+        attemptBatch: 1,
+        rejectedDraftAttempts: [],
+      },
+    });
+
+    expect(result.calls).toHaveLength(0);
+    expect(result.text).toMatch(/already|approved|your foods/i);
+    expect(result.text).not.toMatch(
+      /draft-replacement|different mix|in-scope/i,
+    );
+  }, 90_000);
+
   it("offers approved alternatives for the misspelled rice request", async () => {
     const call = await firstToolFor(
       "i dont like rice. any other oprions for my meal plan?",

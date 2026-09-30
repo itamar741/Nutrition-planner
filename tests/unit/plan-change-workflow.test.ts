@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  addApprovedFoodToPlanChange,
+  extendPlanChangeWithFood,
   makePlanChangeDraftReady,
   markPlanChangeDraftPending,
   markPlanChangeFailure,
@@ -134,6 +136,66 @@ describe("plan change workflow", () => {
       strategy: "different_approved_mix",
       attemptBatch: 2,
       rejectedDraftAttempts: [],
+    });
+  });
+
+  it("extends an active operation without losing its existing food requirements", () => {
+    const state = createExistingDemoState();
+    const failed = markPlanChangeFailure(
+      recordPlanChangeDraftRejection(
+        startPlanChange(state, {
+          requiredCatalogFoodIds: ["cottage-cheese-approved"],
+          requestEvidence: "include cottage cheese",
+          scope: "whole_plan",
+        }),
+        rejectedAttempt(1),
+      ),
+    );
+
+    const resolving = extendPlanChangeWithFood(failed, {
+      foodName: "cream cheese",
+      sourceMessageId: "user-add-cream-cheese",
+      requestEvidence: "add cream cheese to my plan",
+    });
+    const resolved = resolvePlanChangeFood(resolving, "cream-cheese-approved");
+
+    expect(resolving).toMatchObject({
+      id: failed.id,
+      status: "resolving_foods",
+      requiredCatalogFoodIds: ["cottage-cheese-approved"],
+      unresolvedFoodNames: ["cream cheese"],
+      rejectedDraftAttempts: [],
+      attemptBatch: 2,
+      scope: "whole_plan",
+    });
+    expect(resolved.requiredCatalogFoodIds).toEqual([
+      "cottage-cheese-approved",
+      "cream-cheese-approved",
+    ]);
+  });
+
+  it("starts a fresh attempt batch when a catalog food is explicitly added to the Draft", () => {
+    const state = createExistingDemoState();
+    const failed = markPlanChangeFailure(
+      recordPlanChangeDraftRejection(
+        startPlanChange(state, {
+          requiredCatalogFoodIds: ["cottage-cheese-approved"],
+        }),
+        rejectedAttempt(1),
+      ),
+    );
+
+    expect(
+      addApprovedFoodToPlanChange(failed, "cream-cheese-approved"),
+    ).toMatchObject({
+      id: failed.id,
+      status: "awaiting_draft_confirmation",
+      requiredCatalogFoodIds: [
+        "cottage-cheese-approved",
+        "cream-cheese-approved",
+      ],
+      rejectedDraftAttempts: [],
+      attemptBatch: 2,
     });
   });
 

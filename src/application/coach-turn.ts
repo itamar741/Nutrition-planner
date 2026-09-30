@@ -77,6 +77,8 @@ import {
   setInteraction,
 } from "./interaction-state";
 import {
+  addApprovedFoodToPlanChange,
+  extendPlanChangeWithFood,
   makePlanChangeDraftReady,
   markPlanChangeDraftPending,
   markPlanChangeFailure,
@@ -1096,27 +1098,28 @@ export async function executeCoachTurn(input: {
         turnLease,
       );
       profile = result.profile;
-      const approvedPlanChange =
+      const linkedPlanChange =
         pending.planChangeId &&
         profile.state.agentSession.planChange?.id === pending.planChangeId
           ? resolvePlanChangeFood(
               profile.state.agentSession.planChange,
               result.food.id,
             )
-          : profile.state.agentSession.planChange;
+          : null;
       state = setInteraction(
         {
           ...profile.state,
           agentSession: {
             ...profile.state.agentSession,
-            planChange: approvedPlanChange,
+            planChange:
+              linkedPlanChange ?? profile.state.agentSession.planChange,
           },
         },
         interaction(randomUUID(), {
           type: "confirm_draft_food",
           foodId: result.food.id,
           displayName: result.food.displayName,
-          planChangeId: approvedPlanChange?.id ?? null,
+          planChangeId: linkedPlanChange?.id ?? null,
         }),
       );
       catalog = await listCatalogFoods();
@@ -1160,27 +1163,28 @@ export async function executeCoachTurn(input: {
         agentTurnLease: turnLease,
       });
       profile = result.profile;
-      const existingPlanChange =
+      const linkedPlanChange =
         pending.planChangeId &&
         profile.state.agentSession.planChange?.id === pending.planChangeId
           ? resolvePlanChangeFood(
               profile.state.agentSession.planChange,
               result.food.id,
             )
-          : profile.state.agentSession.planChange;
+          : null;
       state = setInteraction(
         {
           ...profile.state,
           agentSession: {
             ...profile.state.agentSession,
-            planChange: existingPlanChange,
+            planChange:
+              linkedPlanChange ?? profile.state.agentSession.planChange,
           },
         },
         interaction(randomUUID(), {
           type: "confirm_draft_food",
           foodId: result.food.id,
           displayName: result.food.displayName,
-          planChangeId: existingPlanChange?.id ?? null,
+          planChangeId: linkedPlanChange?.id ?? null,
         }),
       );
       actionSummary = {
@@ -1262,22 +1266,29 @@ export async function executeCoachTurn(input: {
           ? makePlanChangeDraftReady(state.agentSession.planChange, {
               requiredFoodId: pending.foodId,
             })
-          : startPlanChange(state, {
-              status: "ready_for_draft",
-              requiredCatalogFoodIds: [pending.foodId],
-              mustDiffer: true,
-              scope: "food_replacement",
-            });
-      state = setInteraction(
-        {
-          ...state,
-          agentSession: {
-            ...state.agentSession,
-            planChange,
-          },
+          : state.agentSession.planChange
+            ? makePlanChangeDraftReady(
+                addApprovedFoodToPlanChange(
+                  state.agentSession.planChange,
+                  pending.foodId,
+                ),
+                { requiredFoodId: pending.foodId },
+              )
+            : startPlanChange(state, {
+                status: "ready_for_draft",
+                requiredCatalogFoodIds: [pending.foodId],
+                mustDiffer: true,
+                scope: "food_replacement",
+              });
+      state = {
+        ...state,
+        agentSession: {
+          ...state.agentSession,
+          planChange,
+          pendingInteraction: null,
+          pausedInteraction: null,
         },
-        null,
-      );
+      };
       actionSummary = {
         event: "draft_with_food_requested",
         requiredCatalogFoodId: pending.foodId,
@@ -1535,14 +1546,20 @@ export async function executeCoachTurn(input: {
       }
       const planChange =
         purpose === "integrate_into_plan"
-          ? startPlanChange(state, {
-              status: "resolving_foods",
-              sourceMessageId: `user-${input.request.commandId}`,
-              requestEvidence: requestedFoodPhrase,
-              unresolvedFoodNames: [requestedFoodPhrase],
-              scope: "food_replacement",
-              mustDiffer: true,
-            })
+          ? state.agentSession.planChange
+            ? extendPlanChangeWithFood(state.agentSession.planChange, {
+                foodName: requestedFoodPhrase,
+                sourceMessageId: `user-${input.request.commandId}`,
+                requestEvidence: requestedFoodPhrase,
+              })
+            : startPlanChange(state, {
+                status: "resolving_foods",
+                sourceMessageId: `user-${input.request.commandId}`,
+                requestEvidence: requestedFoodPhrase,
+                unresolvedFoodNames: [requestedFoodPhrase],
+                scope: "food_replacement",
+                mustDiffer: true,
+              })
           : null;
       if (planChange) {
         state = {
