@@ -10,8 +10,14 @@ test("Turn 8 reloads persisted user and partial Arnold output without replaying 
   await page.route("**/api/coach/message", async (route) => {
     const request = route.request().postDataJSON() as {
       commandId: string;
-      input: { type: "text"; text: string };
+      input:
+        | { type: "text"; text: string }
+        | { type: "interaction"; action: string; interactionId: string };
     };
+    const userText =
+      request.input.type === "text"
+        ? request.input.text
+        : request.input.action.replaceAll("_", " ");
     cloud.update({
       ...cloud.current(),
       messages: [
@@ -19,7 +25,7 @@ test("Turn 8 reloads persisted user and partial Arnold output without replaying 
         {
           id: `user-${request.commandId}`,
           role: "user",
-          text: request.input.text,
+          text: userText,
         },
         {
           id: `assistant-${request.commandId}-1`,
@@ -71,7 +77,7 @@ test("Turn 8 reloads persisted user and partial Arnold output without replaying 
     page.getByRole("region", { name: "Coach conversation" }).getByRole("alert"),
   ).toContainText("confirmed state was preserved");
   await expect(
-    page.locator('[data-role="user"]', { hasText: "Generate my Draft" }),
+    page.locator('[data-role="user"]', { hasText: "generate draft" }),
   ).toHaveCount(1);
   await expect(
     page.getByText("I started checking your approved foods.", { exact: true }),
@@ -82,7 +88,7 @@ test("Turn 8 reloads persisted user and partial Arnold output without replaying 
 
   await page.reload();
   await expect(
-    page.locator('[data-role="user"]', { hasText: "Generate my Draft" }),
+    page.locator('[data-role="user"]', { hasText: "generate draft" }),
   ).toHaveCount(1);
   await expect(
     page.getByText("I started checking your approved foods.", { exact: true }),

@@ -1,4 +1,10 @@
-import { useMemo, useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import type {
   CoachMessageRequest,
   ConversationActivity,
@@ -16,6 +22,7 @@ import {
 } from "./NutritionTransparencyPanel";
 import { PlanContents, PlanPanel } from "./PlanPanel";
 import { WeightTrendChart } from "./WeightTrendChart";
+import { scrollCapabilityComposerIntoView } from "./capability-navigation";
 import styles from "./CoachWorkspace.module.css";
 
 const goalLabels = {
@@ -84,6 +91,7 @@ export function FreshActiveDashboard({
 }) {
   const [weightInput, setWeightInput] = useState("");
   const [weightError, setWeightError] = useState("");
+  const composer = useRef<HTMLTextAreaElement>(null);
   const activePlan = state.activePlan;
   const decision = useMemo(
     () =>
@@ -110,6 +118,11 @@ export function FreshActiveDashboard({
         error instanceof Error ? error.message : "Enter a valid weight.",
       );
     }
+  }
+
+  function selectCapability(example: string) {
+    onMessageInput(example);
+    scrollCapabilityComposerIntoView(composer);
   }
 
   return (
@@ -266,7 +279,7 @@ export function FreshActiveDashboard({
               },
               goal: { available: true },
             }}
-            onSelect={onMessageInput}
+            onSelect={selectCapability}
           />
           <div className={styles.weightMessages} aria-live="polite">
             {state.messages.map((message) => (
@@ -353,6 +366,7 @@ export function FreshActiveDashboard({
               onChange={(event) => onMessageInput(event.target.value)}
               onKeyDown={submitComposerOnEnter}
               placeholder="Add a food, record feedback, or ask about your plan"
+              ref={composer}
               rows={2}
               value={messageInput}
             />

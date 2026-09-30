@@ -107,7 +107,8 @@ not yet present on `origin/docs/final-submission-evidence`.
 | 8     | `architecture/08-plan-change-state`        | Phase 7                                       | Complete (`d235f02`)      |
 | 9     | `architecture/09-tool-first-orchestrator`  | Phase 8                                       | Complete (`3e01d75`)      |
 | 10    | `architecture/10-tool-first-verification`  | Phase 9                                       | Complete on branch        |
-| 11    | `architecture/11-draft-repair-continuity`  | Phase 10                                      | Complete on branch        |
+| 11    | `architecture/11-draft-repair-continuity`  | Phase 10                                      | Complete (`19d400e`)      |
+| 12    | `architecture/12-capability-contracts`     | Phase 11                                      | Complete on branch        |
 
 Create each branch only after its parent phase is committed and verified. Push
 each branch with its explicit upstream. Do not rebase or squash the chain during
@@ -431,6 +432,29 @@ This phase closes that gap without restoring intent routing:
 - a credentialed live test executes three forced Draft attempts and verifies that
   the model changes the candidate between repairs.
 
+## Phase 12 — Capability Contracts and Initial Draft Control
+
+The advertised calculation and initial-Draft examples exposed a UI/model contract
+gap: `Try it` filled an off-screen composer, TDEE could be redirected despite being
+in scope, and the explicit Fresh Generate Draft control was converted to synthetic
+free text.
+
+This phase makes the advertised behavior executable:
+
+- one shared capability definition supplies the UI examples and Arnold's semantic
+  contract;
+- selecting an example smoothly reveals the current composer without focus or
+  automatic submission;
+- Arnold receives the deterministic nutrition explanation and current plan checks
+  already used by the transparency UI;
+- TDEE/EER, macro, target, and validation questions are explicitly in scope and
+  require no skill;
+- the empty Fresh Generate Draft button sends a typed `generate_draft` event that
+  is accepted only in the completed ready state and forces
+  `submit_draft_proposal`; and
+- exact advertised prompts are covered by credentialed live-model tests rather
+  than phrase routing.
+
 ## Invariants That Must Never Regress
 
 - Client requests contain commands, never replacement profile state.
@@ -476,12 +500,14 @@ After any summary or interruption:
 
 ## Current Checkpoint
 
-- Current branch: `architecture/11-draft-repair-continuity`.
-- Current phase: Phase 11 implementation and full verification are complete; the
-  phase commit remains.
-- Verification: formatting, lint, typecheck, 35 unit files / 260 tests, security
-  scan (183 project files), production build, 23 Chromium scenarios, and the
-  complete 2-file / 11-test live-model matrix pass. Final diff checks pass.
+- Current branch: `architecture/12-capability-contracts`.
+- Current phase: Phase 12 implementation and verification are complete; the phase
+  commit remains.
+- Verification: formatting, lint, typecheck, 36 unit files / 265 tests, security
+  scan over 186 files, production build, all 23 non-screenshot Chromium scenarios,
+  and all 17 credentialed live-model scenarios passed. The two screenshot-writing
+  browser cases were excluded to preserve the user-owned PNGs.
+- Detailed evidence: `docs/verification-results/capability-contracts.md`.
 - Residual model dependency: semantic skill choice and candidate-plan composition
   intentionally vary between model calls. Their effects are bounded by strict
   schemas, current-message evidence, persisted Plan Change state, leases, closed

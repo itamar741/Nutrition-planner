@@ -135,6 +135,8 @@ Run these controls with mocked or recorded model responses. Do not rely on varia
 - **AI-29:** Tool effects use the common `completed | blocked | needs_user_action | rejected` envelope. A successful first mutation is visible after refresh even if a later model or provider step fails. Duplicate subcommands, stale versions, and lost leases cannot apply the effect twice.
 - **AI-30:** The exact `i want to add cottage cheese to my meal plan` flow persists one Plan Change operation, waits for food approval, shows `Create Draft`, and then requires a full validated Draft containing the approved food. An already-approved food may go directly to Draft. The Active Plan remains unchanged until Draft approval.
 - **AI-31:** A provider failure after an early Draft rejection leaves that rejected attempt in schema-v4 state. A later details question receives its exact authoritative attempt data. Model text containing safe HTML character entities is normalized before streaming and persistence.
+- **AI-32:** The exact advertised prompts remain aligned with the product contract. `Generate my Draft Meal Plan` selects `submit_draft_proposal`; `How is my TDEE calculated?` calls no skill and reports the supplied PAL, equation, EER, goal adjustment, and target; food and weight examples choose their bounded skills; trend and goal examples remain non-mutating.
+- **AI-33:** The typed `generate_draft` action is model-backed, forces `submit_draft_proposal`, accepts no food constraints, creates only a reviewable Draft, and rejects stale or non-Fresh use without mutation.
 
 Evidence: input fixture, expected contract result, actual validator result, and unchanged-state assertion for every rejected response.
 
@@ -159,6 +161,7 @@ Use browser-level tests where feasible and manual acceptance scripts for visual 
 - **UI-14:** User and Arnold messages persist before/during/after streaming and survive reload. Small persisted activity events show Thinking, Searching USDA, Validating, Remembering preference, Creating Draft, and Checking plan safety without appearing as normal chat messages.
 - **UI-15:** English input receives English output and Hebrew input receives Hebrew output, except internal normalized USDA queries that are never displayed as user messages.
 - **UI-16:** The nutrition decision summary remains hidden until targets exist, then exposes keyboard-accessible personal calculation, source, and plan-validation details in the current workspace. The weight decision surface never renders a zero trend as evaluated when evidence is insufficient and never describes an available adjustment as already Active.
+- **UI-17:** Every enabled `Try it` control fills the current composer, smoothly moves it into the viewport, and neither focuses nor submits it. The empty Fresh `Generate Draft` button sends `generate_draft`; custom composer text remains an ordinary text turn.
 
 Evidence: automated trace where available, plus a screenshot or short manual pass/fail note for each visual control.
 

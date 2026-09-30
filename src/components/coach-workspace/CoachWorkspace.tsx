@@ -60,6 +60,7 @@ import {
   type ArnoldCapabilityId,
   type CapabilityAvailability,
 } from "./ArnoldCapabilitiesPanel";
+import { scrollCapabilityComposerIntoView } from "./capability-navigation";
 import styles from "./CoachWorkspace.module.css";
 
 function capabilityAvailability(input: {
@@ -226,6 +227,7 @@ function ExistingFoundation() {
   const cloudQueue = useRef<Promise<void>>(Promise.resolve());
   const [weightInput, setWeightInput] = useState("");
   const [chatInput, setChatInput] = useState("");
+  const chatComposer = useRef<HTMLTextAreaElement>(null);
   const [proposalError, setProposalError] = useState("");
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentStatus, setAgentStatus] = useState<
@@ -459,6 +461,10 @@ function ExistingFoundation() {
     if (!message) return;
     void sendExistingAgent({ type: "text", text: message });
   }
+  function selectExistingCapability(example: string) {
+    setChatInput(example);
+    scrollCapabilityComposerIntoView(chatComposer);
+  }
   function submitWeightForm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (agentBusy) return;
@@ -686,7 +692,7 @@ function ExistingFoundation() {
               hasActivePlan: true,
               isExisting: true,
             })}
-            onSelect={setChatInput}
+            onSelect={selectExistingCapability}
           />
           <div className={styles.weightMessages} aria-live="polite">
             {existing.messages
@@ -766,6 +772,7 @@ function ExistingFoundation() {
               onKeyDown={handleComposerKeyDown}
               onChange={(event) => setChatInput(event.target.value)}
               placeholder="Add a food, record a weight, or ask about your plan"
+              ref={chatComposer}
               rows={2}
               value={chatInput}
             />
@@ -839,6 +846,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
   } | null>(null);
   const turnLock = useRef(false);
   const messagesEnd = useRef<HTMLDivElement>(null);
+  const freshComposer = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (profileId !== "new") return;
@@ -1048,10 +1056,23 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
     void sendFreshAgent({ type: "text", text: message });
   }
 
+  function selectFreshCapability(example: string) {
+    setDraftMessage(example);
+    scrollCapabilityComposerIntoView(freshComposer);
+  }
+
   function handleDraftRequest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const message = draftMessage.trim() || "Generate my Draft Meal Plan";
-    void sendFreshAgent({ type: "text", text: message });
+    const message = draftMessage.trim();
+    if (message) {
+      void sendFreshAgent({ type: "text", text: message });
+      return;
+    }
+    void sendFreshAgent({
+      type: "interaction",
+      interactionId: "fresh-initial-draft",
+      action: "generate_draft",
+    });
   }
 
   function handleQuickReply(option: QuickReplyOption) {
@@ -1266,7 +1287,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                     hasActivePlan: Boolean(state.activePlan),
                     isExisting: false,
                   })}
-                  onSelect={setDraftMessage}
+                  onSelect={selectFreshCapability}
                 />
               </header>
 
@@ -1472,6 +1493,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                           setDraftMessage(event.target.value)
                         }
                         placeholder="Try: replace one food, or change one portion…"
+                        ref={freshComposer}
                         rows={2}
                         value={draftMessage}
                       />
@@ -1493,6 +1515,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                       onKeyDown={handleComposerKeyDown}
                       onChange={(event) => setDraftMessage(event.target.value)}
                       placeholder="Ask about your plan, record feedback, or add a food…"
+                      ref={freshComposer}
                       rows={2}
                       value={draftMessage}
                     />
@@ -1537,6 +1560,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                           setDraftMessage(event.target.value)
                         }
                         placeholder="Optional: tell the coach what to change…"
+                        ref={freshComposer}
                         rows={2}
                         value={draftMessage}
                       />
@@ -1566,6 +1590,7 @@ export function CoachWorkspace({ profileId }: { profileId: DemoProfileId }) {
                           ? "Type your answer…"
                           : "Choose an option above"
                       }
+                      ref={freshComposer}
                       rows={2}
                       value={draftMessage}
                     />

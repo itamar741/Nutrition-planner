@@ -82,4 +82,37 @@ describe("FreshActiveDashboard", () => {
     await user.click(approve);
     expect(onApprove).toHaveBeenCalledTimes(1);
   });
+
+  it("fills and reveals the composer from a capability without focusing or sending", async () => {
+    const user = userEvent.setup();
+    const onMessageInput = vi.fn();
+    const onSendMessage = vi.fn();
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    renderDashboard(undefined, { onMessageInput, onSendMessage });
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Try: How is my TDEE calculated?",
+      }),
+    );
+
+    expect(onMessageInput).toHaveBeenCalledWith("How is my TDEE calculated?");
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      behavior: "smooth",
+      block: "center",
+      inline: "nearest",
+    });
+    expect(
+      screen.getByLabelText("Message to nutrition coach"),
+    ).not.toHaveFocus();
+    expect(onSendMessage).not.toHaveBeenCalled();
+  });
 });

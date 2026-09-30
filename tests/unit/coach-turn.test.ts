@@ -1027,6 +1027,113 @@ describe("unified coach orchestration", () => {
     expect(retry.profile.state.activePlan).toEqual(seeded.state.activePlan);
   });
 
+  it("forces the Draft skill for the bounded initial-Draft control", async () => {
+    const initial = await getProfile("new");
+    const readyState = makeReadyState();
+    const seeded = await mutateProfile({
+      profileId: "new",
+      expectedVersion: initial.version,
+      commandId: "seed-initial-draft-control",
+      mutation: () => readyState,
+    });
+    const validDraft = makeValidDraft("initial-draft-control");
+    agent.tool = {
+      name: "submit_draft_proposal",
+      arguments: {
+        summary: validDraft.summary,
+        meals: validDraft.plan.meals.map((meal) => ({
+          id: meal.id,
+          items: meal.items.map(({ catalogFoodId, grams }) => ({
+            catalogFoodId,
+            grams,
+          })),
+        })),
+        changeContext: {
+          kind: "new_request",
+          evidence: "Create an initial meal-plan Draft from approved foods.",
+          scope: "unspecified",
+          requiredCatalogFoodIds: [],
+          excludedCatalogFoodIds: [],
+        },
+      },
+    };
+
+    const result = await executeCoachTurn({
+      ...turnInput("new", seeded.version, "initial-draft-control", "unused"),
+      request: {
+        profileId: "new",
+        expectedVersion: seeded.version,
+        commandId: "initial-draft-control",
+        input: {
+          type: "interaction",
+          interactionId: "fresh-initial-draft",
+          action: "generate_draft",
+        },
+      },
+    });
+
+    expect(agent.requiredFirstTools.at(-1)).toBe("submit_draft_proposal");
+    expect(agent.allowedAfterCalls[0]).toEqual(["submit_draft_proposal"]);
+    expect(agent.toolResults[0]).toMatchObject({ accepted: true });
+    expect(result.profile.state.draft).not.toBeNull();
+    expect(result.profile.state.activePlan).toBeNull();
+    expect(result.profile.state.agentSession.pendingInteraction).toMatchObject({
+      type: "draft_approval",
+    });
+  });
+
+  it("rejects a stale initial-Draft control without changing state", async () => {
+    const initial = await getProfile("existing");
+
+    await expect(
+      executeCoachTurn({
+        ...turnInput(
+          "existing",
+          initial.version,
+          "stale-initial-draft-control",
+          "unused",
+        ),
+        request: {
+          profileId: "existing",
+          expectedVersion: initial.version,
+          commandId: "stale-initial-draft-control",
+          input: {
+            type: "interaction",
+            interactionId: "fresh-initial-draft",
+            action: "generate_draft",
+          },
+        },
+      }),
+    ).rejects.toThrow("initial Draft action is no longer available");
+
+    expect((await getProfile("existing")).state).toEqual(initial.state);
+    expect(agent.systemPrompts).toHaveLength(0);
+  });
+
+  it("provides the advertised calculation contract and exact plan explanation", async () => {
+    const initial = await getProfile("existing");
+    agent.responseText =
+      "Your TDEE estimate uses the supplied EER equation and low-active PAL.";
+
+    const result = await executeCoachTurn(
+      turnInput(
+        "existing",
+        initial.version,
+        "explain-tdee-contract",
+        "How is my TDEE calculated?",
+      ),
+    );
+
+    const prompt = agent.systemPrompts.at(-1) ?? "";
+    expect(prompt).toContain('"id":"calculations"');
+    expect(prompt).toContain('"energyFormula"');
+    expect(prompt).toContain('"palLabel":"Low active"');
+    expect(prompt).toContain('"planValidationExplanation"');
+    expect(agent.allowedAfterCalls[0]).toContain("submit_draft_proposal");
+    expect(agent.toolResults).toHaveLength(0);
+    expect(result.assistantText).toContain("TDEE estimate");
+  });
+
   it("uses the generic ranking clarification instead of a milk-specific branch", async () => {
     const initial = await getProfile("existing");
     agent.tool = {

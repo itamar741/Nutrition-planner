@@ -5,8 +5,15 @@ import {
   runCoachAgent,
   type CoachToolCall,
 } from "@/ai/coach-agent";
-import { createExistingDemoState } from "@/data/demo-fixtures";
+import {
+  createExistingDemoState,
+  existingReadyProfile,
+} from "@/data/demo-fixtures";
 import { foodCatalog } from "@/data/food-catalog";
+import { arnoldCapabilities } from "@/domain/agent/capabilities";
+import { buildNutritionExplanation } from "@/domain/nutrition/explanations";
+import { buildPlanValidationExplanation } from "@/domain/plan/validation";
+import { calculateWeightTrend } from "@/domain/weight/trend";
 
 const hasLiveConfiguration = Boolean(
   process.env.OPENAI_API_KEY && process.env.OPENAI_MODEL,
@@ -26,6 +33,21 @@ const approvedFoods = foodCatalog
     practicalGrams: food.practicalGrams,
   }));
 
+const productionCapabilityContext = {
+  advertisedCapabilities: arnoldCapabilities,
+  calculationExplanation: buildNutritionExplanation(
+    existingReadyProfile,
+    state.activePlan.plan.targetSnapshot,
+  ),
+  planValidationExplanation: buildPlanValidationExplanation(
+    existingReadyProfile,
+    state.activePlan.plan,
+  ),
+  deterministicTrend: calculateWeightTrend(state.measurements, {
+    activePlanActivatedAt: state.activePlan.activatedAt,
+  }),
+};
+
 async function firstToolFor(
   message: string,
   context: Record<string, unknown> = {},
@@ -43,6 +65,7 @@ async function firstToolFor(
         activePlan: state.activePlan,
         approvalBoundary:
           "Food, Draft, and adjustment approval requires a visible button.",
+        ...productionCapabilityContext,
         ...context,
       }),
     conversation: [{ role: "user", content: message }],
@@ -60,7 +83,92 @@ async function firstToolFor(
   return calls[0] ?? null;
 }
 
+async function answerFor(
+  message: string,
+  context: Record<string, unknown> = {},
+) {
+  const calls: CoachToolCall[] = [];
+  let streamed = "";
+  const result = await runCoachAgent({
+    getSystemPrompt: () =>
+      buildArnoldSystemPrompt({
+        onboarding: { required: false },
+        approvedFoods,
+        expectedMealIds: state.activePlan.plan.meals.map((meal) => meal.id),
+        nutritionTargets: state.activePlan.plan.targetSnapshot,
+        pendingInteraction: null,
+        pendingPlanChange: null,
+        activePlan: state.activePlan,
+        ...productionCapabilityContext,
+        ...context,
+      }),
+    conversation: [{ role: "user", content: message }],
+    getAllowedTools: () => [...coachToolNames],
+    onText: (delta) => {
+      streamed += delta;
+    },
+    onTool: async (call) => {
+      calls.push(call);
+      return {
+        status: "needs_user_action",
+        code: "live_test_stop",
+        message: "Stop after observing a selected tool.",
+      };
+    },
+  });
+  return { calls, text: (streamed || result.text).trim() };
+}
+
 liveDescribe("live tool-first orchestration", () => {
+  it("honors the exact advertised initial-Draft prompt", async () => {
+    const call = await firstToolFor("Generate my Draft Meal Plan");
+    expect(call).toMatchObject({
+      name: "submit_draft_proposal",
+      arguments: {
+        changeContext: {
+          kind: "new_request",
+          requiredCatalogFoodIds: [],
+          excludedCatalogFoodIds: [],
+        },
+      },
+    });
+  }, 90_000);
+
+  it("answers the exact advertised TDEE question from authoritative calculations", async () => {
+    const result = await answerFor("How is my TDEE calculated?");
+
+    expect(result.calls).toHaveLength(0);
+    expect(result.text).toMatch(/TDEE|EER/i);
+    expect(result.text).toMatch(/activity|PAL|low active/i);
+    expect(result.text).toMatch(/2873|2,873|2875|2,875/);
+    expect(result.text).not.toMatch(/in-scope question/i);
+  }, 90_000);
+
+  it.each([
+    ["Find Greek yogurt and add it to my foods", "search_foods"],
+    ["I weigh 75.4 kg today", "record_weight"],
+  ])(
+    "honors the advertised capability prompt: %s",
+    async (message, expectedTool) => {
+      expect(await firstToolFor(message)).toMatchObject({ name: expectedTool });
+    },
+    90_000,
+  );
+
+  it.each([
+    ["Review my weight trend", /weight|trend|evidence/i],
+    ["I want to change my nutrition goal", /reset|restart|onboarding/i],
+  ])(
+    "answers the advertised read-only capability: %s",
+    async (message, expectedText) => {
+      const result = await answerFor(message);
+      expect(result.calls.map((call) => call.name)).toEqual([]);
+      expect(result.text).toMatch(expectedText);
+      expect(result.text).not.toMatch(/in-scope question/i);
+    },
+    90_000,
+  );
+
   it("chooses the food-resolution skill for cottage-cheese plan integration", async () => {
     const call = await firstToolFor(
       "i want to add cottage cheese to my meal plan",

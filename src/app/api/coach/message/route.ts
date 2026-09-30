@@ -46,6 +46,7 @@ function safeCoachErrorMessage(error: unknown) {
     "The Draft is stale or failed deterministic validation.",
     "That interaction is no longer active. Reload and try again.",
     "That session review is no longer current.",
+    "The initial Draft action is no longer available.",
     "There is no current adjustment offer.",
     "Choose one displayed candidate.",
     "There is no food awaiting approval.",
@@ -79,6 +80,7 @@ function safeCoachErrorMessage(error: unknown) {
 function actionLabel(action: string) {
   const labels: Record<string, string> = {
     review_trend: "Opened Arnold trend review",
+    generate_draft: "Requested an initial meal-plan Draft",
     generate_adjustment: "Requested an adjustment Draft",
     select_candidate: "Selected a food candidate",
     approve_food: "Approved the displayed food",

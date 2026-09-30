@@ -24,6 +24,10 @@ async function installTurn2Agent(
   options: { delay?: number; failFirst?: boolean } = {},
 ) {
   let calls = 0;
+  const inputs: Array<
+    | { type: "text"; text: string }
+    | { type: "interaction"; action: string; interactionId: string }
+  > = [];
   await page.route("**/api/coach/message", async (route) => {
     calls += 1;
     const body = route.request().postDataJSON() as {
@@ -32,6 +36,7 @@ async function installTurn2Agent(
         | { type: "text"; text: string }
         | { type: "interaction"; action: string; interactionId: string };
     };
+    inputs.push(body.input);
     if (options.delay)
       await new Promise((resolve) => setTimeout(resolve, options.delay));
     if (options.failFirst && calls === 1) {
@@ -49,7 +54,7 @@ async function installTurn2Agent(
     }
     let state = cloud.current();
     let assistantText = "Done.";
-    if (body.input.type === "text") {
+    if (body.input.type === "text" || body.input.action === "generate_draft") {
       if (state.draft) {
         const draft = applyModificationToDraft({
           draft: state.draft,
@@ -114,7 +119,57 @@ async function installTurn2Agent(
       body: JSON.stringify({ ok: true, profile }),
     });
   });
+  return { inputs };
 }
+
+test("Try it fills and scrolls to the composer without focusing or sending", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 500 });
+  const cloud = await startWithState(page, makeReadyState());
+  const agent = await installTurn2Agent(page, cloud);
+  const composer = page.getByRole("textbox", {
+    name: "Message to nutrition coach",
+  });
+
+  await page
+    .getByRole("button", { name: "Try: How is my TDEE calculated?" })
+    .click();
+
+  await expect(composer).toHaveValue("How is my TDEE calculated?");
+  await expect
+    .poll(async () =>
+      composer.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        return bounds.top >= 0 && bounds.bottom <= window.innerHeight;
+      }),
+    )
+    .toBe(true);
+  await expect(composer).not.toBeFocused();
+  expect(agent.inputs).toHaveLength(0);
+});
+
+test("the empty Generate Draft control sends a structured interaction", async ({
+  page,
+}) => {
+  const cloud = await startWithState(page, makeReadyState());
+  const agent = await installTurn2Agent(page, cloud);
+
+  await page
+    .getByRole("button", { name: "Generate Draft", exact: true })
+    .click();
+
+  await expect
+    .poll(() => agent.inputs.at(-1))
+    .toEqual({
+      type: "interaction",
+      interactionId: "fresh-initial-draft",
+      action: "generate_draft",
+    });
+  await expect(
+    page.getByText("Draft Meal Plan", { exact: true }),
+  ).toBeVisible();
+});
 
 test("Demo A completes Food Grid, Draft modification, and explicit activation", async ({
   page,
@@ -156,7 +211,7 @@ test("Demo A completes Food Grid, Draft modification, and explicit activation", 
   await page.getByRole("button", { name: "Generate Draft" }).click();
   await expect(page.getByRole("status")).toContainText("Thinking");
   await expect(
-    page.locator('[data-role="user"]', { hasText: "Generate my Draft" }),
+    page.locator('[data-role="user"]', { hasText: "generate draft" }),
   ).toHaveCount(1);
 
   await expect(
@@ -231,7 +286,7 @@ test("Draft failure and retry preserve state and avoid duplicate actions", async
     page.getByText("Draft Meal Plan", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.locator('[data-role="user"]', { hasText: "Generate my Draft" }),
+    page.locator('[data-role="user"]', { hasText: "generate draft" }),
   ).toHaveCount(1);
 });
 
