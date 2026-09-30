@@ -67,9 +67,12 @@ export function getModerateEquivalentMinutes(input: {
   exerciseType: ExerciseType;
   frequencyPerWeek: number;
   sessionMinutes: number;
-  intensity: ExerciseIntensity;
+  intensity: ExerciseIntensity | null;
 }): number {
   if (input.exerciseType === "none") return 0;
+  if (input.intensity === null) {
+    throw new Error("Exercise intensity is required for an active routine.");
+  }
 
   const weeklyMinutes = input.frequencyPerWeek * input.sessionMinutes;
 
@@ -196,7 +199,7 @@ export function calculateTargets(
     exerciseType === null ||
     exerciseFrequencyPerWeek === null ||
     exerciseSessionMinutes === null ||
-    exerciseIntensity === null
+    (exerciseType !== "none" && exerciseIntensity === null)
   ) {
     return null;
   }

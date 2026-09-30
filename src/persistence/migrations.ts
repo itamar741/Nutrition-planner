@@ -167,7 +167,8 @@ async function initializePostgres() {
     `UPDATE demo_profiles
      SET state = jsonb_set(state, '{schemaVersion}', '4'::jsonb, true),
          updated_at = now()
-     WHERE state->>'schemaVersion' IS DISTINCT FROM '4'`,
+     WHERE state->>'schemaVersion' IS NULL
+        OR (state->>'schemaVersion')::integer < 4`,
   );
   await pool.query(
     `UPDATE demo_profiles

@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { executeCoachTurn } from "@/application/coach-turn";
 import {
   getProfile,
+  mutateProfile,
   resetMemoryPersistenceForTests,
 } from "@/persistence/repository";
 import type { DemoState } from "@/store/demo-reducer";
+import { getNextTurn } from "@/domain/profile/onboarding";
 
 const allowedToolSnapshots = vi.hoisted(() => [] as string[][]);
 const onboardingTool = vi.hoisted(() => ({
@@ -101,6 +103,63 @@ function onboardingArguments(
 }
 
 describe("protected onboarding", () => {
+  it("advances no exercise to the eating-routine question", async () => {
+    const initial = await getProfile<DemoState>("new");
+    const seeded = await mutateProfile<DemoState>({
+      profileId: "new",
+      expectedVersion: initial.version,
+      commandId: "seed-exercise-step",
+      mutation: (state) => {
+        const profile = {
+          ...state.profile,
+          age: 30,
+          equationSex: "male" as const,
+          heightCm: 180,
+          currentWeightKg: 80,
+          goal: "maintenance" as const,
+          dailyRoutine: "mostly_seated" as const,
+        };
+        return { ...state, profile, activeTurn: getNextTurn(profile) };
+      },
+    });
+    onboardingTool.arguments = onboardingArguments(
+      {
+        exerciseType: "none",
+        exerciseFrequencyPerWeek: 0,
+        exerciseSessionMinutes: 0,
+        exerciseIntensity: "none",
+      },
+      {
+        acknowledgement: "Got it — no exercise.",
+        messageId: "user-protected-no-exercise",
+      },
+    );
+
+    const result = await executeCoachTurn({
+      request: {
+        profileId: "new",
+        expectedVersion: seeded.version,
+        commandId: "protected-no-exercise",
+        input: { type: "text", text: "no exercise" },
+      },
+      rateIdentity: { sessionHash: "session", ipHash: "ip" },
+      turnId: "protected-no-exercise",
+      leaseToken: null,
+      onStatus: vi.fn(),
+      onText: vi.fn(),
+    });
+
+    expect("profile" in result.profile.state).toBe(true);
+    if (!("profile" in result.profile.state)) return;
+    expect(result.profile.state.profile).toMatchObject({
+      exerciseType: "none",
+      exerciseFrequencyPerWeek: 0,
+      exerciseSessionMinutes: 0,
+      exerciseIntensity: null,
+    });
+    expect(result.profile.state.activeTurn.id).toBe("collect-eating-routine");
+  });
+
   it("persists extracted facts through the unified coach turn", async () => {
     const before = await getProfile<DemoState>("new");
     const onText = vi.fn();

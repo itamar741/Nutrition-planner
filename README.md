@@ -13,6 +13,8 @@ Rejected Draft candidates are durable too: each complete attempt and its calcula
 
 The capability cards share one contract with Arnold. Their examples fill and reveal the chat composer without sending, calculation questions reuse the deterministic explanations shown behind the plan, and the Fresh Generate Draft button is a typed model-backed action rather than synthetic conversation text.
 
+Fresh exercise onboarding uses conditional completeness: an explicit no-exercise answer becomes a canonical zero-volume routine with no invented intensity, while active exercise still requires frequency, duration, and intensity. Partial answers are saved but remain visibly incomplete.
+
 Arnold is limited conversationally to nutrition planning, food and basic meal preparation, weight tracking, and high-level non-medical fitness information. Programming, technical help, and unrelated requests receive a brief redirect rather than an answer. This conversational scope is model-guided; protected state changes remain independently enforced by server code.
 
 ## Security architecture

@@ -204,7 +204,7 @@ function contextFor(
             required: true,
             currentTurn: state.activeTurn,
             responseRule:
-              "Do not claim a profile update unless the onboarding extractor already persisted one. If no facts were accepted, answer an in-scope question or redirect an unsupported request without changing state; when useful, remind the user of currentTurn.prompt.",
+              "Do not claim a profile update unless submit_onboarding_facts persisted one. A completed result advanced the step. A needs_user_action result saved only acceptedFields: acknowledge those fields, state that the step is incomplete, and ask only for remainingFields using nextTurn. If no facts were accepted, answer an in-scope question or redirect an unsupported request without changing state; when useful, remind the user of currentTurn.prompt.",
           }
         : { required: false },
     currentDate,

@@ -10,7 +10,7 @@ import {
   projectedConversationMessageSchema,
   type AgentSessionState,
 } from "@/domain/agent/types";
-import { upgradePersistedStateV4 } from "./state-schema";
+import { upgradePersistedStateV5 } from "./state-schema";
 
 export interface ExistingChatMessage {
   id: string;
@@ -19,7 +19,7 @@ export interface ExistingChatMessage {
 }
 
 export interface ExistingDemoState {
-  schemaVersion: 4;
+  schemaVersion: 5;
   activePlan: ActivePlan;
   draft: DraftProposal | null;
   measurements: WeightMeasurement[];
@@ -30,7 +30,7 @@ export interface ExistingDemoState {
 
 export const existingStateSchema = z
   .object({
-    schemaVersion: z.literal(4),
+    schemaVersion: z.literal(5),
     activePlan: activePlanSchema,
     draft: draftProposalSchema.nullable(),
     measurements: z.array(
@@ -63,7 +63,7 @@ export function parseExistingState(value: unknown): ExistingDemoState {
         draft: "draft" in legacy.data ? legacy.data.draft : null,
       }
     : value;
-  const upgradedV4 = upgradePersistedStateV4(upgraded);
+  const upgradedV4 = upgradePersistedStateV5(upgraded);
   const record =
     typeof upgradedV4 === "object" && upgradedV4 !== null
       ? (upgradedV4 as Record<string, unknown>)

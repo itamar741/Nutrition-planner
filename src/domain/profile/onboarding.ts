@@ -40,6 +40,67 @@ const exerciseKeys: ProfileFactKey[] = [
   "exerciseIntensity",
 ];
 
+export function getMissingExerciseFactKeys(
+  profile: StructuredProfile,
+): ProfileFactKey[] {
+  if (profile.exerciseType === "none") {
+    return [
+      ...(profile.exerciseFrequencyPerWeek === 0
+        ? []
+        : (["exerciseFrequencyPerWeek"] as ProfileFactKey[])),
+      ...(profile.exerciseSessionMinutes === 0
+        ? []
+        : (["exerciseSessionMinutes"] as ProfileFactKey[])),
+      ...(profile.exerciseIntensity === null
+        ? []
+        : (["exerciseIntensity"] as ProfileFactKey[])),
+    ];
+  }
+
+  return exerciseKeys.filter((key) => {
+    const value = profile[key];
+    if (
+      key === "exerciseFrequencyPerWeek" ||
+      key === "exerciseSessionMinutes"
+    ) {
+      return typeof value !== "number" || value <= 0;
+    }
+    return value === null;
+  });
+}
+
+export function isExerciseRoutineComplete(profile: StructuredProfile) {
+  return getMissingExerciseFactKeys(profile).length === 0;
+}
+
+export function getMissingFactKeysForTurn(
+  profile: StructuredProfile,
+  turn: AssistantTurn,
+): ProfileFactKey[] {
+  if (turn.id === "collect-basics") {
+    return basicsKeys.filter((key) => profile[key] === null);
+  }
+  if (turn.id === "collect-exercise") {
+    return getMissingExerciseFactKeys(profile);
+  }
+  if (turn.id === "collect-eating-routine") {
+    return profile.eatingRoutine === null ? ["eatingRoutine"] : [];
+  }
+  return [];
+}
+
+export function normalizeExerciseRoutine(
+  profile: StructuredProfile,
+): StructuredProfile {
+  if (profile.exerciseType !== "none") return profile;
+  return structuredProfileSchema.parse({
+    ...profile,
+    exerciseFrequencyPerWeek: 0,
+    exerciseSessionMinutes: 0,
+    exerciseIntensity: null,
+  });
+}
+
 function allPresent(profile: StructuredProfile, keys: ProfileFactKey[]) {
   return keys.every((key) => profile[key] !== null);
 }
@@ -60,7 +121,7 @@ export function getChecklist(profile: StructuredProfile): ChecklistItem[] {
     {
       key: "exercise",
       label: "Exercise routine",
-      complete: allPresent(profile, exerciseKeys),
+      complete: isExerciseRoutineComplete(profile),
     },
     {
       key: "eatingRoutine",
@@ -83,7 +144,12 @@ export function getChecklist(profile: StructuredProfile): ChecklistItem[] {
 export function getMissingFactKeys(
   profile: StructuredProfile,
 ): ProfileFactKey[] {
-  return requiredFactKeys.filter((key) => profile[key] === null);
+  return [
+    ...requiredFactKeys.filter(
+      (key) => !exerciseKeys.includes(key) && profile[key] === null,
+    ),
+    ...getMissingExerciseFactKeys(profile),
+  ];
 }
 
 export function isProfileReady(profile: StructuredProfile): boolean {
@@ -110,7 +176,7 @@ export function applyFactPatch(
     }
   }
 
-  return structuredProfileSchema.parse(next);
+  return normalizeExerciseRoutine(structuredProfileSchema.parse(next));
 }
 
 export function applyOnboardingFactPatch(
@@ -120,6 +186,16 @@ export function applyOnboardingFactPatch(
   const validatedPatch = profileFactPatchSchema.parse(patch);
   const next = { ...profile };
 
+  if (
+    profile.exerciseType === "none" &&
+    validatedPatch.exerciseType !== undefined &&
+    validatedPatch.exerciseType !== "none"
+  ) {
+    next.exerciseFrequencyPerWeek = null;
+    next.exerciseSessionMinutes = null;
+    next.exerciseIntensity = null;
+  }
+
   for (const [key, value] of Object.entries(validatedPatch) as [
     ProfileFactKey,
     StructuredProfile[ProfileFactKey],
@@ -127,7 +203,7 @@ export function applyOnboardingFactPatch(
     if (requiredFactKeys.includes(key)) Object.assign(next, { [key]: value });
   }
 
-  return structuredProfileSchema.parse(next);
+  return normalizeExerciseRoutine(structuredProfileSchema.parse(next));
 }
 
 function readableMissingBasics(profile: StructuredProfile) {
@@ -202,7 +278,7 @@ export function getNextTurn(profile: StructuredProfile): AssistantTurn {
     };
   }
 
-  if (!allPresent(profile, exerciseKeys)) {
+  if (!isExerciseRoutineComplete(profile)) {
     return {
       type: "open_question",
       id: "collect-exercise",

@@ -109,6 +109,7 @@ not yet present on `origin/docs/final-submission-evidence`.
 | 10    | `architecture/10-tool-first-verification`  | Phase 9                                       | Complete on branch        |
 | 11    | `architecture/11-draft-repair-continuity`  | Phase 10                                      | Complete (`19d400e`)      |
 | 12    | `architecture/12-capability-contracts`     | Phase 11                                      | Complete on branch        |
+| 13    | `architecture/13-no-exercise-onboarding`   | Phase 12                                      | Complete on branch        |
 
 Create each branch only after its parent phase is committed and verified. Push
 each branch with its explicit upstream. Do not rebase or squash the chain during
@@ -455,6 +456,26 @@ This phase makes the advertised behavior executable:
 - exact advertised prompts are covered by credentialed live-model tests rather
   than phrase routing.
 
+## Phase 13 — Conditional Exercise Onboarding
+
+The exercise step previously required a non-null intensity even when the user
+explicitly reported no exercise. The tool could persist type `none` and zero
+volume while leaving intensity null, report success, and then present the same
+question again.
+
+This phase makes the exercise invariant conditional:
+
+- no exercise is normalized to type `none`, zero sessions, zero minutes, and
+  null intensity;
+- active routines require positive frequency and duration plus moderate or
+  vigorous intensity;
+- the temporary tool sentinel `none` is accepted at the boundary but never
+  persisted as an intensity;
+- partially completed open steps return `needs_user_action` with exact remaining
+  fields rather than claiming advancement; and
+- state schema v5 repairs already-stuck Fresh profiles, recomputes their turn and
+  targets, and preserves conversation and agent state.
+
 ## Invariants That Must Never Regress
 
 - Client requests contain commands, never replacement profile state.
@@ -500,14 +521,14 @@ After any summary or interruption:
 
 ## Current Checkpoint
 
-- Current branch: `architecture/12-capability-contracts`.
-- Current phase: Phase 12 implementation and verification are complete; the phase
-  commit remains.
-- Verification: formatting, lint, typecheck, 36 unit files / 265 tests, security
-  scan over 186 files, production build, all 23 non-screenshot Chromium scenarios,
-  and all 17 credentialed live-model scenarios passed. The two screenshot-writing
-  browser cases were excluded to preserve the user-owned PNGs.
-- Detailed evidence: `docs/verification-results/capability-contracts.md`.
+- Current branch: `architecture/13-no-exercise-onboarding`.
+- Current phase: Phase 13 implementation, verification, and evidence are complete;
+  the phase commit remains.
+- Verification: formatting, lint, typecheck, 37 unit files / 273 tests, security
+  scan over 189 files, production build, 24 non-screenshot Chromium scenarios, and 18
+  credentialed live-model scenarios passed. The two screenshot-writing browser
+  cases were excluded to preserve the user-owned PNGs.
+- Detailed evidence: `docs/verification-results/no-exercise-onboarding.md`.
 - Residual model dependency: semantic skill choice and candidate-plan composition
   intentionally vary between model calls. Their effects are bounded by strict
   schemas, current-message evidence, persisted Plan Change state, leases, closed

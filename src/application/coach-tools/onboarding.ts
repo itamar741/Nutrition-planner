@@ -2,6 +2,7 @@ import { coachToolResult } from "@/domain/agent/tool-result";
 import { calculateTargets } from "@/domain/nutrition/calculations";
 import {
   applyOnboardingFactPatch,
+  getMissingFactKeysForTurn,
   getNextTurn,
   isProfileReady,
 } from "@/domain/profile/onboarding";
@@ -52,8 +53,21 @@ export function submitOnboardingFacts(input: {
     };
   }
 
+  const normalizedFacts = { ...input.facts };
+  if (normalizedFacts.exerciseIntensity === "none") {
+    normalizedFacts.exerciseIntensity = null;
+    if (normalizedFacts.exerciseType === null) {
+      normalizedFacts.exerciseType = "none";
+    }
+  }
+  if (normalizedFacts.exerciseType === "none") {
+    normalizedFacts.exerciseFrequencyPerWeek = 0;
+    normalizedFacts.exerciseSessionMinutes = 0;
+    normalizedFacts.exerciseIntensity = null;
+  }
+
   const patch = Object.fromEntries(
-    Object.entries(input.facts).filter(([, value]) => value !== null),
+    Object.entries(normalizedFacts).filter(([, value]) => value !== null),
   ) as ProfileFactPatch;
   if (Object.keys(patch).length === 0) {
     return {
@@ -68,6 +82,10 @@ export function submitOnboardingFacts(input: {
 
   const nextProfile = applyOnboardingFactPatch(input.state.profile, patch);
   const activeTurn = getNextTurn(nextProfile);
+  const stepAdvanced = activeTurn.id !== input.state.activeTurn.id;
+  const remainingFields = stepAdvanced
+    ? []
+    : getMissingFactKeysForTurn(nextProfile, activeTurn);
   const currentWeightKg = nextProfile.currentWeightKg;
   let measurements = input.state.weightMeasurements;
   if (currentWeightKg !== null && patch.currentWeightKg !== undefined) {
@@ -113,12 +131,15 @@ export function submitOnboardingFacts(input: {
       error: null,
     },
     result: coachToolResult(
-      "completed",
-      "onboarding_facts_applied",
-      "Explicit onboarding facts were applied.",
+      stepAdvanced ? "completed" : "needs_user_action",
+      stepAdvanced ? "onboarding_facts_applied" : "onboarding_step_incomplete",
+      stepAdvanced
+        ? "Explicit onboarding facts were applied and the onboarding step advanced."
+        : "The explicit facts were saved, but the current onboarding step still needs user input.",
       {
         acknowledgement: input.acknowledgement,
         acceptedFields: Object.keys(patch),
+        remainingFields,
         nextTurn: activeTurn,
       },
     ),

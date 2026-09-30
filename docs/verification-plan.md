@@ -137,6 +137,7 @@ Run these controls with mocked or recorded model responses. Do not rely on varia
 - **AI-31:** A provider failure after an early Draft rejection leaves that rejected attempt in schema-v4 state. A later details question receives its exact authoritative attempt data. Model text containing safe HTML character entities is normalized before streaming and persistence.
 - **AI-32:** The exact advertised prompts remain aligned with the product contract. `Generate my Draft Meal Plan` selects `submit_draft_proposal`; `How is my TDEE calculated?` calls no skill and reports the supplied PAL, equation, EER, goal adjustment, and target; food and weight examples choose their bounded skills; trend and goal examples remain non-mutating.
 - **AI-33:** The typed `generate_draft` action is model-backed, forces `submit_draft_proposal`, accepts no food constraints, creates only a reviewable Draft, and rejects stale or non-Fresh use without mutation.
+- **AI-34:** The exact answer `no exercise` calls `submit_onboarding_facts`, persists type `none` with zero frequency, zero duration, and null intensity, and advances to eating routine. The temporary tool sentinel `exerciseIntensity: none` is normalized rather than persisted. Active-exercise partial answers return `needs_user_action` with exact missing fields, and v4 stuck-state migration advances without losing messages or agent state.
 
 Evidence: input fixture, expected contract result, actual validator result, and unchanged-state assertion for every rejected response.
 
