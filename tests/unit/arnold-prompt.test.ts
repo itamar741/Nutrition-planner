@@ -17,7 +17,7 @@ describe("Arnold system prompt", () => {
     expect(prompt).toContain("OPEN PLANNING, CLOSED EFFECTS");
     expect(prompt).toContain("complete documented Arnold skill set");
     expect(prompt).toContain("there is no intent classifier");
-    expect(prompt).toContain("At most four non-parallel calls");
+    expect(prompt).toContain("At most four non-parallel stateful skill calls");
     expect(prompt).toContain("Treat blocked and rejected results as facts");
     expect(prompt).toContain("A needs_user_action result ends tool use");
     expect(prompt).toContain(
@@ -29,7 +29,7 @@ describe("Arnold system prompt", () => {
       "Every listed example and its ordinary paraphrases are in scope",
     );
     expect(prompt).toContain(
-      "Calculation questions about calories, macros, TDEE, EER, targets, or plan checks require no skill",
+      "Calculation questions about calories, macros, TDEE, EER, targets, or plan checks require no stateful skill",
     );
     expect(prompt).toContain(
       "completedVisibleControlEvent.event is initial_draft_requested",
@@ -61,7 +61,7 @@ describe("Arnold system prompt", () => {
     expect(prompt).toContain(
       "do not answer any part of the request, do not provide code",
     );
-    expect(prompt).toContain("do not call a skill");
+    expect(prompt).toContain("do not call a stateful skill");
     expect(prompt).toContain("never create personalized workout programming");
     expect(prompt).toContain("ordinary spelling mistakes");
     expect(prompt).toContain("use offer_approved_food_alternatives");

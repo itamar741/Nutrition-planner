@@ -25,8 +25,12 @@ vi.mock("@/ai/coach-agent", () => ({
     "search_foods",
     "select_food_candidate",
     "offer_approved_food_alternatives",
+    "begin_plan_change",
     "submit_draft_proposal",
     "submit_adjustment_proposal",
+    "answer_user",
+    "ask_clarification",
+    "decline_out_of_scope",
   ],
   buildArnoldSystemPrompt: () => "ARNOLD",
   runCoachAgent: async (input: {

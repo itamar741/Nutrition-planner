@@ -9,6 +9,7 @@ const liveDescribe = hasLiveConfiguration ? describe : describe.skip;
 async function askArnold(text: string, context: Record<string, unknown> = {}) {
   let streamed = "";
   const result = await runCoachAgent({
+    getTerminalReviewContext: () => context,
     getSystemPrompt: () =>
       buildArnoldSystemPrompt({
         profileId: "live-topic-boundary",
@@ -16,7 +17,11 @@ async function askArnold(text: string, context: Record<string, unknown> = {}) {
         ...context,
       }),
     conversation: [{ role: "user", content: text }],
-    getAllowedTools: () => [],
+    getAllowedTools: () => [
+      "answer_user",
+      "ask_clarification",
+      "decline_out_of_scope",
+    ],
     onText: (delta) => {
       streamed += delta;
     },

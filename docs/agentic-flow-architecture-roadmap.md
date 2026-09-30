@@ -15,6 +15,9 @@ design is superseded. The current architecture is **tool-first orchestration**:
 - Arnold chooses up to four sequential, non-parallel skill calls. There is no
   preliminary `TurnDecision`, intent classifier, phrase router, or semantic tool
   allow-list.
+- Every free-text round must select a stateful skill or a structured terminal
+  answer, clarification, or out-of-scope outcome. An independent constrained
+  review rejects terminal outcomes that avoid a supported advertised action.
 - A forced first skill is permitted only for an unambiguous visible control such
   as Create Draft or Generate AI proposal.
 - The server owns effects rather than semantic planning. Strict schemas, source
@@ -30,7 +33,7 @@ design is superseded. The current architecture is **tool-first orchestration**:
   baseline, unresolved and required foods, exclusions, strategy, attempt batch,
   and current Draft reference.
 
-The governing phrase is **open planning, closed effects**. Any historical text
+The governing phrase is **open planning, closed effects, structured outcomes**. Any historical text
 below that says tools are filtered or forced from a model-classified intent is
 not a current requirement.
 
@@ -80,14 +83,18 @@ These decisions are authoritative unless the user explicitly changes them:
    chooses the semantic plan. Deterministic contracts accept, block, or reject
    effects using authoritative state. Model behavior tests cover hypotheticals,
    negations, unsupported requests, and tool selection.
-7. **Approvals are protected.** Text such as "approve it" never approves a food,
+7. **Structured outcomes protect liveness.** Raw terminal prose is not accepted
+   on a free-text round. A contract reviewer may require the first stateful skill
+   when a proposed answer, clarification, or redirect would avoid an explicit
+   supported action.
+8. **Approvals are protected.** Text such as "approve it" never approves a food,
    Draft, or adjustment. Only the current visible typed interaction can do so.
-8. **Deterministic controls do not spend AI quota.** Controls that need no model
+9. **Deterministic controls do not spend AI quota.** Controls that need no model
    execute directly. Trend review, adjustment generation, and confirmed
    AI-backed Draft generation remain model-backed.
-9. **No merge or deployment during this roadmap.** Commits and pushes are
-   authorized. Each phase must be implemented on a child branch of the previous
-   phase so ancestry preserves the review order.
+10. **No merge or deployment during this roadmap.** Commits and pushes are
+    authorized. Each phase must be implemented on a child branch of the previous
+    phase so ancestry preserves the review order.
 
 ## Branch Chain
 
@@ -111,6 +118,7 @@ not yet present on `origin/docs/final-submission-evidence`.
 | 12    | `architecture/12-capability-contracts`     | Phase 11                                      | Complete on branch        |
 | 13    | `architecture/13-no-exercise-onboarding`   | Phase 12                                      | Complete on branch        |
 | 14    | `architecture/14-food-workflow-isolation`  | Phase 13                                      | Verification complete     |
+| 15    | `architecture/15-structured-turn-outcomes` | Phase 14                                      | Verification complete     |
 
 Create each branch only after its parent phase is committed and verified. Push
 each branch with its explicit upstream. Do not rebase or squash the chain during
@@ -489,6 +497,33 @@ before persistence. The live-model matrix covers cream-cheese catalog and plan
 requests plus an already-approved Greek-yogurt request while another Plan Change
 is active.
 
+## Phase 15 — Structured Turn Outcomes
+
+Free-text turns can no longer finish through unclassified model prose. Arnold
+must select a stateful skill or a structured direct answer, clarification, or
+out-of-scope outcome. A separate schema-constrained model review compares every
+terminal outcome with the latest request, authoritative state, and advertised
+capability contract before display. When a proposed terminal choice avoids an
+explicit supported action, it is returned as rejected and the reviewed stateful
+or terminal outcome is forced on the next round. Stateful calls are not routed
+by this reviewer: their handlers enforce source evidence and prerequisites.
+Hypothetical and negated weight language therefore cannot write state even if a
+model decision is wrong.
+
+Fresh free-text plan work may start through `begin_plan_change`. The server
+validates current-message evidence and approved food constraints, persists a
+`ready_for_draft` operation, and requires `submit_draft_proposal` next. This
+separates semantic goal capture from full-plan composition while retaining four
+stateful calls for the initializer plus three observable Draft attempts. When
+Arnold already has a complete candidate it may submit `new_request` directly;
+that handler creates the same durable operation before validation.
+
+The regression anchor is the exact production sequence: approve a runtime egg,
+decline the immediate Create Draft offer, then send `add eggs to my meal plan`.
+The later request must open a new operation requiring that approved egg and
+proceed to a formal Draft; it may not return a topic-boundary redirect or an
+“already active” answer.
+
 ## Invariants That Must Never Regress
 
 - Client requests contain commands, never replacement profile state.
@@ -534,13 +569,15 @@ After any summary or interruption:
 
 ## Current Checkpoint
 
-- Current branch: `architecture/14-food-workflow-isolation`.
-- Current phase: Phase 14 implementation and local verification are complete;
-  commit and push have not yet been requested.
-- Verification: formatting, lint, typecheck, 37 unit files / 278 tests, security
-  scan over 189 files, production build, and all 26 Chromium scenarios passed.
-  Credentialed live-model execution was unavailable locally; three regression
-  cases were added to the live matrix for the next credentialed run.
+- Current branch: `architecture/15-structured-turn-outcomes`.
+- Current phase: Phase 15 implementation and verification are complete; commit
+  and push have not yet been requested.
+- Verification: formatting, lint, typecheck, 37 unit files / 281 tests, security
+  scan over 190 files, production build, and all 26 Chromium scenarios pass.
+  Credentialed live checks cover the advertised Draft and TDEE prompts, Egg and
+  cheese workflows, alternative/retry continuity, explicit and non-mutating
+  weight language, and the topic boundary. A full live run reached the provider
+  TPM ceiling after 13 passes; every affected case passed in focused reruns.
 - Residual model dependency: semantic skill choice and candidate-plan composition
   intentionally vary between model calls. Their effects are bounded by strict
   schemas, current-message evidence, persisted Plan Change state, leases, closed

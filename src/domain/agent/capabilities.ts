@@ -16,7 +16,7 @@ export const arnoldCapabilities: ArnoldCapability[] = [
     description: "Build a validated plan from your approved foods.",
     example: "Generate my Draft Meal Plan",
     modelContract:
-      "A request to create, revise, replace, or change the whole meal plan is in scope and must use submit_draft_proposal before prose. A fresh request uses new_request; an active Plan Change uses continuation.",
+      "A request to create, revise, replace, or change the whole meal plan is in scope and must take a Draft action before any terminal response. Free text may start a durable operation with begin_plan_change and then continue it, or directly submit a complete new_request Draft; the authoritative initial-Draft control forces the proposal directly.",
   },
   {
     id: "foods",

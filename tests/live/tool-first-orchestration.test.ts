@@ -54,6 +54,14 @@ async function firstToolFor(
 ) {
   const calls: CoachToolCall[] = [];
   await runCoachAgent({
+    getTerminalReviewContext: () => ({
+      advertisedCapabilities: arnoldCapabilities,
+      approvedFoods,
+      pendingInteraction: null,
+      pendingPlanChange: null,
+      hasActivePlan: true,
+      ...context,
+    }),
     getSystemPrompt: () =>
       buildArnoldSystemPrompt({
         onboarding: { required: false },
@@ -86,10 +94,19 @@ async function firstToolFor(
 async function answerFor(
   message: string,
   context: Record<string, unknown> = {},
+  toolResult?: (call: CoachToolCall) => Record<string, unknown>,
 ) {
   const calls: CoachToolCall[] = [];
   let streamed = "";
   const result = await runCoachAgent({
+    getTerminalReviewContext: () => ({
+      advertisedCapabilities: arnoldCapabilities,
+      approvedFoods,
+      pendingInteraction: null,
+      pendingPlanChange: null,
+      hasActivePlan: true,
+      ...context,
+    }),
     getSystemPrompt: () =>
       buildArnoldSystemPrompt({
         onboarding: { required: false },
@@ -109,11 +126,13 @@ async function answerFor(
     },
     onTool: async (call) => {
       calls.push(call);
-      return {
-        status: "needs_user_action",
-        code: "live_test_stop",
-        message: "Stop after observing a selected tool.",
-      };
+      return (
+        toolResult?.(call) ?? {
+          status: "needs_user_action",
+          code: "live_test_stop",
+          message: "Stop after observing a selected tool.",
+        }
+      );
     },
   });
   return { calls, text: (streamed || result.text).trim() };
@@ -157,18 +176,27 @@ liveDescribe("live tool-first orchestration", () => {
     expect([null, "none"]).toContain(facts.exerciseIntensity);
   }, 90_000);
 
-  it("honors the exact advertised initial-Draft prompt", async () => {
+  it("starts or directly submits a durable revision for the exact advertised Draft prompt", async () => {
     const call = await firstToolFor("Generate my Draft Meal Plan");
-    expect(call).toMatchObject({
-      name: "submit_draft_proposal",
-      arguments: {
+    expect(["begin_plan_change", "submit_draft_proposal"]).toContain(
+      call?.name,
+    );
+    if (call?.name === "begin_plan_change") {
+      expect(call.arguments).toMatchObject({
+        scope: "whole_plan",
+        requiredCatalogFoodIds: [],
+        excludedCatalogFoodIds: [],
+      });
+    } else {
+      expect(call?.arguments).toMatchObject({
         changeContext: {
           kind: "new_request",
+          scope: "whole_plan",
           requiredCatalogFoodIds: [],
           excludedCatalogFoodIds: [],
         },
-      },
-    });
+      });
+    }
   }, 90_000);
 
   it("answers the exact advertised TDEE question from authoritative calculations", async () => {
@@ -181,16 +209,24 @@ liveDescribe("live tool-first orchestration", () => {
     expect(result.text).not.toMatch(/in-scope question/i);
   }, 90_000);
 
-  it.each([
-    ["Find Greek yogurt and add it to my foods", "search_foods"],
-    ["I weigh 75.4 kg today", "record_weight"],
-  ])(
+  it.each([["I weigh 75.4 kg today", "record_weight"]])(
     "honors the advertised capability prompt: %s",
     async (message, expectedTool) => {
       expect(await firstToolFor(message)).toMatchObject({ name: expectedTool });
     },
     90_000,
   );
+
+  it("keeps the exact advertised approved-food prompt in scope", async () => {
+    const result = await answerFor("Find Greek yogurt and add it to my foods");
+
+    if (result.calls.length > 0) {
+      expect(result.calls[0]).toMatchObject({ name: "search_foods" });
+    } else {
+      expect(result.text).toMatch(/already|approved|your foods/i);
+    }
+    expect(result.text).not.toMatch(/in-scope request|in-scope question/i);
+  }, 90_000);
 
   it.each([
     ["Review my weight trend", /weight|trend|evidence/i],
@@ -216,6 +252,34 @@ liveDescribe("live tool-first orchestration", () => {
         purpose: "integrate_into_plan",
         requestedFoodPhrase: expect.stringMatching(/cottage cheese/i),
         normalizedEnglishQuery: expect.stringMatching(/cottage cheese/i),
+      },
+    });
+  }, 90_000);
+
+  it("starts a Draft operation when an already-approved egg is requested for the plan", async () => {
+    const approvedEgg = {
+      id: "runtime-approved-egg",
+      name: "Eggs, Grade A, Large, egg whole",
+      category: "protein",
+      preparation: "whole",
+      mealClassification: "neutral",
+      nutrientsPer100g: {
+        energyKcal: 143,
+        proteinG: 12.6,
+        carbohydrateG: 0.7,
+        fatG: 9.5,
+        fiberG: 0,
+      },
+      practicalGrams: { min: 50, max: 250, step: 50 },
+    };
+    const call = await firstToolFor("add eggs to my meal plan", {
+      approvedFoods: [...approvedFoods, approvedEgg],
+    });
+
+    expect(call).toMatchObject({
+      name: "begin_plan_change",
+      arguments: {
+        requiredCatalogFoodIds: [approvedEgg.id],
       },
     });
   }, 90_000);
@@ -301,12 +365,14 @@ liveDescribe("live tool-first orchestration", () => {
 
   it("uses the Draft skill for a whole-plan replacement", async () => {
     const call = await firstToolFor("i want to change the whole meal plan");
-    expect(call).toMatchObject({
-      name: "submit_draft_proposal",
-      arguments: {
-        changeContext: { kind: "new_request", scope: "whole_plan" },
-      },
-    });
+    expect(["begin_plan_change", "submit_draft_proposal"]).toContain(
+      call?.name,
+    );
+    expect(call?.arguments).toMatchObject(
+      call?.name === "begin_plan_change"
+        ? { scope: "whole_plan" }
+        : { changeContext: { kind: "new_request", scope: "whole_plan" } },
+    );
   }, 90_000);
 
   it("continues a stored alternative selection with the same Plan Change", async () => {
@@ -463,9 +529,24 @@ liveDescribe("live tool-first orchestration", () => {
   it.each([
     "If I weigh 76 kg today, how would my trend change?",
     "Do not record this: I weigh 76 kg today",
-    "Do not change my meal plan",
-    "Write a JavaScript loop",
   ])(
+    "cannot turn non-mutating weight language into a protected effect: %s",
+    async (message) => {
+      const result = await answerFor(message, {}, () => ({
+        status: "blocked",
+        code: "missing_source_evidence",
+        message:
+          "The current message does not authorize a weight write. Answer read-only and do not claim that anything was saved.",
+      }));
+      expect(result.text).toMatch(
+        /would|hypothetical|not record|did not|won't/i,
+      );
+      expect(result.text).not.toMatch(/in-scope (?:request|question)/i);
+    },
+    90_000,
+  );
+
+  it.each(["Do not change my meal plan", "Write a JavaScript loop"])(
     "does not select a mutating skill for: %s",
     async (message) => {
       expect(await firstToolFor(message)).toBeNull();

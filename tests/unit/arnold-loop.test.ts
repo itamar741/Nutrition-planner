@@ -77,6 +77,49 @@ function foodSearchCall() {
   };
 }
 
+function answerCall(text: string, capability = "foods") {
+  return {
+    status: "completed",
+    output_text: "",
+    output: [
+      {
+        type: "function_call",
+        name: "answer_user",
+        call_id: "call-answer",
+        arguments: JSON.stringify({ capability, text }),
+      },
+    ],
+  };
+}
+
+function validTerminalReview(capability = "foods") {
+  return {
+    status: "completed",
+    output_text: JSON.stringify({
+      valid: true,
+      classification: "in_scope_answer",
+      capability,
+      requiredTool: null,
+      reason: "The requested bounded action is complete.",
+    }),
+    output: [],
+  };
+}
+
+function rejectedTerminalReview(requiredTool: string, capability = "draft") {
+  return {
+    status: "completed",
+    output_text: JSON.stringify({
+      valid: false,
+      classification: "in_scope_action",
+      capability,
+      requiredTool,
+      reason: "The explicit plan request requires a bounded action.",
+    }),
+    output: [],
+  };
+}
+
 describe("Arnold bounded skill loop", () => {
   beforeEach(() => {
     process.env.OPENAI_API_KEY = "test-key";
@@ -152,19 +195,15 @@ describe("Arnold bounded skill loop", () => {
           },
         ],
       },
-      {
-        status: "completed",
-        streamedText: repeated,
-        output_text: repeated,
-        output: [],
-      },
+      answerCall(repeated),
+      validTerminalReview(),
     ];
     const onText = vi.fn();
 
     const result = await runCoachAgent({
       getSystemPrompt: () => "fixed prompt",
       conversation: [{ role: "user", content: "milk" }],
-      getAllowedTools: () => ["inspect_food_availability"],
+      getAllowedTools: () => ["inspect_food_availability", "answer_user"],
       onText,
       onTool: async () => ({ approved: false, matches: [] }),
     });
@@ -188,19 +227,15 @@ describe("Arnold bounded skill loop", () => {
           },
         ],
       },
-      {
-        status: "completed",
-        streamedText: "Updated today’s weight from 69.1 kg to 68.3 kg.",
-        output_text: "Updated today’s weight from 69.1 kg to 68.3 kg.",
-        output: [],
-      },
+      answerCall("Updated today’s weight from 69.1 kg to 68.3 kg.", "weight"),
+      validTerminalReview("weight"),
     ];
     const onText = vi.fn();
 
     const result = await runCoachAgent({
       getSystemPrompt: () => "fixed prompt",
       conversation: [{ role: "user", content: "I weigh 68.3 kg today" }],
-      getAllowedTools: () => ["record_weight"],
+      getAllowedTools: () => ["record_weight", "answer_user"],
       onText,
       onTool: async () => ({
         operation: "updated",
@@ -216,11 +251,8 @@ describe("Arnold bounded skill loop", () => {
   it("forces the bounded food search before prose for an explicit named-food request", async () => {
     provider.responses = [
       foodSearchCall(),
-      {
-        status: "completed",
-        output_text: "I found three relevant candidates.",
-        output: [],
-      },
+      answerCall("I found three relevant candidates."),
+      validTerminalReview(),
     ];
     const onTool = vi.fn(async () => ({ outcome: "candidates", count: 3 }));
 
@@ -229,7 +261,7 @@ describe("Arnold bounded skill loop", () => {
       conversation: [
         { role: "user", content: "I want to add milk to my catalog" },
       ],
-      getAllowedTools: () => ["search_foods"],
+      getAllowedTools: () => ["search_foods", "answer_user"],
       getRequiredTool: (sequence) => (sequence === 1 ? "search_foods" : null),
       onText: vi.fn(),
       onTool,
@@ -250,6 +282,112 @@ describe("Arnold bounded skill loop", () => {
       }),
       1,
     );
+  });
+
+  it("repairs an invalid terminal answer by forcing the reviewed plan-change tool", async () => {
+    provider.responses = [
+      answerCall(
+        "Your plan is already active, so there is no Draft to generate.",
+        "draft",
+      ),
+      rejectedTerminalReview("begin_plan_change"),
+      {
+        status: "completed",
+        output_text: "",
+        output: [
+          {
+            type: "function_call",
+            name: "begin_plan_change",
+            call_id: "call-begin-plan-change",
+            arguments: JSON.stringify({
+              evidence: "Generate my Draft Meal Plan",
+              scope: "whole_plan",
+              requiredCatalogFoodIds: [],
+              excludedCatalogFoodIds: [],
+            }),
+          },
+        ],
+      },
+      {
+        status: "completed",
+        output_text: "The Plan Change is ready for a Draft.",
+        output: [],
+      },
+    ];
+    let planChanges = 0;
+    const onTool = vi.fn(async () => {
+      planChanges += 1;
+      return {
+        status: "needs_user_action",
+        code: "test_stop",
+        message: "Stop after the forced action.",
+      };
+    });
+
+    const result = await runCoachAgent({
+      getSystemPrompt: () => "fixed authoritative prompt",
+      conversation: [{ role: "user", content: "Generate my Draft Meal Plan" }],
+      getAllowedTools: () =>
+        planChanges === 0 ? ["begin_plan_change", "answer_user"] : [],
+      onText: vi.fn(),
+      onTool,
+    });
+
+    expect(onTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "begin_plan_change",
+        arguments: expect.objectContaining({ scope: "whole_plan" }),
+      }),
+      1,
+    );
+    expect(provider.calls[2]).toMatchObject({
+      tool_choice: { type: "function", name: "begin_plan_change" },
+    });
+    expect(result.text).toBe("The Plan Change is ready for a Draft.");
+  });
+
+  it("continues to a reviewed answer after a stateful skill blocks unsafe evidence", async () => {
+    provider.responses = [
+      {
+        status: "completed",
+        output_text: "",
+        output: [
+          {
+            type: "function_call",
+            name: "record_weight",
+            call_id: "call-weight-hypothetical",
+            arguments: JSON.stringify({ weightKg: 76 }),
+          },
+        ],
+      },
+      answerCall(
+        "That would be a hypothetical trend calculation; I did not record it.",
+        "trend",
+      ),
+      validTerminalReview("trend"),
+    ];
+    const onTool = vi.fn(async () => ({
+      status: "blocked",
+      code: "missing_source_evidence",
+      message: "No explicit weight write was authorized.",
+    }));
+
+    const result = await runCoachAgent({
+      getSystemPrompt: () => "fixed prompt",
+      getTerminalReviewContext: () => ({ hasActivePlan: true }),
+      conversation: [
+        {
+          role: "user",
+          content: "If I weigh 76 kg today, how would my trend change?",
+        },
+      ],
+      getAllowedTools: () => ["record_weight", "answer_user"],
+      onText: vi.fn(),
+      onTool,
+    });
+
+    expect(onTool).toHaveBeenCalledOnce();
+    expect(result.text).toContain("did not record it");
   });
 
   it("allows the model to repair a rejected Draft with another bounded call", async () => {

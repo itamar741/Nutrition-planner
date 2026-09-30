@@ -387,6 +387,7 @@ function resolveWeightDelete(
 ) {
   if (
     input.type !== "text" ||
+    forbidsWeightMutation(input.text) ||
     !/\b(?:delete|remove|erase)\b/iu.test(input.text)
   ) {
     return null;
@@ -403,7 +404,18 @@ function resolveWeightDelete(
   return null;
 }
 
+function forbidsWeightMutation(text: string) {
+  return (
+    /\b(?:do\s+not|don't|dont|never)\s+(?:record|log|save|add|edit|update|change|delete|remove|erase)\b/iu.test(
+      text,
+    ) ||
+    /^\s*(?:if|what\s+if|suppose|assuming|hypothetically)\b/iu.test(text) ||
+    (/\?/u.test(text) && /\b(?:if|would|hypothetical|scenario)\b/iu.test(text))
+  );
+}
+
 function weightFromText(text: string) {
+  if (forbidsWeightMutation(text)) return null;
   const patterns = [
     /\b(?:weight\s+(?:is|was)|weigh|was|to)\s+(\d{1,3}(?:[.,]\d{1,2})?)\s*(?:kg)?\b/iu,
     /\b(\d{1,3}(?:[.,]\d{1,2})?)\s*kg\b/iu,
@@ -1756,6 +1768,85 @@ export async function executeCoachTurn(input: {
         },
       );
     }
+    if (call.name === "begin_plan_change") {
+      if (input.request.input.type !== "text") {
+        return toolResult(
+          "blocked",
+          "text_plan_request_required",
+          "A new Plan Change must be supported by the current text request.",
+        );
+      }
+      if (state.agentSession.planChange) {
+        return toolResult(
+          "blocked",
+          "active_plan_change_requires_continuation",
+          "Continue the active Plan Change instead of starting another one.",
+          {
+            planChangeId: state.agentSession.planChange.id,
+            planChangeStatus: state.agentSession.planChange.status,
+          },
+        );
+      }
+      if (state.draft) {
+        return toolResult(
+          "blocked",
+          "draft_already_pending",
+          "Review the current Draft before starting another Plan Change.",
+        );
+      }
+      const evidence = String(args.evidence);
+      if (!textValuesOverlap(input.request.input.text, evidence)) {
+        return toolResult(
+          "blocked",
+          "missing_source_evidence",
+          "The Plan Change must be supported by the current message.",
+        );
+      }
+      const requiredCatalogFoodIds = args.requiredCatalogFoodIds as string[];
+      const excludedCatalogFoodIds = args.excludedCatalogFoodIds as string[];
+      const approvedIds = new Set(approvedIdsOf(state));
+      if (
+        [...requiredCatalogFoodIds, ...excludedCatalogFoodIds].some(
+          (foodId) => !approvedIds.has(foodId),
+        )
+      ) {
+        return toolResult(
+          "blocked",
+          "unapproved_plan_constraint",
+          "Plan Change constraints may reference only foods approved for this profile.",
+        );
+      }
+      const planChange = startPlanChange(state, {
+        status: "ready_for_draft",
+        sourceMessageId: `user-${input.request.commandId}`,
+        requestEvidence: evidence,
+        requiredCatalogFoodIds,
+        excludedCatalogFoodIds,
+        scope: args.scope as "whole_plan" | "food_replacement" | "unspecified",
+        mustDiffer: Boolean(state.activePlan || state.draft),
+      });
+      state = {
+        ...state,
+        agentSession: {
+          ...state.agentSession,
+          planChange,
+          pendingInteraction: null,
+          pausedInteraction: null,
+        },
+      };
+      return toolResult(
+        "completed",
+        "plan_change_ready_for_draft",
+        "The Plan Change was saved and is ready for a complete Draft.",
+        {
+          planChangeId: planChange.id,
+          scope: planChange.scope,
+          requiredCatalogFoodIds: planChange.requiredCatalogFoodIds,
+          excludedCatalogFoodIds: planChange.excludedCatalogFoodIds,
+          nextRequiredTool: "submit_draft_proposal",
+        },
+      );
+    }
     if (call.name === "submit_draft_proposal") {
       const proposalArguments = call.arguments as DraftProposalArguments;
       const changeContext =
@@ -2155,7 +2246,7 @@ export async function executeCoachTurn(input: {
   };
 
   let reachedUserDecision = false;
-  let requiredRepairTool: CoachToolName | null = null;
+  let requiredFollowUpTool: CoachToolName | null = null;
   const executeTool = async (call: CoachToolCall, sequence: number) => {
     console.info("coach_skill_started", {
       turnId: input.turnId,
@@ -2214,13 +2305,18 @@ export async function executeCoachTurn(input: {
       }
       reachedUserDecision = result.status === "needs_user_action";
       const rejected = result.status === "rejected";
-      requiredRepairTool =
-        rejected &&
-        proposalAttempts < 3 &&
-        (call.name === "submit_draft_proposal" ||
-          call.name === "submit_adjustment_proposal")
-          ? call.name
-          : null;
+      requiredFollowUpTool =
+        result.status === "completed" &&
+        (call.name === "begin_plan_change" ||
+          (call.name === "search_foods" &&
+            result.code === "approved_food_resolved"))
+          ? "submit_draft_proposal"
+          : rejected &&
+              proposalAttempts < 3 &&
+              (call.name === "submit_draft_proposal" ||
+                call.name === "submit_adjustment_proposal")
+            ? call.name
+            : null;
       await recordAgentSkillCall({
         profileId: input.request.profileId,
         commandId: input.request.commandId,
@@ -2357,6 +2453,27 @@ export async function executeCoachTurn(input: {
   }
   let finalAgentText = "";
   const result = await runCoachAgent({
+    getTerminalReviewContext: () => ({
+      advertisedCapabilities: arnoldCapabilities,
+      onboardingRequired:
+        "profile" in state ? !isProfileReady(state.profile) : false,
+      approvedFoods: approvedCatalog(catalog, approvedIdsOf(state)).map(
+        (food) => ({ id: food.id, name: food.displayName }),
+      ),
+      pendingPlanChange: state.agentSession.planChange,
+      pendingInteraction: state.agentSession.pendingInteraction
+        ? {
+            type: state.agentSession.pendingInteraction.type,
+            id: state.agentSession.pendingInteraction.id,
+          }
+        : null,
+      hasActivePlan: Boolean(state.activePlan),
+      hasDraft: Boolean(state.draft),
+      currentEvent:
+        input.request.input.type === "interaction"
+          ? input.request.input.action
+          : "text",
+    }),
     getSystemPrompt: () =>
       buildArnoldSystemPrompt({
         ...contextFor(
@@ -2378,7 +2495,7 @@ export async function executeCoachTurn(input: {
     conversation: conversation.messages,
     getAllowedTools: getAllowed,
     getRequiredTool: (sequence) => {
-      if (requiredRepairTool) return requiredRepairTool;
+      if (requiredFollowUpTool) return requiredFollowUpTool;
       if (sequence !== 1) return null;
       return shouldForceAdjustmentProposal()
         ? "submit_adjustment_proposal"
@@ -2388,6 +2505,18 @@ export async function executeCoachTurn(input: {
     },
     onText: (value) => {
       finalAgentText += value;
+    },
+    onTerminalOutcome: (outcome) => {
+      console.info("coach_terminal_outcome", {
+        turnId: input.turnId,
+        commandId: input.request.commandId,
+        profileId: input.request.profileId,
+        outcome: outcome.name,
+        capability: outcome.capability,
+        reviewed: outcome.reviewed,
+        model: process.env.OPENAI_MODEL ?? null,
+        promptVersion: "structured-turn-outcomes-v1",
+      });
     },
     onTool: executeTool,
   });

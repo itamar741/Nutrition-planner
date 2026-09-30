@@ -11,6 +11,7 @@ import type {
 } from "@/domain/catalog/runtime";
 import type { CatalogFood } from "@/domain/catalog/types";
 import {
+  approveCatalogFood,
   createLookup,
   getProfile,
   mutateProfile,
@@ -79,8 +80,12 @@ vi.mock("@/ai/coach-agent", () => ({
     "search_foods",
     "select_food_candidate",
     "offer_approved_food_alternatives",
+    "begin_plan_change",
     "submit_draft_proposal",
     "submit_adjustment_proposal",
+    "answer_user",
+    "ask_clarification",
+    "decline_out_of_scope",
   ],
   buildArnoldSystemPrompt: (context: Record<string, unknown>) =>
     `ARNOLD\n${JSON.stringify(context)}`,
@@ -210,6 +215,40 @@ vi.mock("@/ai/coach-agent", () => ({
 }));
 
 const identity = { sessionHash: "session", ipHash: "ip" };
+
+const approvedRuntimeEgg: CatalogFood = {
+  schemaVersion: 1,
+  id: "runtime-approved-egg",
+  displayName: "Eggs, Grade A, Large, egg whole",
+  preparation: "whole",
+  category: "protein",
+  mealClassification: "neutral",
+  kosherCatalogApproved: false,
+  kosherReview: "not_checked",
+  source: {
+    provider: "USDA FoodData Central",
+    fdcId: 748967,
+    dataset: "SR Legacy",
+    release: "April 2018",
+    retrievedAt: "2026-09-30T12:00:00.000Z",
+    energyNutrient: "Energy",
+    energyNutrientId: 1008,
+    verification: "detail",
+  },
+  nutrientsPer100g: {
+    energyKcal: 143,
+    proteinG: 12.6,
+    carbohydrateG: 0.7,
+    fatG: 9.5,
+    fiberG: 0,
+  },
+  displayPortion: { label: "2 large eggs", grams: 100 },
+  practicalGrams: { min: 50, max: 250, step: 50 },
+  runtimeApproval: {
+    approvedAt: "2026-09-30T12:00:00.000Z",
+    approvedByProfileId: "existing",
+  },
+};
 
 function turnInput(
   profileId: "new" | "existing",
@@ -589,8 +628,12 @@ describe("unified coach orchestration", () => {
       "search_foods",
       "select_food_candidate",
       "offer_approved_food_alternatives",
+      "begin_plan_change",
       "submit_draft_proposal",
       "submit_adjustment_proposal",
+      "answer_user",
+      "ask_clarification",
+      "decline_out_of_scope",
     ]);
   });
 
@@ -743,7 +786,7 @@ describe("unified coach orchestration", () => {
     if (!("measurements" in initial.state))
       throw new Error("Expected Existing state.");
     const measurementsBefore = structuredClone(initial.state.measurements);
-    agent.tool = null;
+    agent.tool = { name: "record_weight", arguments: { weightKg: 76 } };
 
     const result = await executeCoachTurn(
       turnInput(
@@ -761,6 +804,10 @@ describe("unified coach orchestration", () => {
         ? result.profile.state.measurements
         : [],
     ).toEqual(measurementsBefore);
+    expect(agent.toolResults.at(-1)).toMatchObject({
+      status: "blocked",
+      code: "missing_source_evidence",
+    });
   });
 
   it("does not treat typed approval language as an Active Plan approval", async () => {
@@ -1218,6 +1265,115 @@ describe("unified coach orchestration", () => {
       type: "clarification",
       workflow: "food",
       planChangeId: result.profile.state.agentSession.planChange!.id,
+    });
+  });
+
+  it("starts a fresh Plan Change for an already-approved egg and requires a Draft next", async () => {
+    const initial = await getProfile("existing");
+    const approved = await approveCatalogFood({
+      food: approvedRuntimeEgg,
+      sourceIdentifier: "usda:748967",
+      profileId: "existing",
+      expectedVersion: initial.version,
+      commandId: "approve-runtime-egg",
+    });
+    const activeBefore = structuredClone(approved.profile.state.activePlan);
+    if (!activeBefore) throw new Error("Expected an Active Plan.");
+    const seeded = await mutateProfile({
+      profileId: "existing",
+      expectedVersion: approved.profile.version,
+      commandId: "seed-egg-draft-confirmation",
+      mutation: (state) => ({
+        ...state,
+        agentSession: {
+          ...state.agentSession,
+          planChange: planChangeWorkflow({
+            id: "egg-approval-plan-change",
+            status: "awaiting_draft_confirmation",
+            requiredCatalogFoodIds: [approvedRuntimeEgg.id],
+            requestEvidence: "add eggs to my meal plan",
+          }),
+          pendingInteraction: {
+            id: "confirm-egg-draft",
+            type: "confirm_draft_food",
+            foodId: approvedRuntimeEgg.id,
+            displayName: approvedRuntimeEgg.displayName,
+            planChangeId: "egg-approval-plan-change",
+          },
+        },
+      }),
+    });
+    agent.tool = null;
+    const declined = await executeCoachTurn({
+      ...turnInput(
+        "existing",
+        seeded.version,
+        "decline-immediate-egg-draft",
+        "unused",
+      ),
+      request: {
+        profileId: "existing",
+        expectedVersion: seeded.version,
+        commandId: "decline-immediate-egg-draft",
+        input: {
+          type: "interaction",
+          interactionId: "confirm-egg-draft",
+          action: "decline_draft_food",
+        },
+      },
+    });
+    expect(declined.profile.state.agentSession.planChange).toBeNull();
+    expect(declined.profile.state.agentSession.pendingInteraction).toBeNull();
+    agent.toolSequence = [
+      {
+        name: "begin_plan_change",
+        arguments: {
+          evidence: "add eggs to my meal plan",
+          scope: "food_replacement",
+          requiredCatalogFoodIds: [approvedRuntimeEgg.id],
+          excludedCatalogFoodIds: [],
+        },
+      },
+      {
+        name: "submit_draft_proposal",
+        arguments: {
+          summary:
+            "A deliberately invalid egg Draft for contract verification.",
+          meals: activeBefore.plan.meals.map((meal) => ({
+            id: meal.id,
+            items: [{ catalogFoodId: "invented-food", grams: 100 }],
+          })),
+        },
+      },
+    ];
+
+    const result = await executeCoachTurn(
+      turnInput(
+        "existing",
+        declined.profile.version,
+        "add-approved-eggs-to-plan",
+        "add eggs to my meal plan",
+      ),
+    );
+
+    expect(result.profile.state.activePlan).toEqual(activeBefore);
+    expect(result.profile.state.draft).toBeNull();
+    expect(agent.toolResults[0]).toMatchObject({
+      status: "completed",
+      code: "plan_change_ready_for_draft",
+      requiredCatalogFoodIds: [approvedRuntimeEgg.id],
+      nextRequiredTool: "submit_draft_proposal",
+    });
+    expect(agent.requiredTools).toEqual([null, "submit_draft_proposal"]);
+    expect(agent.toolResults[1]).toMatchObject({
+      status: "rejected",
+      code: "draft_validation_failed",
+      attempt: 1,
+    });
+    expect(result.profile.state.agentSession.planChange).toMatchObject({
+      status: "ready_for_draft",
+      requiredCatalogFoodIds: [approvedRuntimeEgg.id],
+      requestEvidence: "add eggs to my meal plan",
     });
   });
 
