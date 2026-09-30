@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
-import type { PlanChangeWorkflow } from "@/domain/agent/types";
+import type {
+  DraftAttemptReview,
+  PlanChangeWorkflow,
+} from "@/domain/agent/types";
 import type { DraftCandidate } from "@/domain/plan/types";
 import type { PersistedDemoState } from "@/persistence/repository";
 
@@ -29,6 +32,7 @@ export function startPlanChange(
     offeredAlternativeFoodIds: [],
     selectedAlternativeFoodId: null,
     attemptBatch: 1,
+    rejectedDraftAttempts: [],
     currentDraftId: null,
     ...input,
   };
@@ -76,6 +80,25 @@ export function makePlanChangeDraftReady(
     attemptBatch: startsNewAttemptBatch
       ? workflow.attemptBatch + 1
       : workflow.attemptBatch,
+    rejectedDraftAttempts: startsNewAttemptBatch
+      ? []
+      : workflow.rejectedDraftAttempts,
+  };
+}
+
+export function recordPlanChangeDraftRejection(
+  workflow: PlanChangeWorkflow,
+  attempt: DraftAttemptReview,
+) {
+  const attempts = workflow.rejectedDraftAttempts
+    .filter((item) => item.attempt !== attempt.attempt)
+    .concat(attempt)
+    .sort((left, right) => left.attempt - right.attempt)
+    .slice(0, 3);
+  return {
+    ...workflow,
+    status: "ready_for_draft" as const,
+    rejectedDraftAttempts: attempts,
   };
 }
 
@@ -106,6 +129,8 @@ export function retainPlanChangeAfterDraftRejection(
       : ("create_initial" as const),
     baseDraftId: null,
     currentDraftId: null,
+    attemptBatch: workflow.attemptBatch + 1,
+    rejectedDraftAttempts: [],
   };
 }
 

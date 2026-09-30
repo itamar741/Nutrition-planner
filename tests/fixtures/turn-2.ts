@@ -102,7 +102,7 @@ export function makeValidDraft(commandId = "command-draft-1"): DraftProposal {
 
 export function makeFoodGridState(): DemoState {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     profileId: "new",
     profile: {
       ...existingProfileFoundation,
@@ -137,7 +137,7 @@ export function makeFoodGridState(): DemoState {
 export function makeReadyState(): DemoState {
   const profile = makeReadyProfile();
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     profileId: "new",
     profile,
     messages: [

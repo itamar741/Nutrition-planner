@@ -31,6 +31,7 @@ const agent = vi.hoisted(() => ({
   }>,
   allowedAfterCalls: [] as string[][],
   requiredFirstTools: [] as Array<string | null>,
+  requiredTools: [] as Array<string | null>,
   responseText: "Completed safely.",
   toolResults: [] as Array<Record<string, unknown>>,
   beforeReturn: null as null | (() => Promise<void>),
@@ -91,7 +92,7 @@ vi.mock("@/ai/coach-agent", () => ({
         content: string;
       }>;
       getAllowedTools: () => string[];
-      getRequiredFirstTool?: () => string | null;
+      getRequiredTool?: (sequence: number) => string | null;
       onText: (delta: string) => void;
       onTool: (
         call: {
@@ -104,7 +105,7 @@ vi.mock("@/ai/coach-agent", () => ({
     }) => {
       agent.systemPrompts.push(input.getSystemPrompt());
       agent.conversations.push(structuredClone(input.conversation));
-      agent.requiredFirstTools.push(input.getRequiredFirstTool?.() ?? null);
+      agent.requiredFirstTools.push(input.getRequiredTool?.(1) ?? null);
       const tools = agent.toolSequence.length
         ? agent.toolSequence
         : agent.tool
@@ -126,9 +127,14 @@ vi.mock("@/ai/coach-agent", () => ({
             input.getSystemPrompt().replace(/^ARNOLD\n/u, ""),
           ) as typeof promptContext;
         }
+        const requiredTool = input.getRequiredTool?.(index + 1) ?? null;
+        agent.requiredTools.push(requiredTool);
         const allowed = input.getAllowedTools();
         agent.allowedAfterCalls.push([...allowed]);
         if (!allowed.includes(tool.name)) break;
+        if (requiredTool && requiredTool !== tool.name) {
+          throw new Error(`Expected required tool ${requiredTool}.`);
+        }
         const latestUserText = [...input.conversation]
           .reverse()
           .find((item) => item.role === "user")?.content;
@@ -247,6 +253,7 @@ function planChangeWorkflow(
     offeredAlternativeFoodIds: [],
     selectedAlternativeFoodId: null,
     attemptBatch: 1,
+    rejectedDraftAttempts: [],
     currentDraftId: null,
     ...input,
   };
@@ -261,6 +268,7 @@ describe("unified coach orchestration", () => {
     agent.toolSequence = [];
     agent.allowedAfterCalls = [];
     agent.requiredFirstTools = [];
+    agent.requiredTools = [];
     agent.responseText = "Completed safely.";
     agent.toolResults = [];
     agent.beforeReturn = null;
@@ -584,6 +592,24 @@ describe("unified coach orchestration", () => {
       "submit_draft_proposal",
       "submit_adjustment_proposal",
     ]);
+  });
+
+  it("normalizes safe HTML entities in model prose before returning it", async () => {
+    const initial = await getProfile("existing");
+    agent.responseText = "The Draft was high in&#x20;calories &amp; protein.";
+
+    const result = await executeCoachTurn(
+      turnInput(
+        "existing",
+        initial.version,
+        "normalize-model-entities",
+        "Explain the Draft result.",
+      ),
+    );
+
+    expect(result.assistantText).toBe(
+      "The Draft was high in calories & protein.",
+    );
   });
 
   it("does not revive a historical weight mutation from transcript prose alone", async () => {
@@ -2569,6 +2595,77 @@ describe("unified coach orchestration", () => {
         }),
       },
     });
+    expect(agent.requiredTools.slice(0, 3)).toEqual([
+      null,
+      "submit_draft_proposal",
+      "submit_draft_proposal",
+    ]);
+  });
+
+  it("persists an early rejected Draft before a later provider failure", async () => {
+    const initial = await getProfile("new");
+    const seeded = await mutateProfile({
+      profileId: "new",
+      expectedVersion: initial.version,
+      commandId: "seed-persist-rejected-draft",
+      mutation: () => makeReadyState(),
+    });
+    agent.tool = {
+      name: "submit_draft_proposal",
+      arguments: {
+        summary: "Rejected rice-only Draft.",
+        meals: ["breakfast", "lunch", "snack", "dinner"].map((id) => ({
+          id,
+          items: [{ catalogFoodId: "white-rice-cooked", grams: 500 }],
+        })),
+      },
+    };
+    agent.beforeReturn = async () => {
+      throw new Error("Simulated provider failure after the first rejection.");
+    };
+
+    await expect(
+      executeCoachTurn(
+        turnInput(
+          "new",
+          seeded.version,
+          "persist-first-rejected-draft",
+          "Create my Draft.",
+        ),
+      ),
+    ).rejects.toThrow("Simulated provider failure");
+
+    const persisted = await getProfile("new");
+    expect(
+      persisted.state.agentSession.planChange?.rejectedDraftAttempts,
+    ).toMatchObject([
+      {
+        attempt: 1,
+        summary: "Rejected rice-only Draft.",
+        totals: { energyKcal: 2600 },
+      },
+    ]);
+    expect(persisted.state.agentSession.planChange?.status).toBe(
+      "ready_for_draft",
+    );
+    expect(persisted.state.draft).toBeNull();
+
+    agent.beforeReturn = null;
+    agent.tool = null;
+    agent.responseText =
+      "Attempt 1 used 500 g of rice in every meal and totaled 2600 kcal.";
+    await executeCoachTurn(
+      turnInput(
+        "new",
+        persisted.version,
+        "explain-persisted-rejected-draft",
+        "Give me the exact failure details.",
+      ),
+    );
+    expect(agent.systemPrompts.at(-1)).toContain(
+      '"rejectedDraftAttempts":[{"attempt":1',
+    );
+    expect(agent.systemPrompts.at(-1)).toContain('"energyKcal":2600');
   });
 
   it("gives Arnold the exact generic IDs for a four-meal profile", async () => {
@@ -2642,12 +2739,13 @@ describe("unified coach orchestration", () => {
     if (!("measurements" in result.profile.state))
       throw new Error("Expected Existing state.");
     expect(result.profile.state.draft).toBeNull();
-    expect(result.profile.state.agentSession.planChange).toEqual(
-      planChangeWorkflow({
-        status: "failure_review",
-        requiredCatalogFoodIds: ["white-rice-cooked"],
-      }),
-    );
+    expect(result.profile.state.agentSession.planChange).toMatchObject({
+      status: "failure_review",
+      requiredCatalogFoodIds: ["white-rice-cooked"],
+    });
+    expect(
+      result.profile.state.agentSession.planChange?.rejectedDraftAttempts,
+    ).toHaveLength(3);
   });
 
   it("starts a new Draft-attempt batch after the user chooses a different mix", async () => {

@@ -230,7 +230,7 @@ describe("Arnold bounded skill loop", () => {
         { role: "user", content: "I want to add milk to my catalog" },
       ],
       getAllowedTools: () => ["search_foods"],
-      getRequiredFirstTool: () => "search_foods",
+      getRequiredTool: (sequence) => (sequence === 1 ? "search_foods" : null),
       onText: vi.fn(),
       onTool,
     });
@@ -272,7 +272,8 @@ describe("Arnold bounded skill loop", () => {
       getSystemPrompt: () => "fixed prompt",
       conversation: [{ role: "user", content: "Generate my Draft Meal Plan" }],
       getAllowedTools: () => (attempts < 2 ? ["submit_draft_proposal"] : []),
-      getRequiredFirstTool: () => "submit_draft_proposal",
+      getRequiredTool: (sequence) =>
+        sequence <= 2 ? "submit_draft_proposal" : null,
       onText: vi.fn(),
       onTool,
     });
@@ -281,7 +282,32 @@ describe("Arnold bounded skill loop", () => {
     expect(provider.calls[0]).toMatchObject({
       tool_choice: { type: "function", name: "submit_draft_proposal" },
     });
-    expect(provider.calls[1]).toMatchObject({ tool_choice: "auto" });
+    expect(provider.calls[1]).toMatchObject({
+      tool_choice: { type: "function", name: "submit_draft_proposal" },
+    });
+  });
+
+  it("does not accept prose in place of a required repair skill", async () => {
+    provider.responses = [
+      {
+        status: "completed",
+        output_text: "I can try another version if you want.",
+        output: [],
+      },
+    ];
+
+    await expect(
+      runCoachAgent({
+        getSystemPrompt: () => "fixed prompt",
+        conversation: [{ role: "user", content: "Repair the Draft." }],
+        getAllowedTools: () => ["submit_draft_proposal"],
+        getRequiredTool: () => "submit_draft_proposal",
+        onText: vi.fn(),
+        onTool: vi.fn(),
+      }),
+    ).rejects.toThrow(
+      "The model did not call the required submit_draft_proposal skill.",
+    );
   });
 
   it("tags provider failures with a safe diagnostic stage", async () => {

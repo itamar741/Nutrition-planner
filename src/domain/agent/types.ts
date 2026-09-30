@@ -9,7 +9,7 @@ import { draftProposalSchema, planMealIdSchema } from "@/domain/plan/schemas";
 import type { CatalogFood } from "@/domain/catalog/types";
 import type { DraftProposal } from "@/domain/plan/types";
 
-const draftAttemptReviewSchema = z
+export const draftAttemptReviewSchema = z
   .object({
     attempt: z.number().int().min(1).max(3),
     summary: z.string().min(1).max(240),
@@ -213,6 +213,7 @@ export const planChangeWorkflowSchema = z
     offeredAlternativeFoodIds: z.array(z.string().min(1).max(100)).max(12),
     selectedAlternativeFoodId: z.string().min(1).max(100).nullable(),
     attemptBatch: z.number().int().positive(),
+    rejectedDraftAttempts: z.array(draftAttemptReviewSchema).max(3).default([]),
     currentDraftId: z.string().min(1).max(200).nullable().default(null),
   })
   .strict();

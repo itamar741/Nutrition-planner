@@ -158,6 +158,96 @@ liveDescribe("live tool-first orchestration", () => {
     });
   }, 90_000);
 
+  it("continues rejected Draft repair through the third authorized attempt", async () => {
+    const calls: CoachToolCall[] = [];
+    const planChangeId = "plan-change-live-repair";
+    await runCoachAgent({
+      getSystemPrompt: () =>
+        buildArnoldSystemPrompt({
+          onboarding: { required: false },
+          approvedFoods,
+          expectedMealIds: state.activePlan.plan.meals.map((meal) => meal.id),
+          nutritionTargets: state.activePlan.plan.targetSnapshot,
+          pendingInteraction: {
+            type: "confirm_draft_food",
+            foodId: "couscous-cooked",
+            displayName: "Couscous",
+            planChangeId,
+          },
+          pendingPlanChange: {
+            id: planChangeId,
+            status: "ready_for_draft",
+            scope: "food_replacement",
+            requiredCatalogFoodIds: ["couscous-cooked"],
+            excludedCatalogFoodIds: ["white-rice-cooked"],
+            offeredAlternativeFoodIds: [],
+            selectedAlternativeFoodId: null,
+            portionRecalculation: "whole_draft",
+            strategy: null,
+            attemptBatch: 1,
+            rejectedDraftAttempts: [],
+          },
+          activePlan: state.activePlan,
+          approvalBoundary:
+            "Food, Draft, and adjustment approval requires a visible button.",
+        }),
+      conversation: [
+        {
+          role: "user",
+          content: "Create the couscous replacement Draft now.",
+        },
+      ],
+      getAllowedTools: () =>
+        calls.length < 3 ? ["submit_draft_proposal"] : [],
+      getRequiredTool: () =>
+        calls.length < 3 ? "submit_draft_proposal" : null,
+      onText: () => undefined,
+      onTool: async (call) => {
+        calls.push(call);
+        if (calls.length < 3) {
+          return {
+            status: "rejected",
+            code: "draft_validation_failed",
+            message: "The Draft failed deterministic validation.",
+            attempt: calls.length,
+            attemptsRemaining: 3 - calls.length,
+            issues: ["Energy and protein are above their target ranges."],
+            actualTotals: { energyKcal: 3100, proteinG: 180 },
+            requiredTargets: {
+              energyKcal: 2875,
+              energyTolerancePercent: 5,
+              proteinRangeG: { min: 105, max: 150 },
+            },
+            repairGuidance: {
+              instruction:
+                "Reduce protein-dense and energy-dense portions across the complete Draft while retaining couscous.",
+            },
+          };
+        }
+        return {
+          status: "needs_user_action",
+          code: "draft_validation_failed",
+          message: "The third Draft failed deterministic validation.",
+          attempt: 3,
+          attemptsRemaining: 0,
+          afterThirdFailure:
+            "Direct the user to the complete failure review and ask its focused question.",
+        };
+      },
+    });
+
+    expect(calls).toHaveLength(3);
+    expect(calls.every((call) => call.name === "submit_draft_proposal")).toBe(
+      true,
+    );
+    expect(calls[0].arguments).toMatchObject({
+      changeContext: { kind: "continuation", planChangeId },
+    });
+    expect((calls[1].arguments as { meals: unknown }).meals).not.toEqual(
+      (calls[0].arguments as { meals: unknown }).meals,
+    );
+  }, 120_000);
+
   it.each([
     "If I weigh 76 kg today, how would my trend change?",
     "Do not record this: I weigh 76 kg today",

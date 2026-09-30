@@ -1,6 +1,6 @@
 # Agentic Flow Architecture Roadmap and Recovery Anchor
 
-Last updated: 2026-09-28
+Last updated: 2026-09-30
 
 This is the durable source of truth for the multi-phase Arnold agentic-flow
 work. Read this file before continuing after a context summary, interruption, or
@@ -67,10 +67,12 @@ These decisions are authoritative unless the user explicitly changes them:
    include the selected approved replacement and exclude the unwanted food, but
    may recalculate quantities in every meal and may change other approved foods as
    needed. It must not assume a one-for-one gram substitution.
-4. **Three model attempts remain observable.** Arnold may repair a rejected Draft
-   twice. After the third rejection it shows the complete attempt record and asks
-   one focused question. A user's retry choice opens a new three-attempt batch and
-   must call the Draft tool before any replacement-plan prose.
+4. **Three model attempts remain observable and continuous.** Arnold must repair a
+   rejected Draft immediately while attempts remain; it may not stop to ask for
+   permission. Every rejection is persisted before the next attempt. After the
+   third rejection it shows the complete attempt record and asks one focused
+   question. A user's retry choice opens a new three-attempt batch and must call
+   the Draft tool before any replacement-plan prose.
 5. **Different mix has real semantics.** `different_approved_mix` requires a
    change in the actual set of approved food IDs; gram-only edits do not satisfy
    it.
@@ -105,6 +107,7 @@ not yet present on `origin/docs/final-submission-evidence`.
 | 8     | `architecture/08-plan-change-state`        | Phase 7                                       | Complete (`d235f02`)      |
 | 9     | `architecture/09-tool-first-orchestrator`  | Phase 8                                       | Complete (`3e01d75`)      |
 | 10    | `architecture/10-tool-first-verification`  | Phase 9                                       | Complete on branch        |
+| 11    | `architecture/11-draft-repair-continuity`  | Phase 10                                      | Complete on branch        |
 
 Create each branch only after its parent phase is committed and verified. Push
 each branch with its explicit upstream. Do not rebase or squash the chain during
@@ -405,6 +408,29 @@ Completed on `architecture/10-tool-first-verification`; detailed evidence is in
   the exact sentence remains covered against the production tool-first contract
   with all skills available.
 
+## Phase 11 — Durable Draft Repair Continuity
+
+The deployed conversation exposed a remaining orchestration gap: after a rejected
+cottage-cheese Draft, Arnold could stop with “I can try again if you want,” and a
+later details request saw only generic transcript prose. Early rejected attempts
+existed only in turn-local memory, while the live matrix verified first-tool
+selection rather than a complete repair loop.
+
+This phase closes that gap without restoring intent routing:
+
+- state schema v4 persists every ordinary rejected Draft attempt inside its Plan
+  Change, including meals, grams, totals, checks, and issues;
+- the schema upgrade recovers attempt history from an existing v3 failure review;
+- a `rejected` proposal result with attempts remaining requires the same proposal
+  tool on the next model round, while the third rejection remains a user decision;
+- a provider failure after an early rejection cannot erase the stored attempt;
+- failure-detail answers receive the exact persisted attempts as authoritative
+  context;
+- safe numeric and common named HTML entities in model prose are normalized before
+  persistence and display; and
+- a credentialed live test executes three forced Draft attempts and verifies that
+  the model changes the candidate between repairs.
+
 ## Invariants That Must Never Regress
 
 - Client requests contain commands, never replacement profile state.
@@ -450,13 +476,12 @@ After any summary or interruption:
 
 ## Current Checkpoint
 
-- Current branch: `architecture/10-tool-first-verification`.
-- Current phase: Phase 10 is complete on this branch. Contract
-  commit `6b896c0`, state/migration commit `d235f02`, and orchestrator commit
-  `3e01d75` are complete.
-- Final verification: formatting, lint, typecheck, 33 unit files / 253 tests,
-  security scan (177 files), production build, 23 Chromium scenarios, 2 live
-  model files / 10 tests, and diff checks pass.
+- Current branch: `architecture/11-draft-repair-continuity`.
+- Current phase: Phase 11 implementation and full verification are complete; the
+  phase commit remains.
+- Verification: formatting, lint, typecheck, 35 unit files / 260 tests, security
+  scan (183 project files), production build, 23 Chromium scenarios, and the
+  complete 2-file / 11-test live-model matrix pass. Final diff checks pass.
 - Residual model dependency: semantic skill choice and candidate-plan composition
   intentionally vary between model calls. Their effects are bounded by strict
   schemas, current-message evidence, persisted Plan Change state, leases, closed

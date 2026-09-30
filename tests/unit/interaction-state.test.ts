@@ -144,6 +144,7 @@ describe("interaction state transitions", () => {
           offeredAlternativeFoodIds: [],
           selectedAlternativeFoodId: null,
           attemptBatch: 1,
+          rejectedDraftAttempts: [],
           currentDraftId: null,
         },
       },
@@ -175,6 +176,7 @@ describe("interaction state transitions", () => {
       offeredAlternativeFoodIds: [],
       selectedAlternativeFoodId: null,
       attemptBatch: 1,
+      rejectedDraftAttempts: [],
       currentDraftId: null,
     };
     state.agentSession.pendingInteraction = {
@@ -212,6 +214,7 @@ describe("interaction state transitions", () => {
       offeredAlternativeFoodIds: [],
       selectedAlternativeFoodId: null,
       attemptBatch: 1,
+      rejectedDraftAttempts: [],
       currentDraftId: null,
     };
     state.agentSession.pendingInteraction = {

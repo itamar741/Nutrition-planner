@@ -4,12 +4,49 @@ import {
   markPlanChangeDraftPending,
   markPlanChangeFailure,
   planChangeCandidateIssues,
+  recordPlanChangeDraftRejection,
   resolvePlanChangeFood,
   startPlanChange,
   waitForFoodApproval,
 } from "@/application/plan-change-workflow";
 import { createExistingDemoState } from "@/data/demo-fixtures";
+import type { DraftAttemptReview } from "@/domain/agent/types";
 import type { DraftCandidate } from "@/domain/plan/types";
+
+function rejectedAttempt(attempt: number): DraftAttemptReview {
+  return {
+    attempt,
+    summary: `Rejected attempt ${attempt}`,
+    meals: ["breakfast", "lunch", "dinner"].map((id) => ({
+      id: id as "breakfast" | "lunch" | "dinner",
+      name: id,
+      items: [
+        {
+          catalogFoodId: "white-rice-cooked",
+          displayName: "White rice",
+          grams: 500,
+        },
+      ],
+    })),
+    totals: {
+      energyKcal: 1950,
+      proteinG: 40,
+      carbohydrateG: 420,
+      fatG: 5,
+      fiberG: 4,
+    },
+    checks: [
+      {
+        key: "energy",
+        label: "Energy",
+        actual: "1950 kcal",
+        expected: "2200–2400 kcal",
+        passed: false,
+      },
+    ],
+    issues: ["Energy is outside the target range."],
+  };
+}
 
 function candidateFromActivePlan(): {
   state: ReturnType<typeof createExistingDemoState>;
@@ -45,6 +82,7 @@ function candidateFromActivePlan(): {
     offeredAlternativeFoodIds: [],
     selectedAlternativeFoodId: null,
     attemptBatch: 1,
+    rejectedDraftAttempts: [],
     currentDraftId: null,
   };
   return { state, candidate };
@@ -67,7 +105,8 @@ describe("plan change workflow", () => {
       requiredFoodId: "cottage-cheese-approved",
     });
     const pending = markPlanChangeDraftPending(ready, "draft-1");
-    const failed = markPlanChangeFailure(ready);
+    const rejected = recordPlanChangeDraftRejection(ready, rejectedAttempt(1));
+    const failed = markPlanChangeFailure(rejected);
     const retried = makePlanChangeDraftReady(failed, {
       retryStrategy: "different_approved_mix",
     });
@@ -83,6 +122,7 @@ describe("plan change workflow", () => {
       unresolvedFoodNames: [],
     });
     expect(ready.status).toBe("ready_for_draft");
+    expect(rejected.rejectedDraftAttempts).toMatchObject([{ attempt: 1 }]);
     expect(pending).toMatchObject({
       id: resolving.id,
       status: "draft_pending_approval",
@@ -93,6 +133,7 @@ describe("plan change workflow", () => {
       status: "ready_for_draft",
       strategy: "different_approved_mix",
       attemptBatch: 2,
+      rejectedDraftAttempts: [],
     });
   });
 

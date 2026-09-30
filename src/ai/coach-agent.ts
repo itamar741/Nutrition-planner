@@ -668,7 +668,8 @@ export function buildArnoldSystemPrompt(
     "Typed language such as 'approve it' never approves a food, Draft, or adjustment. Identify the current visible card and name its actual button: an adjustment offer uses Generate AI proposal; only a resulting proposal card uses Approve. Never call a skill to cross an approval boundary.",
     "",
     "DRAFT REPAIR",
-    "When deterministic validation rejects a Draft, follow its repairGuidance exactly: preserve the required meal IDs and passed ranges, then recalculate as many approved-food portions across the complete Draft as needed to move every failed value inside its numerical range. Do not constrain repairs to the originally replaced item or to a one-for-one swap. At most three proposal submissions are permitted for one Draft attempt. After the third rejection, explain the practical blocker and ask one focused question; never assume a hidden fallback exists.",
+    "When deterministic validation rejects a Draft and attemptsRemaining is positive, immediately submit another complete Draft in the same turn using repairGuidance; do not ask permission, stop in prose, or defer the remaining authorized repair attempts. Preserve the required meal IDs and passed ranges, then recalculate as many approved-food portions across the complete Draft as needed to move every failed value inside its numerical range. Do not constrain repairs to the originally replaced item or to a one-for-one swap. At most three proposal submissions are permitted for one Draft attempt batch. After the third rejection, explain the practical blocker and ask one focused question; never assume a hidden fallback exists.",
+    "pendingPlanChange.rejectedDraftAttempts is authoritative persisted evidence. When the user asks for failure details, report every stored attempt's exact foods, gram portions, totals, target checks, and issues; do not substitute a generic high-or-low summary. Emit ordinary plain text and never encode spaces or punctuation as HTML entities.",
     "When authoritative context contains a draft_failure_review, use proposalKind to distinguish an ordinary Draft from an adjustment Draft. It is the source of truth for what was actually attempted. Describe observable proposals rather than private reasoning. When asked what was tried, report every attempt's exact foods, gram portions, totals, failed checks, and material changes between attempts; never replace those facts with a food-only summary or invent missing details. A retry answer must submit the matching proposal skill before any replacement-plan prose.",
     "",
     "SECURITY",
@@ -727,7 +728,7 @@ export async function runCoachAgent(input: {
   getSystemPrompt: () => string;
   conversation: Array<{ role: "assistant" | "user"; content: string }>;
   getAllowedTools: () => CoachToolName[];
-  getRequiredFirstTool?: () => CoachToolName | null;
+  getRequiredTool?: (sequence: number) => CoachToolName | null;
   onText: (delta: string) => void;
   onTool: (
     call: CoachToolCall,
@@ -745,7 +746,7 @@ export async function runCoachAgent(input: {
     const allowed = sequence <= 4 ? input.getAllowedTools() : [];
     const selectedTools = allowed.map((name) => tools[name]);
     const requiredTool =
-      sequence === 1 ? (input.getRequiredFirstTool?.() ?? null) : null;
+      sequence <= 4 ? (input.getRequiredTool?.(sequence) ?? null) : null;
     if (requiredTool && !allowed.includes(requiredTool)) {
       throw new CoachAgentError("The required bounded skill is unavailable.");
     }
@@ -777,6 +778,11 @@ export async function runCoachAgent(input: {
     const call = atSyncStage("model_output_validation", () =>
       findToolCall(response, allowed),
     );
+    if (requiredTool && !call) {
+      throw new CoachAgentError(
+        `The model did not call the required ${requiredTool} skill.`,
+      );
+    }
     if (!call) {
       const finalText = roundText || response.output_text;
       if (finalText) input.onText(finalText);

@@ -68,6 +68,7 @@ import {
   usdaFoodUrl,
 } from "@/sources/usda";
 import { rankUsdaCandidates } from "@/ai/food-catalog";
+import { normalizeModelText } from "@/ai/model-text";
 import { prepareAiEstimate, prepareFoodCandidate } from "./food-candidates";
 import {
   reconcileAgentWorkflowState,
@@ -78,6 +79,7 @@ import {
   markPlanChangeDraftPending,
   markPlanChangeFailure,
   planChangeCandidateIssues,
+  recordPlanChangeDraftRejection,
   resolvePlanChangeFood,
   retainPlanChangeAfterDraftRejection,
   startPlanChange,
@@ -827,7 +829,8 @@ export async function executeCoachTurn(input: {
   let actionSummary: Record<string, unknown> | null = null;
   let requiredCatalogFoodId =
     state.agentSession.planChange?.requiredCatalogFoodIds[0] ?? null;
-  let proposalAttempts = 0;
+  let proposalAttempts =
+    state.agentSession.planChange?.rejectedDraftAttempts.length ?? 0;
   let toolStatePersisted = false;
   const turnCurrentDate = new Date().toISOString().slice(0, 10);
   let resolvedHistoricalWeightUpsert: ResolvedHistoricalWeightUpsert | null =
@@ -1702,8 +1705,6 @@ export async function executeCoachTurn(input: {
       );
     }
     if (call.name === "submit_draft_proposal") {
-      proposalAttempts += 1;
-      input.onStatus(state.draft ? "revising_draft" : "creating_draft");
       const proposalArguments = call.arguments as DraftProposalArguments;
       const changeContext =
         proposalArguments.changeContext ??
@@ -1818,6 +1819,16 @@ export async function executeCoachTurn(input: {
           { planChangeId: activePlanChange?.id ?? null },
         );
       }
+      proposalAttempts = activePlanChange.rejectedDraftAttempts.length + 1;
+      if (proposalAttempts > 3) {
+        return toolResult(
+          "blocked",
+          "draft_attempts_exhausted",
+          "Choose a retry strategy before starting another Draft attempt batch.",
+          { planChangeId: activePlanChange.id },
+        );
+      }
+      input.onStatus(state.draft ? "revising_draft" : "creating_draft");
       const draftProfile = structuredProfileOf(state);
       const targets =
         state.activePlan?.plan.targetSnapshot ?? calculateTargets(draftProfile);
@@ -1862,9 +1873,19 @@ export async function executeCoachTurn(input: {
           catalog,
           issues,
         });
-        rejectedDraftAttempts.push(reviewedAttempt);
+        const planChangeWithAttempt = recordPlanChangeDraftRejection(
+          activePlanChange,
+          reviewedAttempt,
+        );
+        state = {
+          ...state,
+          agentSession: {
+            ...state.agentSession,
+            planChange: planChangeWithAttempt,
+          },
+        };
         if (proposalAttempts >= 3) {
-          const failedPlanChange = markPlanChangeFailure(activePlanChange);
+          const failedPlanChange = markPlanChangeFailure(planChangeWithAttempt);
           state = setInteraction(
             {
               ...state,
@@ -1875,7 +1896,7 @@ export async function executeCoachTurn(input: {
             },
             interaction(randomUUID(), {
               type: "draft_failure_review",
-              attempts: structuredClone(rejectedDraftAttempts),
+              attempts: structuredClone(failedPlanChange.rejectedDraftAttempts),
               prompt:
                 "For the next Draft, should I keep this food structure and use smaller portions, or use a different mix of your approved foods?",
               planChangeId: failedPlanChange.id,
@@ -1895,7 +1916,9 @@ export async function executeCoachTurn(input: {
             requiredTargets: targets,
             repairGuidance: draftRepairGuidance(draftProfile, plan),
             attemptedDraft: reviewedAttempt,
-            failedAttempts: structuredClone(rejectedDraftAttempts),
+            failedAttempts: structuredClone(
+              planChangeWithAttempt.rejectedDraftAttempts,
+            ),
             afterThirdFailure:
               proposalAttempts >= 3
                 ? "The visible draft_failure_review contains the complete observable attempt history. Briefly direct the user to it and ask its focused question. Do not omit grams, invent reasoning, or submit another proposal in this turn."
@@ -2058,6 +2081,7 @@ export async function executeCoachTurn(input: {
   };
 
   let reachedUserDecision = false;
+  let requiredRepairTool: CoachToolName | null = null;
   const executeTool = async (call: CoachToolCall, sequence: number) => {
     console.info("coach_skill_started", {
       turnId: input.turnId,
@@ -2116,6 +2140,13 @@ export async function executeCoachTurn(input: {
       }
       reachedUserDecision = result.status === "needs_user_action";
       const rejected = result.status === "rejected";
+      requiredRepairTool =
+        rejected &&
+        proposalAttempts < 3 &&
+        (call.name === "submit_draft_proposal" ||
+          call.name === "submit_adjustment_proposal")
+          ? call.name
+          : null;
       await recordAgentSkillCall({
         profileId: input.request.profileId,
         commandId: input.request.commandId,
@@ -2269,12 +2300,15 @@ export async function executeCoachTurn(input: {
       }),
     conversation: conversation.messages,
     getAllowedTools: getAllowed,
-    getRequiredFirstTool: () =>
-      shouldForceAdjustmentProposal()
+    getRequiredTool: (sequence) => {
+      if (requiredRepairTool) return requiredRepairTool;
+      if (sequence !== 1) return null;
+      return shouldForceAdjustmentProposal()
         ? "submit_adjustment_proposal"
         : shouldForceDraftProposal()
           ? "submit_draft_proposal"
-          : null,
+          : null;
+    },
     onText: (value) => {
       finalAgentText += value;
     },
@@ -2285,10 +2319,11 @@ export async function executeCoachTurn(input: {
     (executedToolNames[0] === "record_weight" ||
       executedToolNames[0] === "edit_weight" ||
       executedToolNames[0] === "delete_weight");
-  const assistantText =
+  const assistantText = normalizeModelText(
     (onlyWeightToolCompleted ? weightConfirmation : finalAgentText.trim()) ||
-    result.text.trim() ||
-    "Done. What would you like to do next?";
+      result.text.trim() ||
+      "Done. What would you like to do next?",
+  );
   state = {
     ...state,
     agentSession: {

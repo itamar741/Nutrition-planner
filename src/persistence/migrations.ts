@@ -144,9 +144,30 @@ async function initializePostgres() {
   );
   await pool.query(
     `UPDATE demo_profiles
-     SET state = jsonb_set(state, '{schemaVersion}', '3'::jsonb, true),
+     SET state = jsonb_set(
+           state,
+           '{agentSession,planChange}',
+           (state->'agentSession'->'planChange') || jsonb_build_object(
+             'rejectedDraftAttempts', COALESCE(
+               state->'agentSession'->'planChange'->'rejectedDraftAttempts',
+               CASE
+                 WHEN state->'agentSession'->'pendingInteraction'->>'type' = 'draft_failure_review'
+                 THEN COALESCE(state->'agentSession'->'pendingInteraction'->'attempts', '[]'::jsonb)
+                 ELSE '[]'::jsonb
+               END
+             )
+           ),
+           true
+         ),
          updated_at = now()
-     WHERE state->>'schemaVersion' IS DISTINCT FROM '3'`,
+     WHERE jsonb_typeof(state->'agentSession'->'planChange') = 'object'
+       AND NOT (state->'agentSession'->'planChange' ? 'rejectedDraftAttempts')`,
+  );
+  await pool.query(
+    `UPDATE demo_profiles
+     SET state = jsonb_set(state, '{schemaVersion}', '4'::jsonb, true),
+         updated_at = now()
+     WHERE state->>'schemaVersion' IS DISTINCT FROM '4'`,
   );
   await pool.query(
     `UPDATE demo_profiles
@@ -158,7 +179,7 @@ async function initializePostgres() {
              true
            ),
            '{schemaVersion}',
-           '2'::jsonb,
+           '4'::jsonb,
            true
          ),
          updated_at = now()

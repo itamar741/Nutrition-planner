@@ -9,6 +9,8 @@ Turn 4 added PostgreSQL-backed shared state, one shared access code, and indepen
 
 Every free-text coach message reaches the server-owned Arnold agent with authoritative profile context, reset-scoped conversation history, and the complete documented skill set. Arnold chooses the sequence; deterministic code validates every schema, prerequisite, identifier, calculation, and state transition. In short: **open planning, closed effects**. Food insertion and Active Plan changes still require visible approval buttons.
 
+Rejected Draft candidates are durable too: each complete attempt and its calculated failure evidence is saved immediately. Remaining repair attempts continue automatically in the same turn, while the third rejection produces a review the user can inspect and deliberately retry.
+
 Arnold is limited conversationally to nutrition planning, food and basic meal preparation, weight tracking, and high-level non-medical fitness information. Programming, technical help, and unrelated requests receive a brief redirect rather than an answer. This conversational scope is model-guided; protected state changes remain independently enforced by server code.
 
 ## Security architecture

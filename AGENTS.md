@@ -35,6 +35,8 @@ Application code owns profile state, catalog validation, target calculations, pl
 
 Arnold receives ordinary role/content conversation items plus a fixed system-prompt template with sanitized authoritative context. It may extract bounded onboarding facts, save clear explicit preferences, inspect food availability, offer approved-food alternatives, remove an approved food from future Drafts, request deterministic weight writes, submit a Draft/adjustment proposal, select a currently displayed candidate, or request the server-owned USDA workflow. Free-text orchestration is tool-first: there is no semantic intent classifier or phrase-specific tool filter. Every skill call is schema-checked and state-checked, and invalid prerequisites return a structured result without mutation. USDA candidates are bulk-validated and cached before display; selection never refetches the source. Nutrition extraction, targets, totals, validation, and protected transitions are deterministic, and no model output directly mutates PostgreSQL or an Active Plan.
 
+Every rejected Draft attempt is persisted in the active Plan Change before its result returns to Arnold. If attempts remain, the next model round must call the same proposal skill; do not permit prose to replace an authorized repair. Only a validated Draft, the third rejection, a structured blocker, or exhausted turn-call budget may end that repair sequence. Failure explanations must use the stored meals, gram amounts, totals, checks, and issues.
+
 ## Interaction and safety invariants
 
 - Open question: text enabled, no quick replies.
