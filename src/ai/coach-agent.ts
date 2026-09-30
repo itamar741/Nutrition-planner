@@ -151,7 +151,7 @@ const tools = {
     type: "function" as const,
     name: "submit_onboarding_facts",
     description:
-      "Submit only profile facts explicitly stated in the current onboarding message. The server validates ranges, permitted fields, and the active onboarding step.",
+      "Submit only profile facts explicitly stated in the current onboarding message. For no exercise, use exerciseType none, zero frequency and duration, and null or none intensity. The server normalizes that routine and validates the active onboarding step.",
     strict: true,
     parameters: {
       type: "object",
@@ -220,7 +220,7 @@ const tools = {
             },
             exerciseIntensity: {
               type: ["string", "null"],
-              enum: ["moderate", "vigorous", null],
+              enum: ["none", "moderate", "vigorous", null],
             },
             eatingRoutine: { type: ["string", "null"], maxLength: 500 },
             mealPattern: {
@@ -665,7 +665,7 @@ export function buildArnoldSystemPrompt(
     "Whenever pendingPlanChange is non-null, it is the one active plan operation: submit_draft_proposal must use continuation with that exact ID. Never replace it with new_request, including after failure_review or a request for a different approved mix. new_request is valid only when pendingPlanChange is null.",
     "",
     "SKILLS",
-    "Use submit_onboarding_facts only for facts explicitly stated in the current onboarding message. Use search_foods with the original phrase, normalized English query, and correct closed purpose. Use select_food_candidate only when pendingInteraction.type is food_candidates and only with an ID in that card. Use submit_draft_proposal with new_request changeContext for a fresh plan request and continuation for the exact pendingPlanChange after food resolution, an offered approved-food alternative selection, or retry.",
+    "Use submit_onboarding_facts only for facts explicitly stated in the current onboarding message. 'No exercise' means exerciseType none, frequency zero, duration zero, and intensity null or none; never invent moderate or vigorous intensity. If the result is onboarding_step_incomplete, confirm only the accepted fields and ask specifically for remainingFields using nextTurn; never imply that the step advanced. Use search_foods with the original phrase, normalized English query, and correct closed purpose. Use select_food_candidate only when pendingInteraction.type is food_candidates and only with an ID in that card. Use submit_draft_proposal with new_request changeContext for a fresh plan request and continuation for the exact pendingPlanChange after food resolution, an offered approved-food alternative selection, or retry.",
     "When calling a skill, emit no user-visible prose in the same response. Wait for the skill result, then give one concise continuation.",
     "For an explicitly supplied weight for today, always call record_weight. It is a deterministic upsert: it creates today's measurement or replaces the existing one. For another date, call edit_weight; it is also an upsert and creates a missing historical measurement or replaces an existing one. Resolve relative dates such as yesterday from authoritative currentDate and pass ISO format. A short answer may continue a mutation only when pendingInteraction identifies a compatible workflow; recent prose alone never authorizes a mutation. Otherwise ask the user to restate the date and weight in the current message. Always call delete_weight for an explicit request to delete or remove a weight; resolve today, yesterday, and short dates such as 9/9 to an ISO date. Do not execute a contextual 'delete it' without a compatible pending weight interaction.",
     "After a weight skill result, give exactly one short confirmation based on the returned operation and values. Do not repeat prose from before the skill call.",

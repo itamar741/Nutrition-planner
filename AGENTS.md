@@ -39,6 +39,8 @@ Every rejected Draft attempt is persisted in the active Plan Change before its r
 
 The capability-card definitions are shared UI/model contract data. `Try it` fills and reveals the composer without focus or submission. Calculation answers must use the server-owned nutrition and validation explanations. The empty Fresh Generate Draft control sends `generate_draft`; only this explicit ready-state control may force the initial Draft tool, and it never supplies plan data from the browser.
 
+Exercise onboarding is conditionally complete: no exercise is stored as type `none`, zero sessions, zero minutes, and null intensity; active exercise requires positive frequency and duration plus moderate or vigorous intensity. Never invent an intensity for a no-exercise profile or treat a partially completed open step as advanced.
+
 ## Interaction and safety invariants
 
 - Open question: text enabled, no quick replies.

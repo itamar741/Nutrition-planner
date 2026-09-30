@@ -9,13 +9,13 @@ import {
   agentSessionSchema,
   projectedConversationMessageSchema,
 } from "@/domain/agent/types";
-import { upgradePersistedStateV4 } from "./state-schema";
+import { upgradePersistedStateV5 } from "./state-schema";
 
 export const persistedStateSchema = z.preprocess(
-  upgradePersistedStateV4,
+  upgradePersistedStateV5,
   z
     .object({
-      schemaVersion: z.literal(4),
+      schemaVersion: z.literal(5),
       profileId: z.literal("new"),
       profile: structuredProfileSchema,
       messages: z.array(projectedConversationMessageSchema),

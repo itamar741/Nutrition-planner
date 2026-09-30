@@ -1,7 +1,10 @@
 import { expect, test, type Route } from "@playwright/test";
 import { createNewDemoState, existingReadyProfile } from "@/data/demo-fixtures";
 import { calculateTargets } from "@/domain/nutrition/calculations";
-import { getNextTurn } from "@/domain/profile/onboarding";
+import {
+  applyOnboardingFactPatch,
+  getNextTurn,
+} from "@/domain/profile/onboarding";
 import type { StructuredProfile } from "@/domain/profile/types";
 import { demoReducer } from "@/store/demo-reducer";
 import { installNewCloudProfile } from "./helpers/cloud-profile";
@@ -109,6 +112,67 @@ test("UI-01/UI-02/AI-01 moves from one open answer to locked quick replies", asy
   await expect(
     page.getByRole("button", { name: "Mostly seated" }),
   ).toBeVisible();
+});
+
+test("no exercise completes the exercise step and asks about eating routine", async ({
+  page,
+}) => {
+  const profile: StructuredProfile = {
+    ...profileAfterBasics,
+    goal: "maintenance",
+    dailyRoutine: "mostly_seated",
+  };
+  const cloud = await installNewCloudProfile(page, {
+    ...createNewDemoState(),
+    profile,
+    activeTurn: getNextTurn(profile),
+  });
+  await page.route("**/api/coach/message", async (route) => {
+    const requestBody = route.request().postDataJSON() as {
+      commandId: string;
+    };
+    const started = demoReducer(cloud.current(), {
+      type: "start_open",
+      command: { id: requestBody.commandId, message: "no exercise" },
+    });
+    const nextProfile = applyOnboardingFactPatch(started.profile, {
+      exerciseType: "none",
+    });
+    const activeTurn = getNextTurn(nextProfile);
+    const state = demoReducer(started, {
+      type: "complete_open",
+      commandId: requestBody.commandId,
+      profile: nextProfile,
+      activeTurn,
+      targets: calculateTargets(nextProfile),
+      acknowledgement: "Got it — no exercise.",
+    });
+    const next = cloud.update(state);
+    await route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      body: [
+        { type: "status", value: "thinking" },
+        { type: "text_delta", value: "Got it — no exercise." },
+        { type: "state", profile: next, activities: [] },
+        { type: "done", turnId: requestBody.commandId },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(""),
+    });
+  });
+  await page.goto("/coach/new");
+
+  await page
+    .getByRole("textbox", { name: "Message to nutrition coach" })
+    .fill("no exercise");
+  await page.getByRole("button", { name: "Send" }).click();
+
+  await expect(page.getByText("Got it — no exercise.")).toBeVisible();
+  await expect(
+    page.getByText(/Walk me through when you normally eat/),
+  ).toBeVisible();
+  await expect(page.getByText(/Describe your exercise/)).toHaveCount(0);
 });
 
 test("UI-05/UI-06 preserves the answer, locks controls, and shows slow feedback", async ({

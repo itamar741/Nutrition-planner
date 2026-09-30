@@ -120,6 +120,43 @@ async function answerFor(
 }
 
 liveDescribe("live tool-first orchestration", () => {
+  it("submits a complete zero-volume routine for no exercise", async () => {
+    const call = await firstToolFor("no exercise", {
+      onboarding: {
+        required: true,
+        currentTurn: {
+          type: "open_question",
+          id: "collect-exercise",
+          field: "multiple",
+          prompt:
+            "Describe your exercise, or say no exercise if you do not exercise.",
+        },
+      },
+      latestUserMessageId: "user-live-no-exercise",
+      structuredProfile: {
+        ...existingReadyProfile,
+        exerciseType: null,
+        exerciseFrequencyPerWeek: null,
+        exerciseSessionMinutes: null,
+        exerciseIntensity: null,
+        eatingRoutine: null,
+        mealPattern: null,
+        foodPreferencesComplete: false,
+      },
+    });
+
+    expect(call?.name).toBe("submit_onboarding_facts");
+    const toolArguments = call?.arguments as
+      Record<string, unknown> | undefined;
+    const facts = toolArguments?.facts as Record<string, unknown>;
+    expect(facts).toMatchObject({
+      exerciseType: "none",
+      exerciseFrequencyPerWeek: 0,
+      exerciseSessionMinutes: 0,
+    });
+    expect([null, "none"]).toContain(facts.exerciseIntensity);
+  }, 90_000);
+
   it("honors the exact advertised initial-Draft prompt", async () => {
     const call = await firstToolFor("Generate my Draft Meal Plan");
     expect(call).toMatchObject({

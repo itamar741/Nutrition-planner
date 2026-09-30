@@ -82,19 +82,34 @@ describe("adaptive onboarding domain", () => {
   it("accepts no exercise as a complete zero-volume exercise routine", () => {
     const profile = applyFactPatch(emptyProfile, {
       exerciseType: "none",
-      exerciseFrequencyPerWeek: 0,
-      exerciseSessionMinutes: 0,
-      exerciseIntensity: "moderate",
     });
 
     expect(profile).toMatchObject({
       exerciseType: "none",
       exerciseFrequencyPerWeek: 0,
       exerciseSessionMinutes: 0,
+      exerciseIntensity: null,
     });
     expect(
       getChecklist(profile).find((item) => item.key === "exercise")?.complete,
     ).toBe(true);
+  });
+
+  it("clears zero-volume defaults when no exercise changes to an active routine", () => {
+    const noExercise = applyFactPatch(emptyProfile, { exerciseType: "none" });
+    const active = applyOnboardingFactPatch(noExercise, {
+      exerciseType: "cardio",
+    });
+
+    expect(active).toMatchObject({
+      exerciseType: "cardio",
+      exerciseFrequencyPerWeek: null,
+      exerciseSessionMinutes: null,
+      exerciseIntensity: null,
+    });
+    expect(
+      getChecklist(active).find((item) => item.key === "exercise")?.complete,
+    ).toBe(false);
   });
 
   it("rejects unsupported patch fields and invalid values", () => {

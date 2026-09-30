@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { upgradePersistedStateV4 } from "@/store/state-schema";
+import {
+  upgradePersistedStateV4,
+  upgradePersistedStateV5,
+} from "@/store/state-schema";
+import { createNewDemoState } from "@/data/demo-fixtures";
 
 const attempt = {
   attempt: 1,
@@ -44,5 +48,50 @@ describe("persisted state schema v4 upgrade", () => {
     };
 
     expect(upgraded.agentSession.planChange.rejectedDraftAttempts).toEqual([]);
+  });
+});
+
+describe("persisted state schema v5 upgrade", () => {
+  it("recovers a Fresh profile stuck on no exercise without losing state", () => {
+    const current = createNewDemoState();
+    const messages = [
+      ...current.messages,
+      { id: "user-no-exercise", role: "user" as const, text: "no exercise" },
+    ];
+    const upgraded = upgradePersistedStateV5({
+      ...current,
+      schemaVersion: 4,
+      messages,
+      profile: {
+        ...current.profile,
+        age: 30,
+        equationSex: "male",
+        heightCm: 180,
+        currentWeightKg: 80,
+        goal: "maintenance",
+        dailyRoutine: "mostly_seated",
+        exerciseType: "none",
+        exerciseFrequencyPerWeek: 0,
+        exerciseSessionMinutes: 0,
+        exerciseIntensity: null,
+      },
+      activeTurn: {
+        type: "open_question",
+        id: "collect-exercise",
+        field: "multiple",
+        prompt: "Describe your exercise.",
+      },
+    }) as ReturnType<typeof createNewDemoState>;
+
+    expect(upgraded.schemaVersion).toBe(5);
+    expect(upgraded.profile).toMatchObject({
+      exerciseType: "none",
+      exerciseFrequencyPerWeek: 0,
+      exerciseSessionMinutes: 0,
+      exerciseIntensity: null,
+    });
+    expect(upgraded.activeTurn.id).toBe("collect-eating-routine");
+    expect(upgraded.messages).toEqual(messages);
+    expect(upgraded.agentSession).toEqual(current.agentSession);
   });
 });

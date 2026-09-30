@@ -76,9 +76,22 @@ describe("deterministic nutrition foundation", () => {
         exerciseType: "none",
         frequencyPerWeek: 0,
         sessionMinutes: 0,
-        intensity: "moderate",
+        intensity: null,
       }),
     ).toBe(0);
+  });
+
+  it("calculates targets for a complete no-exercise profile without intensity", () => {
+    expect(
+      calculateTargets({
+        ...existingProfileFoundation,
+        exerciseType: "none",
+        exerciseFrequencyPerWeek: 0,
+        exerciseSessionMinutes: 0,
+        exerciseIntensity: null,
+        foodPreferencesComplete: true,
+      }),
+    ).not.toBeNull();
   });
 
   it("VT-05 creates no targets when a required input or food completion is missing", () => {

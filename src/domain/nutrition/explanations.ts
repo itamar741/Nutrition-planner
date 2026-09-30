@@ -180,7 +180,7 @@ export function buildNutritionExplanation(
     exerciseType === null ||
     exerciseFrequencyPerWeek === null ||
     exerciseSessionMinutes === null ||
-    exerciseIntensity === null
+    (exerciseType !== "none" && exerciseIntensity === null)
   ) {
     return null;
   }

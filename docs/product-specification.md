@@ -50,6 +50,7 @@ Each criterion must produce a clear pass or fail result. Nutrition criteria use 
 - **SC-09 — One action per turn:** After a quick reply, text submission, or Food Grid submission, every control for that turn locks immediately. Repeated clicks or simultaneous submission attempts result in exactly one accepted action and one user-message entry.
 - **SC-10 — Processing lock:** While the system processes a user action, all input controls are disabled and visible progress feedback is present.
 - **SC-11 — Required profile fields:** A Draft cannot be requested until the structured profile contains age, biological sex, height, current weight, one supported goal, sufficient daily-routine and movement information, exercise type, exercise frequency, approximate session duration, an accepted meal pattern, and completed food preferences.
+- **SC-65 — No-exercise completion:** An explicit no-exercise answer completes the exercise step as type `none`, zero weekly sessions, zero session minutes, and no intensity. Active exercise requires positive frequency and duration plus moderate or vigorous intensity. A partially answered step saves explicit facts but asks only for the remaining fields and never claims that the step advanced.
 
 ### Catalog and Preference Grid
 
