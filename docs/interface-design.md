@@ -1,4 +1,4 @@
-# Interface Design v0.2
+# Interface Design v0.3
 
 This document specifies behavior and ordering rather than colors, typography, or pixels. It follows the Module 8 interface-design decisions: user flow, information hierarchy, interaction model, and feedback design, including slow, invalid, empty, and failed states.
 
@@ -22,10 +22,10 @@ This document specifies behavior and ordering rather than colors, typography, or
 5. When food preferences are required, insert the Food Grid as a dedicated interactive step in the conversation and disable text input.
 6. Select approved foods across the five categories and submit the completed selection.
 7. Return to the conversation and collect any remaining required information.
-8. Calculate targets, then introduce Arnold in the conversation. Arnold asks before generating a Draft Meal Plan and renders the resulting Draft in the plan area while keeping the conversation visible.
+8. Calculate targets, then introduce Arnold in the conversation. The visible **Generate Draft** control sends a typed model-backed action; Arnold creates a reviewable Draft Meal Plan and renders it in the plan area while keeping the conversation visible.
 9. Let the user request a supported modification; show processing feedback and then render the changed Draft.
 10. Present an explicit approval choice. Approval promotes the Draft to Active; declining or requesting another change leaves the Draft unactivated.
-11. A missing basic food can be requested inside the main coach conversation in Hebrew or English. After approval, the coach asks whether to include it; only a second confirmation creates a new validated Draft.
+11. A missing basic food can be requested inside the main coach conversation in Hebrew or English. After approval, the coach offers **Create Draft**; only that visible continuation starts the required rebalanced Draft, and Draft approval remains a separate decision.
 
 The system does not enable Draft generation when required information or food selection is incomplete. It identifies the missing requirement and returns the user to the relevant conversational step.
 
@@ -53,6 +53,10 @@ When a Draft or Active Plan is present, the explanation adds a validation sectio
 The Existing weight chart is followed by **The decision behind the chart**. It shows qualifying measurement count and span, the regression-derived weekly rate only when evidence is sufficient, the goal band, applicable Maintenance reference and seven-measurement averages, and one conclusion: more data required, keep the Active Plan, or a bounded adjustment is available. Availability never implies activation; the current approval controls remain authoritative.
 
 All explanatory surfaces accept ordinary supported profile, target, plan, and weight inputs. They do not branch on a demo profile identifier, invoke the model, persist disclosure state, or collect engagement analytics.
+
+### Capability Cards
+
+The six capability cards use one shared UI/model contract. Selecting **Try it** fills the current composer, waits for the rendered value, and smoothly brings the composer into view without focusing it, opening a mobile keyboard, or submitting. The **Manage approved foods** example is exactly `Find Eggs and add it to my foods`; the calculation example is `How is my TDEE calculated?`. The examples advertise real supported behavior and are covered by contract and live-model checks rather than a phrase-specific runtime router.
 
 ## Information Hierarchy
 
@@ -164,7 +168,7 @@ Feedback must make the current state, accepted action, and next available action
 - A configuration or database failure uses a fixed public message and stable code. Raw exception text and environment values never reach JSON or streamed responses.
 - A programming, technical-support, or unrelated general request receives one brief redirect in the language of the latest user message. The redirect offers nutrition, food, meal preparation, weight tracking, or general fitness topics, contains no partial answer, and creates no action card.
 - If a source request times out, is blocked, returns no food record, or fails parsing, preserve confirmed state and offer refinement or the explicitly labelled AI-estimate path.
-- If the rate limit is reached, explain that lookup is temporarily unavailable without disabling the rest of the demo.
+- If the AI conversation limit is reached, show the server-authoritative remaining cooldown and a visible countdown indicating that turns reset within one minute. A food-source lookup limit is reported separately and does not disable non-lookup parts of the demo.
 - Recovery controls follow the same one-action-per-turn lock and cannot create duplicate messages, measurements, or approvals.
 
 Across all error states, the interface separates failure of explanation from failure of state change: it never claims that profile data, a measurement, or a plan changed unless the deterministic application state confirms the change.

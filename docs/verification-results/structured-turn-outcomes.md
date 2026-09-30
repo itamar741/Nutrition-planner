@@ -6,6 +6,10 @@ Branch: `architecture/15-structured-turn-outcomes`
 
 Parent: `architecture/14-food-workflow-isolation` at `0aee58f`
 
+Base implementation: `1da79f7`
+
+Capability-prompt follow-up: `efe249b`
+
 ## Reported failure
 
 After a runtime egg was approved and the immediate Create Draft offer was
@@ -49,6 +53,9 @@ active” answer was accepted and persisted.
 - The live matrix now expects the exact advertised Draft prompt and an
   already-approved egg integration to select `begin_plan_change`, while the
   hypothetical and negated weight cases cannot complete a protected effect.
+- The exact shared capability example `Find Eggs and add it to my foods` selects
+  `search_foods` with catalog-only purpose and does not receive a topic-boundary
+  redirect.
 
 ## Verification result
 

@@ -1,4 +1,4 @@
-# Project Framing v0.2
+# Project Framing v0.3
 
 Status: Updated for the implemented Render persistence and controlled runtime-catalog extension on 2026-09-02.
 
@@ -6,13 +6,13 @@ Status: Updated for the implemented Render persistence and controlled runtime-ca
 
 ### Beginner Nutrition Planning Problem
 
-A person who exercises but has little knowledge of nutrition may know that eating appropriately is important for reaching a fitness goal, while lacking the knowledge required to determine how much to eat, construct a practical meal plan, and recognize when that plan should change as body weight changes over time.
+A healthy adult with little knowledge of nutrition may know that eating appropriately is important for reaching a fitness goal, while lacking the knowledge required to determine how much to eat, construct a practical meal plan, and recognize when that plan should change as body weight changes over time. The person may exercise regularly or may currently report no exercise.
 
 The problem is not only creating an initial plan. The user also lacks a simple way to translate ongoing weight measurements into informed adjustments without having to learn nutrition planning themselves.
 
 ## Stakeholders
 
-- **Primary user:** An adult (18+) who exercises and is a beginner in nutrition.
+- **Primary user:** A healthy adult (18+) who may or may not currently exercise and is a beginner in nutrition.
 - **Project owner/operator:** The student building and demonstrating the application.
 - **Course evaluator:** The instructor, who must be able to observe and verify the two core demonstration scenarios and inspect their engineering trail in the repository.
 
@@ -39,7 +39,7 @@ The project is done when all of the following statements are true:
 17. PostgreSQL is the source of truth for both shared demo journeys, their conversations, the central catalog, and persistent lookup limits. Each journey has an independent Reset control.
 18. A missing basic food can enter the central catalog only through the bounded USDA FoodData Central candidate flow or an explicitly authorized, permanently labelled AI estimate. The user selects and approves the exact record before storage.
 19. The deployed demo is protected by one shared access code without adding accounts or a general authentication system.
-20. The conversation supports nutrition, food and basic meal preparation, weight tracking, and high-level non-medical fitness information. It briefly redirects programming, technical help, and other unrelated requests without answering them or invoking a skill.
+20. The conversation supports nutrition, food and basic meal preparation, weight tracking, and high-level non-medical fitness information. It briefly redirects programming, technical help, and other unrelated requests through a reviewed structured outcome without answering them or invoking a stateful skill.
 
 Nutrition formulas, target rates, acceptance ranges, and adjustment thresholds are intentionally not repeated in this framing document. They are established and cited in the goal-specific nutrition guidance and incorporated into the product specification.
 

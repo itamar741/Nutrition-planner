@@ -1,6 +1,6 @@
-# Product Specification v0.3
+# Product Specification v0.4
 
-Status: Active final specification. Turns 1–8 and the conversational topic boundary are implemented. The academic deployment and security gates are consolidated in [Phase 6](verification-results/phase-6.md); the later topic-boundary verification is recorded separately in [Coach topic-boundary verification](verification-results/coach-topic-boundary.md).
+Status: Active final specification. Turns 1–8 and the agentic-architecture work through structured turn outcomes are implemented. The academic deployment and security gates are consolidated in [Phase 6](verification-results/phase-6.md); subsequent architecture status and verification are recorded in the [agentic-flow roadmap](agentic-flow-architecture-roadmap.md) and [structured-turn-outcomes verification](verification-results/structured-turn-outcomes.md). A newer deployment must still be verified against its exact commit.
 
 This specification is governed by [Project Framing](project-framing.md), [Project Description](project-description.md), and [Interface Design](interface-design.md). If a future interpretation expands the product beyond those documents, the narrower documented scope wins until the specification is deliberately revised.
 
@@ -15,7 +15,7 @@ Build a narrow demonstration application containing exactly two predefined profi
 - separates every proposed plan from the Active Plan until the user approves it; and
 - uses deterministic weight-trend facts to support a bounded AI adjustment proposal.
 
-The coach supports adults aged 18 and older who exercise but are beginners in nutrition, and exactly three fixed goals: **Fat Loss**, **Maintenance**, and **Muscle Gain**.
+The coach supports healthy adults aged 18 and older who may or may not currently exercise and are beginners in nutrition, and exactly three fixed goals: **Fat Loss**, **Maintenance**, and **Muscle Gain**.
 
 ### Reason
 
@@ -49,8 +49,8 @@ Each criterion must produce a clear pass or fail result. Nutrition criteria use 
 - **SC-08 — Closed-question behavior:** When the active question is closed, predefined quick replies appear inside the conversation and free-text input is disabled.
 - **SC-09 — One action per turn:** After a quick reply, text submission, or Food Grid submission, every control for that turn locks immediately. Repeated clicks or simultaneous submission attempts result in exactly one accepted action and one user-message entry.
 - **SC-10 — Processing lock:** While the system processes a user action, all input controls are disabled and visible progress feedback is present.
-- **SC-11 — Required profile fields:** A Draft cannot be requested until the structured profile contains age, biological sex, height, current weight, one supported goal, sufficient daily-routine and movement information, exercise type, exercise frequency, approximate session duration, an accepted meal pattern, and completed food preferences.
-- **SC-65 — No-exercise completion:** An explicit no-exercise answer completes the exercise step as type `none`, zero weekly sessions, zero session minutes, and no intensity. Active exercise requires positive frequency and duration plus moderate or vigorous intensity. A partially answered step saves explicit facts but asks only for the remaining fields and never claims that the step advanced.
+- **SC-11 — Required profile fields:** A Draft cannot be requested until the structured profile contains age, biological sex, height, current weight, one supported goal, sufficient daily-routine and movement information, a complete exercise state, an accepted meal pattern, and completed food preferences. Active exercise requires type, positive frequency, positive session duration, and moderate or vigorous intensity; no exercise uses the canonical zero-volume state defined below.
+- **SC-11a — No-exercise completion:** An explicit no-exercise answer completes the exercise step as type `none`, zero weekly sessions, zero session minutes, and no intensity. A partially answered active-exercise step saves explicit facts but asks only for the remaining fields and never claims that the step advanced.
 
 ### Catalog and Preference Grid
 
@@ -112,12 +112,12 @@ Each criterion must produce a clear pass or fail result. Nutrition criteria use 
 - **SC-54 — Transport and error controls:** Production page and API responses include the documented security headers. When database TLS is enabled, both application and migration pools verify certificates and reject conflicting URL options. The academic Render Blueprint may use only its same-region internal private-network URL without TLS as a documented exception. Client responses never expose raw exception, credential, database URL, source payload, or environment text.
 - **SC-55 — Submission archive control:** The exact academic-submission ZIP excludes Git history and local environment files and passes the bounded archive secret/container inspection before submission.
 - **SC-56 — Production persistence:** Production requires PostgreSQL configuration and must return a generic unavailable response rather than falling back to the development/test memory adapter.
-- **SC-57 — Conversational topic boundary:** Arnold answers only nutrition planning, food and basic meal preparation, weight tracking, and high-level non-medical fitness questions. For programming, technical support, or unrelated requests, it gives one brief same-language redirect without answering any part of the request or calling a skill. It does not create personalized workout programs or tracking. This best-effort model behavior does not replace server validation of tools and protected state.
+- **SC-57 — Conversational topic boundary:** Arnold answers only nutrition planning, food and basic meal preparation, weight tracking, and high-level non-medical fitness questions. For programming, technical support, or unrelated requests, it returns one brief same-language structured `decline_out_of_scope` outcome without answering any part of the request or calling a stateful skill. It does not create personalized workout programs or tracking. Independent terminal review and server validation of tools and protected state remain the enforcement boundary.
 - **SC-58 — Open planning, closed effects:** All documented Arnold skills are visible on a free-text turn. Inapplicable calls return `blocked`; user decisions return `needs_user_action`; deterministic validation failures return `rejected`; successful effects return `completed`. Each successful mutation is committed under the active turn lease before the result is returned to Arnold, so a later failure does not undo earlier completed actions.
 - **SC-59 — Durable Plan Change:** A plan-changing request has a stable operation identifier, explicit lifecycle state, source evidence, baseline, required, unresolved and excluded foods, scope, strategy, stored alternative choices, attempt batch, and current Draft reference. Food and Draft interactions carry that identifier. Food approval leads to a visible `Create Draft` action; only Draft approval may replace the Active Plan.
 - **SC-60 — Durable Draft repair:** Every rejected Draft attempt is persisted immediately with its complete meals, gram amounts, calculated totals, target checks, and issues. While attempts remain in the current batch, Arnold must submit the next complete repair in the same turn rather than ask permission or replace the Draft with prose. The third rejection creates the visible failure review; an explicitly selected retry strategy starts a new three-attempt batch.
 - **SC-61 — Plain assistant text:** Model prose is normalized before persistence and display so safe numeric and common named character entities render as their intended text rather than leaking strings such as `&#x20;`.
-- **SC-62 — Capability prompt visibility:** Selecting an available `Try it` example fills the current composer and smoothly reveals it without focusing, opening a mobile keyboard, or submitting the message.
+- **SC-62 — Capability prompt visibility:** Selecting an available `Try it` example fills the current composer and smoothly reveals it without focusing, opening a mobile keyboard, or submitting the message. The **Manage approved foods** card uses the exact example `Find Eggs and add it to my foods` from the shared UI/model contract.
 - **SC-63 — Authoritative calculation explanations:** Questions about calories, macros, TDEE/EER, and plan checks are in scope and are answered from the same deterministic calculation and validation explanations displayed in the workspace. Arnold does not independently recalculate them.
 - **SC-64 — Structured initial Draft control:** The empty Fresh `Generate Draft` control sends a typed model-backed action, valid only after profile and food completion with no competing Draft or Plan Change. It requires `submit_draft_proposal`; Arnold still authors quantities and the Active Plan remains unchanged before approval.
 - **SC-65 — Structured turn completion:** A free-text model round must select a bounded stateful skill or a structured `answer_user`, `ask_clarification`, or `decline_out_of_scope` outcome. Terminal choices are reviewed independently against the current message, authoritative state, and advertised capability contract before display. A false refusal or other invalid terminal choice is rejected and the reviewed stateful or terminal outcome is required on the next model round. Stateful handlers remain the deterministic effect boundary, including rejection of hypothetical or explicitly negated weight writes. A fresh free-text plan request must either open a durable Plan Change with `begin_plan_change` and then submit its complete continuation Draft, or directly submit a complete `new_request` Draft that creates the same operation before validation. Declining an earlier Create Draft offer ends only that operation and does not prevent a later explicit request from starting a new one.
@@ -138,6 +138,8 @@ The implementation plan must define and validate narrow contracts equivalent to 
 - An assistant message with either no interaction, one predefined quick-reply set, or the dedicated Food Grid step.
 - A catalog-backed Draft Meal Plan and an Active Plan.
 - A source-labelled Food Addition Candidate plus explicit approval or rejection command.
+- A durable Plan Change operation with its baseline, required and excluded foods, attempt batch, rejected attempts, pending interaction, and Draft reference.
+- A structured terminal outcome (`answer_user`, `ask_clarification`, or `decline_out_of_scope`) that is independently reviewed before display.
 - A validated weight-record command and deterministic trend result.
 - A bounded adjustment proposal tied to a specific Active Plan state.
 - An explicit approval or rejection command tied to the proposal currently shown.
@@ -178,6 +180,8 @@ Use controlled or mocked model responses to verify that:
 - valid multi-fact extraction updates all and only supported profile fields;
 - an open question and a closed question produce the correct permitted interaction mode;
 - unknown response types, arbitrary actions, invented catalog identifiers, prose where structured output is required, and malformed proposals are rejected;
+- false out-of-scope refusals for advertised supported requests are rejected by terminal review and the reviewed stateful or terminal outcome is required next;
+- stateful skills reject insufficient current-message evidence, invalid identifiers, or illegal prerequisites without mutation;
 - a Draft outside deterministic validation limits cannot activate; and
 - an adjustment proposal cannot bypass the sufficient-evidence result or approval transition.
 

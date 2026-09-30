@@ -9,11 +9,11 @@ Turn 4 added PostgreSQL-backed shared state, one shared access code, and indepen
 
 Every free-text coach message reaches the server-owned Arnold agent with authoritative profile context, reset-scoped conversation history, and the complete documented skill set. Arnold chooses the sequence; deterministic code validates every schema, prerequisite, source-evidence rule, identifier, calculation, and state transition. Every turn must finish through a structured skill, answer, clarification, or independently reviewed out-of-scope outcome; unreviewed prose and unauthorized effects are not accepted. In short: **open planning, closed effects, structured outcomes**. Food insertion and Active Plan changes still require visible approval buttons.
 
-Free-text plan creation and revision first open a durable Plan Change, then require a complete `submit_draft_proposal` continuation. This keeps an already-approved food request such as “add eggs to my meal plan” connected to a formal rebalanced Draft even after an earlier Create Draft offer was declined.
+Free-text plan creation and revision use one durable Plan Change lifecycle. Arnold may open the operation with `begin_plan_change` and then submit its complete continuation Draft, or submit a complete `new_request` Draft that creates the same operation before validation. This keeps an already-approved food request such as “add eggs to my meal plan” connected to a formal rebalanced Draft even after an earlier Create Draft offer was declined.
 
 Rejected Draft candidates are durable too: each complete attempt and its calculated failure evidence is saved immediately. Remaining repair attempts continue automatically in the same turn, while the third rejection produces a review the user can inspect and deliberately retry.
 
-The capability cards share one contract with Arnold. Their examples fill and reveal the chat composer without sending, calculation questions reuse the deterministic explanations shown behind the plan, and the Fresh Generate Draft button is a typed model-backed action rather than synthetic conversation text.
+The capability cards share one contract with Arnold. Their examples fill and reveal the chat composer without sending—including **Manage approved foods** with `Find Eggs and add it to my foods`—calculation questions reuse the deterministic explanations shown behind the plan, and the Fresh Generate Draft button is a typed model-backed action rather than synthetic conversation text.
 
 Fresh exercise onboarding uses conditional completeness: an explicit no-exercise answer becomes a canonical zero-volume routine with no invented intensity, while active exercise still requires frequency, duration, and intensity. Partial answers are saved but remain visibly incomplete.
 
@@ -41,7 +41,7 @@ Without `DATABASE_URL`, local development and automated tests use an in-memory r
 
 The project is configured as one Render Web Service plus one Render PostgreSQL database in `render.yaml`. See [docs/deployment.md](docs/deployment.md) for the required secrets, setup, and staging checklist.
 
-The live Render service passed the public health, edge-TLS, production-header, PostgreSQL-initialization, and authenticated-read checks for the exact deployment revision recorded in [docs/verification-results/phase-6.md](docs/verification-results/phase-6.md). The later conversational topic-boundary change is covered by [its own verification record](docs/verification-results/coach-topic-boundary.md). The final history-free submission ZIP passed the separate archive inspection; regenerate and reinspect it after any submitted-tree change.
+The live Render service passed the public health, edge-TLS, production-header, PostgreSQL-initialization, and authenticated-read checks for the exact deployment revision recorded in [docs/verification-results/phase-6.md](docs/verification-results/phase-6.md). Later local architecture verification is tracked in the [agentic-flow roadmap](docs/agentic-flow-architecture-roadmap.md) and the latest [structured-turn-outcomes record](docs/verification-results/structured-turn-outcomes.md). Those records do not replace deployment verification: after deploying a newer revision, record its exact commit and rerun the staging and live-security checklist in [docs/deployment.md](docs/deployment.md). The final history-free submission ZIP passed the separate archive inspection; regenerate and reinspect it after any submitted-tree change.
 
 ## Safety boundary
 

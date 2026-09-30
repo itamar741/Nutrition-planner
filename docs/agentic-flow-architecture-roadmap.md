@@ -458,7 +458,7 @@ This phase makes the advertised behavior executable:
 - Arnold receives the deterministic nutrition explanation and current plan checks
   already used by the transparency UI;
 - TDEE/EER, macro, target, and validation questions are explicitly in scope and
-  require no skill;
+  require no stateful skill;
 - the empty Fresh Generate Draft button sends a typed `generate_draft` event that
   is accepted only in the completed ready state and forces
   `submit_draft_proposal`; and
@@ -570,8 +570,10 @@ After any summary or interruption:
 ## Current Checkpoint
 
 - Current branch: `architecture/15-structured-turn-outcomes`.
-- Current phase: Phase 15 implementation and verification are complete; commit
-  and push have not yet been requested.
+- Current phase: Phase 15 implementation and verification are complete. Base
+  implementation commit `1da79f7` is pushed; the exact Eggs capability prompt
+  follow-up and final documentation reconciliation are later local commits until
+  the user requests another push.
 - Verification: formatting, lint, typecheck, 37 unit files / 281 tests, security
   scan over 190 files, production build, and all 26 Chromium scenarios pass.
   Credentialed live checks cover the advertised Draft and TDEE prompts, Egg and
@@ -582,4 +584,5 @@ After any summary or interruption:
   intentionally vary between model calls. Their effects are bounded by strict
   schemas, current-message evidence, persisted Plan Change state, leases, closed
   identifiers, deterministic calculations, and protected visible approvals.
-- Merge, push, PR, and deployment have not been requested for this phase.
+- The Phase 15 base is pushed. The later follow-ups are not yet pushed, merged,
+  or deployment-verified.

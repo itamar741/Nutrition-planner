@@ -117,7 +117,7 @@ Run this checklist against the deployed URL:
 5. Ask for jasmine rice in the main coach chat. Confirm the named food starts a search before any variant question, choose one of at most five USDA candidates, inspect the approval card, and reject it once.
 6. Correct the query, approve the record, and confirm it is selected for the requesting profile.
 7. Open the other profile and confirm the food is available centrally but is not selected there.
-8. If planning is complete, approve another runtime food and confirm the application creates only a new Draft containing it; the Active Plan remains unchanged.
+8. If planning is complete, approve another runtime food, confirm **Create Draft** appears without changing the plan, select it, and confirm the resulting Draft contains the food while the Active Plan remains unchanged.
 9. Search for tomato and pasta and confirm only Foundation Foods or SR Legacy candidates appear.
 10. Exercise one controlled source failure. Confirm that the AI estimate appears only after clicking **Use an AI estimate** and remains labelled `AI estimate · USDA not verified`.
 11. Reset both demos separately and confirm the runtime food remains in the central catalog.
@@ -126,8 +126,12 @@ Run this checklist against the deployed URL:
 13. Send one English and one Hebrew coach turn and confirm streamed, language-matched replies plus persisted conversation after reload.
 14. Select a USDA candidate using text such as “the fifth one,” then verify typed “approve it” does not approve it and the visible Approve button does.
 15. Open the same profile in two tabs, start concurrent turns, and confirm the second receives a recoverable conflict without duplicate transcript entries.
+16. On Fresh onboarding, answer the exercise question with `no exercise`. Confirm it advances to the eating-routine question with zero exercise volume and no invented intensity.
+17. Select **Try it** on **Manage approved foods**. Confirm it fills `Find Eggs and add it to my foods`, scrolls the composer into view without sending, and the submitted prompt starts or reuses the bounded food workflow rather than receiving a topic-boundary redirect.
+18. Submit `How is my TDEE calculated?` and confirm the response explains the authoritative PAL, equation, EER, goal adjustment, and target without changing state.
+19. In completed empty Fresh, select **Generate Draft** and confirm the typed action creates only a reviewable Draft. With an already-approved Egg, decline an immediate Create Draft offer and then submit `add eggs to my meal plan`; confirm a new Plan Change requires Egg and produces a complete Draft rather than a redirect.
 
-Record the deployed URL, commit SHA, date, conversation and lookup examples, screenshots, and pass/fail results in `docs/verification-results/turn-8.md`. Do not record secret values.
+Create or update a deployment-specific record under `docs/verification-results/` with the deployed URL, exact commit SHA, date, conversation and lookup examples, screenshots, and pass/fail results. Historical turn records must not be reused to imply that a later revision was deployed. Do not record secret values.
 
 ## Live security verification
 

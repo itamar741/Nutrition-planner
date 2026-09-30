@@ -1,8 +1,8 @@
-# Project Description v0.2
+# Project Description v0.3
 
 ## Product Summary
 
-The product is a conversational nutrition coach for adults aged 18 and older who exercise but are beginners in nutrition. It helps a user provide the information needed for a practical meal plan, choose foods from a curated catalog, activate a plan, and understand when weight progress may justify a plan adjustment.
+The product is a conversational nutrition coach for healthy adults aged 18 and older who may or may not currently exercise and are beginners in nutrition. It helps a user provide the information needed for a practical meal plan, choose foods from a curated catalog, activate a plan, and understand when weight progress may justify a plan adjustment.
 
 The coach supports exactly three fixed goals: **Fat Loss**, **Maintenance**, and **Muscle Gain**. It is a narrow course demonstration rather than a production health platform or a general nutrition assistant.
 
@@ -19,9 +19,9 @@ There are no accounts, additional users, or profile-management flows. Selecting 
 
 Both journeys use one server-owned streaming conversation led by Arnold. For every free-text turn, the server loads the complete structured profile, targets, relevant approved foods, Draft and Active Plan, weight history and deterministic trend where applicable, pending interaction, and reset-scoped transcript. PostgreSQL—not the browser or OpenAI-hosted storage—is the memory source; OpenAI requests use `store: false`.
 
-The model receives all documented bounded Arnold tools on a free-text turn and chooses the useful sequence itself. The server validates every call and prerequisite, executes only bounded effects, returns sanitized structured results, and commits each successful effect before the next model round. An inapplicable tool returns a structured result without mutation. The agent never receives SQL, credentials, arbitrary URLs, browser tools, raw USDA payloads, or direct database access. A topic change may pause one workflow for later resumption.
+The model receives all documented bounded Arnold tools on a free-text turn and chooses the useful sequence itself. The server validates every call and prerequisite, executes only bounded effects, returns sanitized structured results, and commits each successful effect before the next model round. An inapplicable tool returns a structured result without mutation. A model round may finish only through a stateful skill or a structured `answer_user`, `ask_clarification`, or `decline_out_of_scope` outcome; a separate constrained reviewer checks terminal outcomes against the current request and advertised capabilities before display. The agent never receives SQL, credentials, arbitrary URLs, browser tools, raw USDA payloads, or direct database access. A topic change may pause one workflow for later resumption.
 
-Arnold's supported conversation topics are nutrition planning, food choices, basic meal preparation and cooking, weight tracking, and high-level non-medical fitness information. Programming, technical support, and unrelated general requests receive one brief redirect in the user's language without an answer or skill call. General fitness remains informational only: Arnold does not create personalized workout programs, track exercise, diagnose conditions, or use fitness discussion to alter authoritative nutrition state. This redirect is a model instruction rather than a deterministic content filter; server-side tool and state validation remains the security boundary.
+Arnold's supported conversation topics are nutrition planning, food choices, basic meal preparation and cooking, weight tracking, and high-level non-medical fitness information. Programming, technical support, and unrelated general requests receive one brief structured redirect in the user's language without an answer or stateful skill call. General fitness remains informational only: Arnold does not create personalized workout programs, track exercise, diagnose conditions, or use fitness discussion to alter authoritative nutrition state. Terminal review plus server-side tool and state validation—not a phrase classifier—form the enforcement boundary.
 
 The browser can submit text or one typed action containing identifiers, an expected profile version, and an idempotency command ID. It cannot submit assistant transcript entries, a Draft or Active Plan, a target snapshot, a validation decision, or an arbitrary closed-answer patch. Closed answers are resolved from the currently stored option, and proposal approval is resolved from the current server-stored interaction before deterministic recalculation and activation.
 
@@ -33,7 +33,7 @@ The New Demo Profile completes onboarding in the conversation rather than in a c
 
 - Age, biological sex, height, current weight, and one of the three supported goals.
 - Daily routine or occupation and an approximate description of everyday movement when known.
-- Exercise type, frequency, and approximate session duration.
+- Exercise type and, when active, frequency, approximate session duration, and moderate or vigorous intensity. An explicit no-exercise answer is complete with zero volume and no intensity.
 - Enough information about the daily eating routine to propose a practical number and timing of meals.
 - Confirmation of the suggested meal pattern.
 - Completion of food preferences from the predefined catalog.
