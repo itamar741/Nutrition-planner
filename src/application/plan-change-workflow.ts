@@ -42,6 +42,44 @@ export function waitForFoodApproval(workflow: PlanChangeWorkflow) {
   return { ...workflow, status: "awaiting_food_approval" as const };
 }
 
+function appendUnique(values: string[], value: string) {
+  return values.includes(value) ? values : [...values, value];
+}
+
+export function extendPlanChangeWithFood(
+  workflow: PlanChangeWorkflow,
+  input: {
+    foodName: string;
+    sourceMessageId: string;
+    requestEvidence: string;
+  },
+) {
+  const requestEvidence = [workflow.requestEvidence, input.requestEvidence]
+    .filter((value): value is string => Boolean(value))
+    .join(" | ")
+    .slice(0, 500);
+  return {
+    ...workflow,
+    status: "resolving_foods" as const,
+    sourceMessageId: input.sourceMessageId,
+    requestEvidence,
+    // Only one food-resolution card can be current. A new explicit lookup
+    // supersedes an older unresolved lookup while preserving foods that were
+    // already approved as requirements.
+    unresolvedFoodNames: [input.foodName],
+    scope:
+      workflow.scope === "whole_plan"
+        ? ("whole_plan" as const)
+        : ("food_replacement" as const),
+    strategy: null,
+    offeredAlternativeFoodIds: [],
+    selectedAlternativeFoodId: null,
+    attemptBatch: workflow.attemptBatch + 1,
+    rejectedDraftAttempts: [],
+    currentDraftId: null,
+  };
+}
+
 export function resolvePlanChangeFood(
   workflow: PlanChangeWorkflow,
   foodId: string,
@@ -49,9 +87,26 @@ export function resolvePlanChangeFood(
   return {
     ...workflow,
     status: "awaiting_draft_confirmation" as const,
-    requiredCatalogFoodIds: [foodId],
+    requiredCatalogFoodIds: appendUnique(
+      workflow.requiredCatalogFoodIds,
+      foodId,
+    ),
     unresolvedFoodNames: [],
   };
+}
+
+export function addApprovedFoodToPlanChange(
+  workflow: PlanChangeWorkflow,
+  foodId: string,
+) {
+  return resolvePlanChangeFood(
+    extendPlanChangeWithFood(workflow, {
+      foodName: foodId,
+      sourceMessageId: workflow.sourceMessageId ?? "visible-food-control",
+      requestEvidence: `Include approved food ${foodId}.`,
+    }),
+    foodId,
+  );
 }
 
 export function makePlanChangeDraftReady(
@@ -67,9 +122,12 @@ export function makePlanChangeDraftReady(
     ...workflow,
     status: "ready_for_draft" as const,
     requiredCatalogFoodIds: input.selectedAlternativeFoodId
-      ? [input.selectedAlternativeFoodId]
+      ? appendUnique(
+          workflow.requiredCatalogFoodIds,
+          input.selectedAlternativeFoodId,
+        )
       : input.requiredFoodId
-        ? [input.requiredFoodId]
+        ? appendUnique(workflow.requiredCatalogFoodIds, input.requiredFoodId)
         : workflow.requiredCatalogFoodIds,
     unresolvedFoodNames: input.requiredFoodId
       ? []

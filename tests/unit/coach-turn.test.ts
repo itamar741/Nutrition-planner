@@ -1221,6 +1221,185 @@ describe("unified coach orchestration", () => {
     });
   });
 
+  it("extends an active Plan Change when a new food is requested for the plan", async () => {
+    const initial = await getProfile("existing");
+    if (!("measurements" in initial.state))
+      throw new Error("Expected Existing state.");
+    const activePlanChange = planChangeWorkflow({
+      status: "failure_review",
+      basePlanVersion: initial.state.activePlan.version,
+      requiredCatalogFoodIds: ["greek-yogurt-nonfat"],
+      requestEvidence: "include Greek yogurt",
+      rejectedDraftAttempts: [],
+    });
+    const seeded = await mutateProfile({
+      profileId: "existing",
+      expectedVersion: initial.version,
+      commandId: "seed-food-extension",
+      mutation: (state) => ({
+        ...state,
+        agentSession: {
+          ...state.agentSession,
+          planChange: activePlanChange,
+        },
+      }),
+    });
+    agent.tool = {
+      name: "search_foods",
+      arguments: {
+        requestedFoodPhrase: "cream cheese",
+        normalizedEnglishQuery: "cream cheese",
+        purpose: "integrate_into_plan",
+      },
+    };
+
+    const result = await executeCoachTurn(
+      turnInput(
+        "existing",
+        seeded.version,
+        "extend-with-cream-cheese",
+        "i want to add cream cheese to my plan",
+      ),
+    );
+
+    expect(result.profile.state.agentSession.planChange).toMatchObject({
+      id: activePlanChange.id,
+      status: "resolving_foods",
+      requiredCatalogFoodIds: ["greek-yogurt-nonfat"],
+      unresolvedFoodNames: ["cream cheese"],
+      attemptBatch: 2,
+      rejectedDraftAttempts: [],
+    });
+    expect(result.profile.state.agentSession.pendingInteraction).toMatchObject({
+      type: "clarification",
+      workflow: "food",
+      planChangeId: activePlanChange.id,
+    });
+  });
+
+  it("keeps catalog-only food approval separate until Create Draft is chosen", async () => {
+    const initial = await getProfile("existing");
+    if (!("measurements" in initial.state))
+      throw new Error("Expected Existing state.");
+    const activePlanChange = planChangeWorkflow({
+      status: "failure_review",
+      basePlanVersion: initial.state.activePlan.version,
+      requiredCatalogFoodIds: ["greek-yogurt-nonfat"],
+      requestEvidence: "include Greek yogurt",
+    });
+    const seeded = await mutateProfile({
+      profileId: "existing",
+      expectedVersion: initial.version,
+      commandId: "seed-catalog-isolation",
+      mutation: (state) => ({
+        ...state,
+        agentSession: {
+          ...state.agentSession,
+          planChange: activePlanChange,
+        },
+      }),
+    });
+    agent.tool = {
+      name: "search_foods",
+      arguments: {
+        requestedFoodPhrase: "couscous",
+        normalizedEnglishQuery: "couscous",
+        purpose: "catalog_only",
+      },
+    };
+    const searched = await executeCoachTurn(
+      turnInput(
+        "existing",
+        seeded.version,
+        "catalog-only-couscous",
+        "Find couscous and add it to my foods",
+      ),
+    );
+    const existingFood = searched.profile.state.agentSession.pendingInteraction;
+    expect(existingFood).toMatchObject({
+      type: "existing_food",
+      alreadyApproved: false,
+      planChangeId: null,
+    });
+    expect(searched.profile.state.agentSession.planChange).toEqual(
+      activePlanChange,
+    );
+    if (existingFood?.type !== "existing_food")
+      throw new Error("Expected an existing-food interaction.");
+
+    agent.tool = null;
+    const approved = await executeCoachTurn({
+      ...turnInput(
+        "existing",
+        searched.profile.version,
+        "approve-catalog-couscous",
+        "unused",
+      ),
+      request: {
+        profileId: "existing",
+        expectedVersion: searched.profile.version,
+        commandId: "approve-catalog-couscous",
+        input: {
+          type: "interaction",
+          interactionId: existingFood.id,
+          action: "add_existing_food",
+        },
+      },
+    });
+    expect(approved.profile.state.agentSession.planChange).toEqual(
+      activePlanChange,
+    );
+    expect(
+      approved.profile.state.agentSession.pendingInteraction,
+    ).toMatchObject({
+      type: "confirm_draft_food",
+      foodId: "couscous-cooked",
+      planChangeId: null,
+    });
+    const confirm = approved.profile.state.agentSession.pendingInteraction;
+    if (confirm?.type !== "confirm_draft_food")
+      throw new Error("Expected the Create Draft interaction.");
+    agent.tool = {
+      name: "submit_draft_proposal",
+      arguments: {
+        summary: "An intentionally invalid merged Draft.",
+        meals: ["breakfast", "lunch", "dinner", "snack"].map((id) => ({
+          id,
+          items: [{ catalogFoodId: "invented-food", grams: 100 }],
+        })),
+      },
+    };
+    const requestedDraft = await executeCoachTurn({
+      ...turnInput(
+        "existing",
+        approved.profile.version,
+        "draft-with-catalog-couscous",
+        "unused",
+      ),
+      request: {
+        profileId: "existing",
+        expectedVersion: approved.profile.version,
+        commandId: "draft-with-catalog-couscous",
+        input: {
+          type: "interaction",
+          interactionId: confirm.id,
+          action: "confirm_draft_food",
+        },
+      },
+    });
+    expect(requestedDraft.profile.state.agentSession.planChange).toMatchObject({
+      id: activePlanChange.id,
+      requiredCatalogFoodIds: ["greek-yogurt-nonfat", "couscous-cooked"],
+      attemptBatch: 2,
+    });
+    expect(
+      requestedDraft.profile.state.agentSession.pendingInteraction,
+    ).toBeNull();
+    expect(
+      requestedDraft.profile.state.agentSession.pausedInteraction,
+    ).toBeNull();
+  });
+
   it("carries one Plan Change from an existing unapproved food through Create Draft", async () => {
     const initial = await getProfile("existing");
     if (!("measurements" in initial.state))

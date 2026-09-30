@@ -21,7 +21,7 @@ function safeCodePoint(value: string, radix: 10 | 16) {
 }
 
 export function normalizeModelText(value: string) {
-  return value.replace(
+  const decoded = value.replace(
     /&#(?:x([0-9a-f]{1,6})|([0-9]{1,7}));|&(amp|apos|gt|lt|nbsp|quot);/giu,
     (
       entity,
@@ -34,4 +34,18 @@ export function normalizeModelText(value: string) {
       return namedEntities[named?.toLowerCase() ?? ""] ?? entity;
     },
   );
+  const sentences = decoded.match(/[^.!?]+[.!?]+|[^.!?]+$/gu);
+  if (!sentences || sentences.length < 2) return decoded;
+  const signature = (sentence: string) =>
+    sentence
+      .trim()
+      .toLocaleLowerCase("en-US")
+      .replace(/^(?:i['’]?m|i am) sorry,?\s+(?:but\s+)?/u, "")
+      .replace(/\s+/gu, " ");
+  return sentences
+    .filter(
+      (sentence, index) =>
+        index === 0 || signature(sentence) !== signature(sentences[index - 1]),
+    )
+    .join("");
 }

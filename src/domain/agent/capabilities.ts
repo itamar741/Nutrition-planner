@@ -24,7 +24,7 @@ export const arnoldCapabilities: ArnoldCapability[] = [
     description: "Add, find, inspect, or remove foods for future Drafts.",
     example: "Find Greek yogurt and add it to my foods",
     modelContract:
-      "Food catalog inspection, search, addition, and removal are in scope and use the matching bounded food skill when state must change.",
+      "Food catalog inspection, search, addition, and removal are in scope and use the matching bounded food skill when state must change. Catalog-only work remains independent of an active Plan Change; an already-approved food is acknowledged without retrying that change.",
   },
   {
     id: "calculations",

@@ -15,4 +15,14 @@ describe("model text normalization", () => {
       "A &copy; B &#0; C &#xD800;",
     );
   });
+
+  it("collapses an adjacent duplicate response with a polite preface", () => {
+    expect(
+      normalizeModelText(
+        "I’m sorry, but I can help with nutrition or food—please send an in-scope request. I can help with nutrition or food—please send an in-scope request.",
+      ),
+    ).toBe(
+      "I’m sorry, but I can help with nutrition or food—please send an in-scope request.",
+    );
+  });
 });
