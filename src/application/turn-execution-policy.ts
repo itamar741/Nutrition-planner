@@ -2,7 +2,12 @@ import type { CoachMessageRequest } from "@/domain/agent/types";
 
 const modelInteractionActions = new Set<
   Extract<CoachMessageRequest["input"], { type: "interaction" }>["action"]
->(["review_trend", "generate_adjustment", "confirm_draft_food"]);
+>([
+  "review_trend",
+  "generate_draft",
+  "generate_adjustment",
+  "confirm_draft_food",
+]);
 
 export function coachInputRequiresModel(input: CoachMessageRequest["input"]) {
   return input.type === "text" || modelInteractionActions.has(input.action);
@@ -37,6 +42,7 @@ export function deterministicInteractionText(
     case "refine_search":
       return "How should I refine the food name?";
     case "review_trend":
+    case "generate_draft":
     case "generate_adjustment":
     case "confirm_draft_food":
       return null;

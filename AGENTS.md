@@ -37,6 +37,8 @@ Arnold receives ordinary role/content conversation items plus a fixed system-pro
 
 Every rejected Draft attempt is persisted in the active Plan Change before its result returns to Arnold. If attempts remain, the next model round must call the same proposal skill; do not permit prose to replace an authorized repair. Only a validated Draft, the third rejection, a structured blocker, or exhausted turn-call budget may end that repair sequence. Failure explanations must use the stored meals, gram amounts, totals, checks, and issues.
 
+The capability-card definitions are shared UI/model contract data. `Try it` fills and reveals the composer without focus or submission. Calculation answers must use the server-owned nutrition and validation explanations. The empty Fresh Generate Draft control sends `generate_draft`; only this explicit ready-state control may force the initial Draft tool, and it never supplies plan data from the browser.
+
 ## Interaction and safety invariants
 
 - Open question: text enabled, no quick replies.

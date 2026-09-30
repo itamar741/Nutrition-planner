@@ -394,6 +394,7 @@ export const coachMessageRequestSchema = z
           interactionId: z.string().min(1).max(100),
           action: z.enum([
             "review_trend",
+            "generate_draft",
             "generate_adjustment",
             "select_candidate",
             "approve_food",

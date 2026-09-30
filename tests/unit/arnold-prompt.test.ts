@@ -24,6 +24,16 @@ describe("Arnold system prompt", () => {
       "Never present a new or revised meal plan only as prose",
     );
     expect(prompt).toContain("TOPIC BOUNDARY");
+    expect(prompt).toContain("ADVERTISED CAPABILITIES");
+    expect(prompt).toContain(
+      "Every listed example and its ordinary paraphrases are in scope",
+    );
+    expect(prompt).toContain(
+      "Calculation questions about calories, macros, TDEE, EER, targets, or plan checks require no skill",
+    );
+    expect(prompt).toContain(
+      "completedVisibleControlEvent.event is initial_draft_requested",
+    );
     expect(prompt).toContain("AUTHORITATIVE CONTEXT");
     expect(prompt).toContain("NUTRITION PLANNING RULES");
     expect(prompt).toContain("Return the authoritative expectedMealIds");

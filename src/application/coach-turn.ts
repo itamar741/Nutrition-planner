@@ -18,10 +18,12 @@ import type {
   CoachMessageRequest,
   DraftAttemptReview,
 } from "@/domain/agent/types";
+import { arnoldCapabilities } from "@/domain/agent/capabilities";
 import { createCatalogSnapshot } from "@/domain/catalog/snapshot";
 import type { CatalogFood } from "@/domain/catalog/types";
 import { textValuesOverlap } from "@/domain/catalog/identity";
 import { calculateTargets } from "@/domain/nutrition/calculations";
+import { buildNutritionExplanation } from "@/domain/nutrition/explanations";
 import {
   buildPlanValidationExplanation,
   candidateFromPlan,
@@ -173,6 +175,17 @@ function contextFor(
   const structuredProfile = structuredProfileOf(state);
   const approved = approvedCatalog(catalog, approvedIdsOf(state));
   const targets = calculateTargets(structuredProfile);
+  const displayedPlan =
+    "profile" in state
+      ? (state.draft?.plan ?? state.activePlan?.plan ?? null)
+      : state.activePlan.plan;
+  const explanationTargets = displayedPlan?.targetSnapshot ?? targets;
+  const calculationExplanation = explanationTargets
+    ? buildNutritionExplanation(structuredProfile, explanationTargets)
+    : null;
+  const planValidationExplanation = displayedPlan
+    ? buildPlanValidationExplanation(structuredProfile, displayedPlan)
+    : [];
   const weightKg = structuredProfile.currentWeightKg;
   const proteinMinimumMultiplier =
     structuredProfile.goal === "maintenance" ? 1.4 : 1.6;
@@ -204,6 +217,9 @@ function contextFor(
     profileVersion: profile.version,
     structuredProfile,
     nutritionTargets: targets,
+    advertisedCapabilities: arnoldCapabilities,
+    calculationExplanation,
+    planValidationExplanation,
     expectedMealIds:
       structuredProfile.mealPattern === null
         ? null
@@ -864,6 +880,7 @@ export async function executeCoachTurn(input: {
     input.onStatus("validating");
     const action = input.request.input.action;
     const isSessionReview = action === "review_trend";
+    const isInitialDraftGeneration = action === "generate_draft";
     const isAdjustmentGeneration = action === "generate_adjustment";
     if (action === "approve_draft" || action === "reject_draft") {
       const pending = currentInteraction;
@@ -950,7 +967,7 @@ export async function executeCoachTurn(input: {
         );
         actionSummary = { event: "draft_rejected", askWhatToCorrect: true };
       }
-    } else if (!isSessionReview) {
+    } else if (!isSessionReview && !isInitialDraftGeneration) {
       if (
         !currentInteraction ||
         currentInteraction.id !== input.request.input.interactionId
@@ -987,6 +1004,24 @@ export async function executeCoachTurn(input: {
         event: "existing_session_trend_review",
         trend: reviewedTrend,
         adjustmentAvailable: Boolean(adjustment),
+      };
+    } else if (isInitialDraftGeneration) {
+      if (
+        input.request.input.interactionId !== "fresh-initial-draft" ||
+        !("profile" in state) ||
+        !isProfileReady(state.profile) ||
+        !state.profile.foodPreferencesComplete ||
+        !state.targets ||
+        state.draft ||
+        state.activePlan ||
+        state.agentSession.planChange
+      ) {
+        throw new Error("The initial Draft action is no longer available.");
+      }
+      actionSummary = {
+        event: "initial_draft_requested",
+        targetSource: "deterministically calculated Fresh targets",
+        approvedFoodCount: state.profile.approvedCatalogFoodIds.length,
       };
     } else if (isAdjustmentGeneration) {
       const pending = currentInteraction;
@@ -1735,14 +1770,34 @@ export async function executeCoachTurn(input: {
             { planChangeId: current.id, planChangeStatus: current.status },
           );
         }
+        const isInitialDraftControl =
+          input.request.input.type === "interaction" &&
+          input.request.input.action === "generate_draft" &&
+          actionSummary?.event === "initial_draft_requested";
         if (
-          input.request.input.type !== "text" ||
-          !textValuesOverlap(input.request.input.text, changeContext.evidence)
+          !isInitialDraftControl &&
+          (input.request.input.type !== "text" ||
+            !textValuesOverlap(
+              input.request.input.text,
+              changeContext.evidence,
+            ))
         ) {
           return toolResult(
             "blocked",
             "missing_source_evidence",
             "A new Draft request must be supported by the current message.",
+          );
+        }
+        if (
+          isInitialDraftControl &&
+          (changeContext.requiredCatalogFoodIds.length > 0 ||
+            changeContext.excludedCatalogFoodIds.length > 0 ||
+            changeContext.scope === "food_replacement")
+        ) {
+          return toolResult(
+            "blocked",
+            "invalid_initial_draft_constraints",
+            "The initial Draft control cannot introduce food constraints.",
           );
         }
         const approvedIds = new Set(approvedIdsOf(state));
@@ -1764,8 +1819,10 @@ export async function executeCoachTurn(input: {
             ...state.agentSession,
             planChange: startPlanChange(state, {
               status: "ready_for_draft",
-              sourceMessageId: `user-${input.request.commandId}`,
-              requestEvidence: changeContext.evidence,
+              sourceMessageId: `${isInitialDraftControl ? "action" : "user"}-${input.request.commandId}`,
+              requestEvidence: isInitialDraftControl
+                ? "Create an initial meal-plan Draft from the approved foods."
+                : changeContext.evidence,
               requiredCatalogFoodIds: changeContext.requiredCatalogFoodIds,
               excludedCatalogFoodIds: changeContext.excludedCatalogFoodIds,
               scope: changeContext.scope,
@@ -2202,11 +2259,13 @@ export async function executeCoachTurn(input: {
     const allowed: CoachToolName[] =
       input.request.input.type === "text"
         ? [...coachToolNames]
-        : input.request.input.action === "generate_adjustment"
-          ? ["submit_adjustment_proposal"]
-          : input.request.input.action === "confirm_draft_food"
-            ? ["submit_draft_proposal"]
-            : [];
+        : input.request.input.action === "generate_draft"
+          ? ["submit_draft_proposal"]
+          : input.request.input.action === "generate_adjustment"
+            ? ["submit_adjustment_proposal"]
+            : input.request.input.action === "confirm_draft_food"
+              ? ["submit_draft_proposal"]
+              : [];
     const signature = allowed.join(",");
     if (signature !== loggedAllowedSkills) {
       loggedAllowedSkills = signature;
@@ -2223,7 +2282,8 @@ export async function executeCoachTurn(input: {
   const shouldForceDraftProposal = () =>
     proposalAttempts < 3 &&
     input.request.input.type === "interaction" &&
-    input.request.input.action === "confirm_draft_food";
+    (input.request.input.action === "confirm_draft_food" ||
+      input.request.input.action === "generate_draft");
   const shouldForceAdjustmentProposal = () =>
     proposalAttempts < 3 &&
     input.request.input.type === "interaction" &&

@@ -27,6 +27,18 @@ describe("unified coach contract", () => {
         },
       }).input.type,
     ).toBe("interaction");
+    expect(
+      coachMessageRequestSchema.parse({
+        profileId: "new",
+        expectedVersion: 4,
+        commandId: "agent-command-draft",
+        input: {
+          type: "interaction",
+          interactionId: "fresh-initial-draft",
+          action: "generate_draft",
+        },
+      }).input,
+    ).toMatchObject({ action: "generate_draft" });
   });
 
   it("rejects arbitrary tools, URLs, and authoritative browser state", () => {
