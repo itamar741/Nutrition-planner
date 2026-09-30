@@ -82,10 +82,12 @@ describe("ArnoldCapabilitiesPanel", () => {
     );
 
     await user.click(
-      screen.getByRole("button", { name: "Try: Review my weight trend" }),
+      screen.getByRole("button", {
+        name: "Try: Find Eggs and add it to my foods",
+      }),
     );
 
-    expect(onSelect).toHaveBeenCalledWith("Review my weight trend");
+    expect(onSelect).toHaveBeenCalledWith("Find Eggs and add it to my foods");
     expect(onSelect).toHaveBeenCalledTimes(1);
   });
 });

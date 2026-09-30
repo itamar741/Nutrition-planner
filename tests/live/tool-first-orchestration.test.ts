@@ -218,13 +218,15 @@ liveDescribe("live tool-first orchestration", () => {
   );
 
   it("keeps the exact advertised approved-food prompt in scope", async () => {
-    const result = await answerFor("Find Greek yogurt and add it to my foods");
+    const result = await answerFor("Find Eggs and add it to my foods");
 
-    if (result.calls.length > 0) {
-      expect(result.calls[0]).toMatchObject({ name: "search_foods" });
-    } else {
-      expect(result.text).toMatch(/already|approved|your foods/i);
-    }
+    expect(result.calls[0]).toMatchObject({
+      name: "search_foods",
+      arguments: {
+        purpose: "catalog_only",
+        requestedFoodPhrase: expect.stringMatching(/eggs/i),
+      },
+    });
     expect(result.text).not.toMatch(/in-scope request|in-scope question/i);
   }, 90_000);
 
